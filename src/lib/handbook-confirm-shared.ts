@@ -2,6 +2,10 @@
 // (lib/handbook-confirm) and the page (components/handbooks/confirm) share.
 // Pure, so a client component can import it.
 
+import type { DocType } from "./types";
+import { handbookItemsLabel, handbookKind, handbookTypeCounts, itemKind, kindNoun, kindNounTitle } from "./handbook-shared";
+import type { HandbookTypeCounts } from "./handbook-shared";
+
 /**
  * Where one policy stands for this reader. 'confirmed': a confirmation
  * counts (the card's done state); 'to_confirm': asked, never confirmed;
@@ -13,9 +17,11 @@ export type HandbookStanding = "confirmed" | "to_confirm" | "updated" | "info";
 /** One row of the confirm page. */
 export interface ConfirmItem {
   doc_id: number;
-  /** "Policy k of N". */
+  /** "Policy k of N" (or "SOP k of N", "Document k of N": handbookPositionLabel). */
   number: number;
   title: string;
+  /** The document's type (1.18.2): the counts and the statement name what the handbook holds. */
+  type: DocType;
   section_title: string;
   space_name: string;
   standing: HandbookStanding;
@@ -92,21 +98,58 @@ export interface ConfirmResult {
 /** The line above the policies that ask in their own words. */
 export const OWN_STATEMENTS_INTRO = "These policies ask you to confirm in their own words:";
 
+/** OWN_STATEMENTS_INTRO for what is listed: "These SOPs ask…", "These documents ask…" when mixed (1.18.2). */
+export function ownStatementsIntro(listed: HandbookTypeCounts): string {
+  const kind = handbookKind(listed);
+  if (kind === "policy") return OWN_STATEMENTS_INTRO;
+  return `These ${kindNoun(kind, 2)} ask you to confirm in their own words:`;
+}
+
 export const CONFIRM_NOT_ASKED = "This handbook doesn't ask for a confirmation.";
 export const CONFIRM_TICK_FIRST = "Tick the statement to confirm the handbook.";
 export const CONFIRM_ALREADY = "You have already confirmed this handbook as it stands.";
 export const CONFIRM_STALE =
   "A policy in this handbook changed while you were reading. The page has been refreshed; please read the changes.";
+
+/** CONFIRM_STALE for what the handbook holds: "An SOP in this handbook…", "A document in this handbook…" (1.18.2). */
+export function confirmStale(c: HandbookTypeCounts): string {
+  const kind = handbookKind(c);
+  if (kind === "policy") return CONFIRM_STALE;
+  return CONFIRM_STALE.replace("A policy", kind === "sop" ? "An SOP" : "A document");
+}
 export const CONFIRM_UNLICENSED = "Read confirmations are not included in your license.";
 /** The visible help under the button until the statement is ticked. */
 export const TICK_FIRST_HELP = "Tick the statement above to confirm";
 /** The visible help under the button until the typed name matches (the card's SIGN_FIRST_HELP). */
 export const SIGN_FIRST_HELP = "Sign above to confirm";
 
-/** The statement the reader ticks: "I have read and understood all 8 policies in Employee Handbook 2026, and I agree to follow them." */
-export function handbookStatement(title: string, count: number): string {
-  if (count === 1) return `I have read and understood the policy in ${title}, and I agree to follow it.`;
-  return `I have read and understood all ${count} policies in ${title}, and I agree to follow them.`;
+/**
+ * The statement the reader ticks: "I have read and understood all 8
+ * policies in Employee Handbook 2026, and I agree to follow them." It is
+ * stored on every row it covers, so a handbook of policies only keeps the
+ * 1.18.0 sentence byte for byte (including "all 2 policies"). `mix`
+ * (1.18.2) names what the handbook holds when it is not policies only:
+ * "all 4 SOPs in …", "both SOPs in …", or for a mix "all 5 documents in …
+ * (3 policies and 2 SOPs), …" and "both documents in … (1 policy and 1
+ * SOP), …". Without `mix`, the policy sentence.
+ */
+export function handbookStatement(title: string, count: number, mix?: HandbookTypeCounts): string {
+  const kind = mix ? handbookKind(mix) : "policy";
+  if (kind === "policy" || !mix) {
+    if (count === 1) return `I have read and understood the policy in ${title}, and I agree to follow it.`;
+    return `I have read and understood all ${count} policies in ${title}, and I agree to follow them.`;
+  }
+  const one = kindNoun(kind, 1);
+  if (count === 1) return `I have read and understood the ${one} in ${title}, and I agree to follow it.`;
+  // A mix names its parts; one kind throughout (SOPs only, or other documents only) needs no breakdown.
+  const parts = mix.policy + mix.sop > 0 && kind === "document" ? ` (${handbookItemsLabel(mix)})` : "";
+  const quantity = count === 2 ? "both" : `all ${count}`;
+  return `I have read and understood ${quantity} ${kindNoun(kind, count)} in ${title}${parts}, and I agree to follow them.`;
+}
+
+/** The statement for these items, in reading order: handbookStatement with the kinds counted. */
+export function handbookStatementFor(title: string, items: readonly { type: DocType }[]): string {
+  return handbookStatement(title, items.length, handbookTypeCounts(items));
 }
 
 /** "3 confirmed · 4 to confirm · 1 updated · 2 for information": zero counts are left out. */
@@ -121,10 +164,30 @@ export function countsLine(c: ConfirmCounts): string {
     .join(" · ");
 }
 
-/** The button: "Confirm 5 policies"; "Confirm the handbook" when every policy already counts. */
-export function confirmButtonLabel(outstanding: number): string {
+/**
+ * The button: "Confirm 5 policies"; "Confirm the handbook" when every policy
+ * already counts. `mix` (1.18.2), the kinds of the outstanding ones:
+ * "Confirm 2 SOPs", "Confirm 3 policies and 2 SOPs".
+ */
+export function confirmButtonLabel(outstanding: number, mix?: HandbookTypeCounts): string {
   if (outstanding === 0) return "Confirm the handbook";
+  if (mix && handbookKind(mix) !== "policy") return `Confirm ${handbookItemsLabel(mix)}`;
   return `Confirm ${outstanding} ${outstanding === 1 ? "policy" : "policies"}`;
+}
+
+/** The confirm page's list heading: "5 policies", "3 policies and 2 SOPs". */
+export function confirmListTitle(items: readonly { type: DocType }[]): string {
+  return handbookItemsLabel(handbookTypeCounts(items));
+}
+
+/**
+ * "Policy 3: " before a title for a screen reader. With the item's own
+ * `type` (1.18.2) it names that item's kind, so a mixed handbook's list
+ * reads "Policy 1: ", "SOP 3: ", "Document 4: "; the number stays the
+ * handbook's. Without it, the handbook's kind.
+ */
+export function confirmItemPrefix(c: HandbookTypeCounts, n: number, type?: DocType): string {
+  return `${kindNounTitle(type ? itemKind(type) : handbookKind(c))} ${n}: `;
 }
 
 /** The success toast. */

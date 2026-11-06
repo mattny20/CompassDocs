@@ -1,10 +1,11 @@
 "use client";
 
-// The handbook editor's "Add policies" panel (1.18.0, mock-up 1-editor): a
-// search over the published documents this person may add (lib/handbooks
+// The handbook editor's "Add documents" panel (1.18.0, mock-up 1-editor;
+// named for documents since 1.18.2, when SOPs became a filter of their own):
+// a search over the published documents this person may add (lib/handbooks
 // handbookCandidates: a space handbook offers only the spaces they manage),
-// narrowed by type (Policies / All types) and space, each result a checkbox
-// row. Ticking appends the document to the end of Contents, unticking takes
+// narrowed by type (Policies / SOPs / All types) and space, each result a
+// checkbox row. Ticking appends the document to the end of Contents, unticking takes
 // it out; both are local until the page's Save, like every other edit.
 
 import { useEffect, useId, useState } from "react";
@@ -15,11 +16,11 @@ import { TypeBadge } from "@/components/Badges";
 import { SectionEmpty, Select, TextInput } from "@/components/form";
 import { Segmented } from "@/components/Segmented";
 import { LoadingRow, busyClass } from "@/components/Spinner";
-import type { HandbookCandidate } from "@/lib/handbooks";
+import type { HandbookCandidate, HandbookCandidateType } from "@/lib/handbooks";
 import { searchCandidates } from "./api";
-import { ITEMS_MAX, type DraftSection, hasDoc, itemCount } from "./model";
+import { ITEMS_MAX, type DraftSection, candidatesEmptyText, hasDoc, itemCount } from "./model";
 
-type TypeFilter = "policy" | "all";
+type TypeFilter = HandbookCandidateType;
 
 export function AddPoliciesPanel({
   handbookId,
@@ -75,7 +76,7 @@ export function AddPoliciesPanel({
   return (
     <Card padding="none" as="div" className="lg:sticky lg:top-6 lg:flex lg:max-h-[calc(100vh-3rem)] lg:flex-col">
       <div className="px-4 pt-4 pb-3">
-        <CardTitle>Add policies</CardTitle>
+        <CardTitle>Add documents</CardTitle>
         <p className="mt-0.5 text-xs text-slate-500">
           {spaceHandbook ? "From the spaces you manage." : "From every space you can see."} Only published documents.
         </p>
@@ -99,6 +100,7 @@ export function AddPoliciesPanel({
             onChange={setType}
             options={[
               { value: "policy", label: "Policies" },
+              { value: "sop", label: "SOPs" },
               { value: "all", label: "All types" },
             ]}
           />
@@ -126,7 +128,7 @@ export function AddPoliciesPanel({
           )
         ) : rows.length === 0 ? (
           <SectionEmpty className="px-4 py-6">
-            {q.trim() ? "No published documents match your search." : type === "policy" ? "No published policies here. Try All types." : "No published documents here."}
+            {candidatesEmptyText(type, q.trim() !== "")}
           </SectionEmpty>
         ) : (
           <ul aria-label="Search results">
@@ -164,7 +166,7 @@ export function AddPoliciesPanel({
       </div>
 
       <p id={countId} className="border-t border-slate-100 px-4 py-2.5 text-xs text-slate-500" aria-live="polite">
-        {total} selected · {full ? `a handbook holds up to ${ITEMS_MAX} policies` : "ticking adds to the end of Contents"}
+        {total} selected · {full ? `a handbook holds up to ${ITEMS_MAX} documents` : "ticking adds to the end of Contents"}
       </p>
     </Card>
   );

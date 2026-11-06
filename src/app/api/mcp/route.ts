@@ -29,6 +29,10 @@ import {
   listUsers,
   ackSummary,
   AckReasonRequiredError,
+  getSpaceById,
+  listGroupNames,
+  listMyPolicies,
+  handbookDocumentRows,
 } from "@/lib/db";
 import { ackDecisionRequired, ACK_POLICY_ERROR } from "@/lib/ack-decision";
 import { getComplianceSettings } from "@/lib/compliance-settings";
@@ -39,6 +43,11 @@ import { formatDate } from "@/lib/format";
 import { publicOrigin } from "@/lib/oauth";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { findScopeFor } from "@/lib/handbook-visibility";
+import * as hb from "@/lib/handbooks";
+import type { FindMode, HandbookContentsInput, HandbookItem } from "@/lib/handbooks";
+import { loadConfirmView } from "@/lib/handbook-confirm";
+import { featureEnabled as licensedFor } from "@/lib/ee";
+import { toSessionUser } from "@/lib/auth";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { audit, auditAckDecision, actorFrom, ipFrom } from "@/lib/audit";
@@ -60,6 +69,7 @@ import {
   spaceScopeFor,
   scopeAllows,
   canEditSpace,
+  EVERY_SPACE_UNFILTERED,
 } from "@/lib/access";
 import type { DocStatus, DocType, User } from "@/lib/types";
 
@@ -412,6 +422,140 @@ const TOOLS = [
       properties: {
         deck_id: { type: "number", description: "Optional: one deck's per-person detail." },
       },
+      additionalProperties: false,
+    },
+  },
+  // Policy handbooks (1.18.2): the reader, the confirm page's standing and
+  // the editor's Contents card, through lib/handbooks. No tool confirms a
+  // handbook or a policy: a confirmation is the person's own act, in the app.
+  {
+    name: "list_handbooks",
+    description:
+      "List the policy handbooks you can read, plus the drafts you can edit: id, title, owner (the whole workspace or a space), status, policy and section counts, last update, whether it asks readers to confirm it as a whole, and (with the Read confirmation licence) your own progress, N of M policies confirmed. The handbook's editors, and people who hold Read compliance program, also get the audience progress the Handbooks page shows. Nothing here confirms anything: people confirm in the app, at the confirm_url given.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        space: {
+          type: "string",
+          description: "Only handbooks owned by this space (slug from list_spaces), or \"workspace\" for workspace handbooks. Omit for all.",
+        },
+        status: { type: "string", enum: ["draft", "published"], description: "Only drafts or only published handbooks. Omit for both." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "read_handbook",
+    description:
+      "Read a policy handbook as its reader shows it: the introduction, then the sections in order with their numbered policies, each with its type, facts (owner, approved by, version, effective date, next review, applies to), In short points, the policy text as markdown and its reader URL. A published handbook opens every published policy in it to its readers, even from spaces they cannot otherwise open. Drafts are visible to their editors only. An editor sees a policy from a space they can't add from as a placeholder (\"A document you can't open\") with its doc id only. Pass doc_id to read one policy. Long handbooks are cut to a text budget; the result says which policies to read one at a time.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "Handbook id (from list_handbooks)." },
+        doc_id: { type: "number", description: "Optional: read just this policy (its document id) in the handbook." },
+        include_text: {
+          type: "boolean",
+          description: "Include each policy's text (default true). false gives the outline: titles, facts and In short only.",
+        },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "handbook_status",
+    description:
+      "Where you stand on a published handbook (Read confirmation licence): each policy as To confirm, Confirmed, Updated since you confirmed or For information, your progress, and whether your whole-handbook confirmation is on record for the handbook as it stands. For the handbook's editors, and people who hold Read compliance program, also the share and number of its audience who confirmed it as it stands (no names). This tool never confirms: the person confirms in the app, on each policy's page or at the confirm_url.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "number", description: "Handbook id (from list_handbooks)." } },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_handbook",
+    description:
+      "Create a policy handbook as a DRAFT (requires the Build handbooks permission for the chosen owner: held across the workspace for a workspace handbook, or on that space for a space handbook). It is never published by this tool: hand the person the edit_url so they review it and publish it in the app. Optional initial sections take published documents you may add (any space you can see for a workspace handbook; the spaces where you build handbooks for a space handbook). A space handbook is only ever read by people who can read its space, even with groups chosen.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Up to 160 characters." },
+        owner: {
+          type: ["string", "number"],
+          description: "\"workspace\" (default) for a workspace handbook, or a space id or slug (from list_spaces) for a space handbook.",
+        },
+        introduction: { type: "string", description: "Markdown shown before the first policy; up to 20,000 characters." },
+        audience: {
+          type: "string",
+          enum: ["all", "groups"],
+          description: "all (default): everyone (workspace) or everyone who can read the space. groups: only the groups named in groups.",
+        },
+        groups: {
+          type: "array",
+          items: { type: ["string", "number"] },
+          description:
+            "With audience groups: group names or ids. A number, or a name made only of digits, is read as an id, so pass such a group by its id; a name shared by more than one group must be passed as an id too. Publishing needs at least one.",
+        },
+        confirm_whole: { type: "boolean", description: "Ask readers to confirm the whole handbook (default false)." },
+        require_signature: { type: "boolean", description: "Require a typed signature for confirmations made in the handbook (default false)." },
+        sections: {
+          type: "array",
+          description: "Optional initial contents, in order: up to 50 sections and 200 documents, each document once.",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Section title, up to 120 characters." },
+              documents: { type: "array", items: { type: "number" }, description: "Published document ids, in reading order." },
+            },
+            required: ["title"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["title"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_handbook_contents",
+    description:
+      "Replace a handbook's contents: its sections in order, each with its documents in order (requires editing rights on the handbook). Send every section and document to keep: a section or document left out is removed (a section with an id from read_handbook keeps that section; without one it is new). Include placeholders (\"A document you can't open\") by their doc id to keep them. A document new to the handbook must be published and from a space you may add from. Pass if_updated_at (the updated_at from read_handbook) so the save is refused if someone else saved first; the result gives the new updated_at. If the handbook is published, the change is live for its readers at once, as the editor's Save is. This never publishes or unpublishes a handbook, and never confirms anything.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "Handbook id." },
+        sections: {
+          type: "array",
+          description: "The whole contents, in order: 1 to 50 sections, up to 200 documents, each document once.",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "number", description: "Keep this existing section (id from read_handbook). Omit for a new section." },
+              title: { type: "string", description: "Section title, up to 120 characters." },
+              documents: { type: "array", items: { type: "number" }, description: "Document ids, in reading order." },
+            },
+            required: ["title"],
+            additionalProperties: false,
+          },
+        },
+        if_updated_at: { type: "string", description: "The handbook's updated_at as you last read it. Recommended." },
+        find_modes: {
+          type: "array",
+          description:
+            "Optional: where people find documents in this handbook. space = in its space and the handbook; handbook_only = only in handbooks (for ordinary readers). Stored on the document, so it holds in every handbook it is in; needs the Build handbooks permission on the document's own space. Each document once, up to 200; one already set that way is left as it is.",
+          items: {
+            type: "object",
+            properties: {
+              doc_id: { type: "number" },
+              find_mode: { type: "string", enum: ["space", "handbook_only"] },
+            },
+            required: ["doc_id", "find_mode"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["id", "sections"],
       additionalProperties: false,
     },
   },
@@ -1173,9 +1317,512 @@ async function callTool(user: User, name: string, args: any, origin: string, ip:
       );
     }
 
+    case "list_handbooks":
+    case "read_handbook":
+    case "handbook_status":
+    case "create_handbook":
+    case "update_handbook_contents":
+      return handbookTool(user, name, args, scope, ip);
+
     default:
       return toolText(`Unknown tool: ${name}`, true);
   }
+}
+
+// --- Policy handbooks (1.18.2) ------------------------------------------------------
+//
+// Every decision is lib/handbooks': who reads a handbook (getHandbook,
+// getHandbookPolicy: the reader's access path, so a published handbook opens
+// its policies to its audience whatever their spaces, a draft is its
+// editors' alone, and an editor's view holds a placeholder for a document
+// from a space they can't add from), who builds one (createHandbook's owner
+// check), and what a contents change may hold (setHandbookContents,
+// pendingFindModeChanges, setItemFindModes). The request parsing is the
+// REST routes' own (parseHandbookInput, parseHandbookContents,
+// parseIfUpdatedAt), and the audit rows are the routes' rows plus
+// `via: "mcp"`. The reader's own
+// standing is lib/handbook-confirm's loadConfirmView, the confirm page's.
+// Nothing here confirms: a confirmation is the person's act, in the app.
+
+/** The whole-handbook read's text budget: past it, policies are listed without their text. */
+const HANDBOOK_TEXT_BUDGET = 150_000;
+
+const STANDING_LABELS = {
+  to_confirm: "To confirm",
+  confirmed: "Confirmed",
+  updated: "Updated since you confirmed",
+  info: "For information",
+} as const;
+
+const handbookUrls = (id: number) => ({
+  reader_url: `/handbooks/${id}`,
+  confirm_url: `/handbooks/${id}/confirm`,
+  edit_url: `/handbooks/${id}/edit`,
+});
+
+/** An ISO timestamp's date, or null. */
+const isoDay = (at: string | null | undefined) => (at ? String(at).slice(0, 10) : null);
+
+/** A refusal from lib/handbooks as a tool error; anything else is rethrown (handleRpc answers it). */
+function handbookRefusal(e: unknown) {
+  if (!(e instanceof hb.HandbookError)) throw e;
+  if (e.message === hb.HANDBOOK_NOT_FOUND) return toolText("No handbook with that id.", true);
+  if (e.message === hb.HANDBOOK_CHANGED_ELSEWHERE) {
+    return toolText(
+      "Someone else saved this handbook since you read it (409), so nothing was saved. Call read_handbook again for its current contents and updated_at, then try again.",
+      true
+    );
+  }
+  return toolText(e.message, true);
+}
+
+async function handbookTool(
+  user: User,
+  name: string,
+  args: any,
+  scope: Awaited<ReturnType<typeof spaceScopeFor>>,
+  ip: string | null
+) {
+  const ctx = { via: "mcp" as const, ip };
+  const id = Number(args?.id);
+  const validId = Number.isSafeInteger(id) && id > 0;
+
+  try {
+    switch (name) {
+      case "list_handbooks": {
+        let rows = await hb.listHandbooks(user, { readableDocIds: true });
+        if (args?.space !== undefined && args.space !== null && args.space !== "") {
+          const want = String(args.space);
+          if (want === "workspace") {
+            rows = rows.filter((r) => r.space_id === null);
+          } else {
+            const space = await getSpaceBySlug(want);
+            if (!space || !scopeAllows(scope, space.id)) return toolText(`No space with slug "${want}".`, true);
+            rows = rows.filter((r) => r.space_id === space.id);
+          }
+        }
+        if (args?.status === "draft" || args?.status === "published") rows = rows.filter((r) => r.status === args.status);
+
+        // Your own progress, as the reader's contents show it (the reader's
+        // assignment rows, every space: a handbook opens policies whose
+        // space the reader can't browse), over the documents the reader view
+        // of each published handbook holds for you (readable_doc_ids, from
+        // the rows the list loaded: no query per handbook).
+        const licensed = await licensedFor("policy_ack");
+        const mine = new Map<number, string>();
+        if (licensed && rows.some((r) => r.status === "published")) {
+          for (const p of await listMyPolicies(user.id, EVERY_SPACE_UNFILTERED)) mine.set(p.id, p.state);
+        }
+        const out = [];
+        for (const r of rows) {
+          let yourProgress: { confirmed: number; of: number } | null = null;
+          if (licensed && r.status === "published") {
+            const asked = (r.readable_doc_ids ?? []).filter((d) => mine.has(d));
+            if (asked.length > 0) {
+              yourProgress = { confirmed: asked.filter((d) => mine.get(d) === "confirmed").length, of: asked.length };
+            }
+          }
+          const urls = handbookUrls(r.id);
+          out.push({
+            id: r.id,
+            title: r.title,
+            owner: r.owner_label,
+            owner_space: r.space_slug,
+            status: r.status,
+            audience: r.audience,
+            policies: r.item_count,
+            sections: r.section_count,
+            updated_at: r.updated_at,
+            confirm_whole: r.confirm_whole,
+            require_signature: r.require_signature,
+            can_edit: r.can_edit,
+            your_progress: yourProgress,
+            ...(r.progress ? { audience_progress: r.progress } : {}),
+            reader_url: urls.reader_url,
+            ...(r.can_edit ? { edit_url: urls.edit_url } : {}),
+            ...(licensed && r.status === "published" && r.confirm_whole ? { confirm_url: urls.confirm_url } : {}),
+          });
+        }
+        return toolJson({
+          handbooks: out,
+          note: licensed
+            ? "Read handbooks with read_handbook and your standing with handbook_status. People confirm policies and handbooks themselves, in the app (on each policy's page, or at confirm_url); no tool confirms for them."
+            : "Read confirmation isn't included in this workspace's licence, so handbooks are for reading only.",
+        });
+      }
+
+      case "read_handbook": {
+        if (!validId) return toolText("Pass the handbook id (from list_handbooks).", true);
+        const includeText = args?.include_text !== false;
+
+        // One policy: the reader's own access path.
+        if (args?.doc_id !== undefined && args?.doc_id !== null) {
+          const policy = await hb.getHandbookPolicy(user, id, Number(args.doc_id));
+          if (!policy) {
+            return (await hb.canRead(user, id))
+              ? toolText(`No policy with id ${args.doc_id} that you can read in this handbook.`, true)
+              : toolText(`No handbook with id ${id}.`, true);
+          }
+          return toolJson({
+            handbook: { id: policy.handbook.id, title: policy.handbook.title, status: policy.handbook.status },
+            section: { id: policy.section.id, number: policy.section.number, title: policy.section.title },
+            policy: policyOut(id, policy.item, policy.document, includeText),
+            prev: policy.prev ? { doc_id: policy.prev.doc_id, title: policy.prev.title } : null,
+            next: policy.next ? { doc_id: policy.next.doc_id, title: policy.next.title } : null,
+          });
+        }
+
+        // The whole handbook. Its reader view decides what may be read;
+        // an editor's view adds the drafts and placeholders they keep in
+        // the Contents card, never the text of either.
+        const reader = await hb.getHandbook(user, id);
+        if (!reader) return toolText(`No handbook with id ${id}.`, true);
+        const view = reader.can_edit ? ((await hb.getHandbook(user, id, { forEdit: true })) ?? reader) : reader;
+        const readable = new Set(reader.sections.flatMap((s) => s.items.map((i) => i.doc_id)));
+        // The documents' text (when asked), status and next review, in one
+        // query: never the text for an outline.
+        const docRows = new Map(
+          (await handbookDocumentRows([...readable], includeText)).map((d) => [d.id, d])
+        );
+        let budget = includeText ? HANDBOOK_TEXT_BUDGET : 0;
+        const cut: number[] = [];
+        const sections = [];
+        for (const s of view.sections) {
+          const policies = [];
+          for (const it of s.items) {
+            if (it.restricted) {
+              policies.push({
+                number: it.number,
+                doc_id: it.doc_id,
+                title: it.title,
+                restricted: true,
+                note: "From a space you can't add from: kept in the contents, never shown to you.",
+              });
+              continue;
+            }
+            if (!readable.has(it.doc_id)) {
+              // An editor's draft document (or one their reader view leaves out): listed, no text.
+              policies.push({
+                ...policyOut(id, it, undefined, false),
+                document_status: it.doc_status,
+                note: it.doc_status === "published" ? "Not shown in the reader." : "A draft document: readers see it once it is published.",
+              });
+              continue;
+            }
+            const doc = docRows.get(it.doc_id);
+            if (!doc || doc.status !== "published") continue; // getHandbookPolicy's rule
+            const length = doc.content?.length ?? 0;
+            let withText = includeText && budget > 0;
+            if (withText && length > budget) {
+              withText = false;
+              budget = 0;
+            }
+            if (withText) budget -= length;
+            else if (includeText) cut.push(it.doc_id);
+            policies.push(policyOut(id, it, doc, withText));
+          }
+          sections.push({ id: s.id, number: s.number, title: s.title, policies });
+        }
+        const urls = handbookUrls(id);
+        return toolJson({
+          id: view.id,
+          title: view.title,
+          status: view.status,
+          owner: view.owner_label,
+          audience: view.audience,
+          ...(view.can_edit ? { groups: view.groups.map((g) => g.name) } : {}),
+          confirm_whole: view.confirm_whole,
+          require_signature: view.require_signature,
+          updated_at: view.updated_at,
+          can_edit: view.can_edit,
+          introduction: view.introduction,
+          sections,
+          reader_url: urls.reader_url,
+          ...(view.can_edit ? { edit_url: urls.edit_url } : {}),
+          ...(cut.length
+            ? {
+                truncated: true,
+                note: `The text of ${cut.length} ${cut.length === 1 ? "policy was" : "policies were"} left out to keep this answer readable (doc ids ${cut.join(", ")}). Read each with read_handbook and doc_id.`,
+              }
+            : {}),
+        });
+      }
+
+      case "handbook_status": {
+        if (!validId) return toolText("Pass the handbook id (from list_handbooks).", true);
+        const h = await hb.getHandbook(user, id);
+        if (!h) return toolText(`No handbook with id ${id}.`, true);
+        const urls = handbookUrls(id);
+        const head = { id: h.id, title: h.title, status: h.status, confirm_whole: h.confirm_whole, reader_url: urls.reader_url };
+        if (!(await licensedFor("policy_ack"))) {
+          return toolJson({
+            handbook: head,
+            confirmation_available: false,
+            note: "Read confirmation isn't included in this workspace's licence, so nothing in this handbook asks to be confirmed.",
+          });
+        }
+        if (h.status !== "published") {
+          return toolJson({
+            handbook: head,
+            confirmation_available: true,
+            note: "This handbook is a draft: readers are asked to confirm it once it is published, in the app.",
+          });
+        }
+        const view = await loadConfirmView(toSessionUser(user), id);
+        if (!view) return toolText(`No handbook with id ${id}.`, true);
+        const asked = view.counts.total - view.counts.info;
+        return toolJson({
+          handbook: head,
+          confirmation_available: true,
+          your_progress: {
+            confirmed: view.counts.confirmed,
+            of: asked,
+            to_confirm: view.counts.to_confirm,
+            updated: view.counts.updated,
+            for_information: view.counts.info,
+          },
+          policies: view.items.map((i) => ({
+            number: i.number,
+            doc_id: i.doc_id,
+            title: i.title,
+            section: i.section_title,
+            standing: STANDING_LABELS[i.standing],
+            confirmed_at: i.confirmed_at,
+            signature_required: i.standing === "to_confirm" || i.standing === "updated" ? i.signature : undefined,
+            url: `/handbooks/${id}/${i.doc_id}`,
+          })),
+          whole_handbook: h.confirm_whole
+            ? { asked: true, recorded: view.confirmed !== null, recorded_at: view.confirmed?.at ?? null, confirm_url: urls.confirm_url }
+            : { asked: false },
+          ...(h.progress ? { audience_progress: h.progress } : {}),
+          note:
+            "This tool never confirms. The person confirms in the app: " +
+            (h.confirm_whole ? `all at once at ${urls.confirm_url}, or ` : "") +
+            "each policy on its own page in the handbook reader.",
+        });
+      }
+
+      case "create_handbook": {
+        if (!(await hb.canCreateHandbooks(user))) {
+          return toolText("You don't have permission to build handbooks (Build handbooks): ask an admin.", true);
+        }
+        // The owner: the workspace, or a space you can see by id or slug.
+        let spaceId: number | null = null;
+        const owner = args?.owner;
+        if (owner !== undefined && owner !== null && owner !== "" && owner !== "workspace") {
+          const space = /^\d+$/.test(String(owner)) ? await getSpaceById(Number(owner)) : await getSpaceBySlug(String(owner));
+          if (!space || !scopeAllows(scope, space.id)) {
+            return toolText(`No space "${owner}": pass "workspace" or a space id or slug from list_spaces.`, true);
+          }
+          spaceId = space.id;
+        }
+        // Groups by name or id. A number, or a string of digits, is an id
+        // (so a group whose name is all digits is passed by its id); a name
+        // matches case-insensitively and must name one group only.
+        let groupIds: number[] | undefined;
+        if (args?.groups !== undefined && args?.groups !== null) {
+          if (!Array.isArray(args.groups)) return toolText(hb.HANDBOOK_GROUPS_INVALID, true);
+          const all = await listGroupNames();
+          groupIds = [];
+          for (const g of args.groups) {
+            if (typeof g !== "number" && typeof g !== "string") return toolText(hb.HANDBOOK_GROUPS_INVALID, true);
+            if (typeof g === "number" || /^\d+$/.test(g.trim())) {
+              const hit = all.find((x) => x.id === Number(g));
+              if (!hit) return toolText(`No group with id ${g}.`, true);
+              groupIds.push(hit.id);
+              continue;
+            }
+            const key = g.trim().toLowerCase();
+            const hits = all.filter((x) => x.name.trim().toLowerCase() === key);
+            if (hits.length === 0) return toolText(`No group "${g}".`, true);
+            if (hits.length > 1) {
+              return toolText(
+                `More than one group is named "${g}" (ids ${hits.map((x) => x.id).join(", ")}): pass the id of the one you mean.`,
+                true
+              );
+            }
+            groupIds.push(hits[0].id);
+          }
+        }
+        const parsed = hb.parseHandbookInput({
+          title: args?.title,
+          space_id: spaceId,
+          introduction: args?.introduction,
+          audience: args?.audience,
+          group_ids: groupIds,
+          confirm_whole: args?.confirm_whole,
+          require_signature: args?.require_signature,
+        });
+        if (!parsed.ok) return toolText(parsed.error, true);
+
+        // The initial contents, checked in full before anything is written.
+        let contents: HandbookContentsInput | null = null;
+        if (args?.sections !== undefined) {
+          const c = hb.parseHandbookContents({ sections: sectionsArg(args.sections) });
+          if (!c.ok) return toolText(c.error, true);
+          if (!(await hb.canManageOwner(user, spaceId))) return toolText(hb.HANDBOOK_OWNER_DENIED, true);
+          const wanted = c.value.sections.flatMap((s) => s.doc_ids);
+          const ok = new Set(await hb.addableDocumentIds(user, spaceId, wanted));
+          const bad = wanted.filter((d) => !ok.has(d));
+          if (bad.length) return toolText(`${hb.HANDBOOK_DOCS_INVALID} Not addable: ${bad.join(", ")}.`, true);
+          contents = c.value;
+        }
+
+        let h = await hb.createHandbook(user, parsed.value, undefined, ctx);
+        if (contents) {
+          try {
+            h = await hb.setHandbookContents(user, h.id, contents, undefined, { ctx });
+          } catch (e) {
+            // Checked above, so this is a race (a document unpublished or
+            // moved meanwhile) or a fault: the new draft goes, audited as
+            // the editor's Delete is, rather than stay behind empty.
+            const why = e instanceof hb.HandbookError ? e.message : "The contents could not be saved.";
+            if (!(e instanceof hb.HandbookError)) console.error(`[mcp] create_handbook: contents of handbook ${h.id} not saved:`, e);
+            try {
+              await hb.deleteHandbook(user, h.id, undefined, ctx);
+            } catch (gone) {
+              console.error(`[mcp] create_handbook: could not remove the empty draft ${h.id}:`, gone);
+              return toolText(
+                `${why} The handbook was created without its contents and could not be removed: delete it, or add its documents, at ${handbookUrls(h.id).edit_url}.`,
+                true
+              );
+            }
+            return toolText(`${why} Nothing was created: the new draft was removed again.`, true);
+          }
+        }
+        const urls = handbookUrls(h.id);
+        return toolJson({
+          ok: true,
+          id: h.id,
+          title: h.title,
+          status: h.status,
+          owner: h.owner_label,
+          audience: h.audience,
+          groups: h.groups.map((g) => g.name),
+          sections: h.sections.map((s) => ({ id: s.id, title: s.title, documents: s.items.map((i) => i.doc_id) })),
+          updated_at: h.updated_at,
+          edit_url: urls.edit_url,
+          note: `Created as a draft. Nobody but its editors can see it until a person reviews and publishes it in the app, at ${urls.edit_url}; this tool never publishes.`,
+        });
+      }
+
+      case "update_handbook_contents": {
+        if (!validId) return toolText("Pass the handbook id (from list_handbooks).", true);
+        if (!(await hb.canManage(user, id))) {
+          return (await hb.canRead(user, id))
+            ? toolText("You can't edit this handbook.", true)
+            : toolText(`No handbook with id ${id}.`, true);
+        }
+        const parsed = hb.parseHandbookContents({ sections: sectionsArg(args?.sections) });
+        if (!parsed.ok) return toolText(parsed.error, true);
+        const token = hb.parseIfUpdatedAt({ if_updated_at: args?.if_updated_at });
+        if (!token.ok) return toolText(token.error, true);
+
+        // Where people find it: checked in full before the save, so a
+        // refusal saves nothing (the editor's menu rule, setItemFindModes').
+        // One entry per document (the same one twice is one; two modes for
+        // one document are refused), at most a handbook's worth, and only
+        // the ones that change what is stored are checked and written: one
+        // permission load and one query for all of them.
+        let modes: { doc_id: number; find_mode: FindMode }[] = [];
+        if (args?.find_modes !== undefined && args?.find_modes !== null) {
+          if (!Array.isArray(args.find_modes)) return toolText("find_modes must be a list of { doc_id, find_mode }.", true);
+          if (args.find_modes.length > hb.HANDBOOK_ITEMS_MAX) return toolText(hb.HANDBOOK_FIND_MODES_RANGE, true);
+          const kept = new Set(parsed.value.sections.flatMap((s) => s.doc_ids));
+          const wanted = new Map<number, FindMode>();
+          for (const m of args.find_modes) {
+            const docId = Number(m?.doc_id);
+            if (!hb.isFindMode(m?.find_mode)) return toolText(hb.HANDBOOK_FIND_MODE_INVALID, true);
+            if (!kept.has(docId)) return toolText(`${hb.HANDBOOK_ITEM_NOT_FOUND} (doc_id ${m?.doc_id})`, true);
+            const seen = wanted.get(docId);
+            if (seen !== undefined && seen !== m.find_mode) {
+              return toolText(`${hb.HANDBOOK_FIND_MODE_TWICE} (doc_id ${docId} is listed as both "space" and "handbook_only")`, true);
+            }
+            wanted.set(docId, m.find_mode);
+          }
+          modes = await hb.pendingFindModeChanges(
+            user,
+            [...wanted].map(([doc_id, find_mode]) => ({ doc_id, find_mode }))
+          );
+        }
+
+        let h = await hb.setHandbookContents(user, id, parsed.value, undefined, { ifUpdatedAt: token.value, ctx });
+        if (modes.length > 0) {
+          try {
+            h = await hb.setItemFindModes(user, id, modes, undefined, ctx);
+          } catch (e) {
+            // The contents are saved; the find modes (one statement) are not.
+            const why = e instanceof hb.HandbookError ? e.message : "The find modes could not be saved.";
+            if (!(e instanceof hb.HandbookError)) console.error(`[mcp] update_handbook_contents: find modes of handbook ${id} not saved:`, e);
+            return toolText(
+              `The contents were saved (the handbook's updated_at is now ${h.updated_at}), but where people find its documents was not changed: ${why} Send find_modes again with if_updated_at ${h.updated_at}.`,
+              true
+            );
+          }
+        }
+        const urls = handbookUrls(id);
+        return toolJson({
+          ok: true,
+          id: h.id,
+          status: h.status,
+          updated_at: h.updated_at,
+          policies: h.item_count,
+          sections: h.sections.map((s) => ({
+            id: s.id,
+            title: s.title,
+            documents: s.items.map((i) => ({ doc_id: i.doc_id, title: i.title, find_mode: i.find_mode, ...(i.restricted ? { restricted: true } : {}) })),
+          })),
+          edit_url: urls.edit_url,
+          note:
+            h.status === "published"
+              ? "Saved. This handbook is published, so the change is live for its readers now. Publishing and unpublishing stay in the app."
+              : "Saved to the draft. A person publishes it in the app when it is ready.",
+        });
+      }
+    }
+    return toolText(`Unknown tool: ${name}`, true);
+  } catch (e) {
+    return handbookRefusal(e);
+  }
+}
+
+/** The tools' { id?, title, documents } sections as the contents parser takes them ({ id?, title, doc_ids }). */
+function sectionsArg(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  return raw.map((s) =>
+    s && typeof s === "object" && !Array.isArray(s)
+      ? { id: (s as any).id, title: (s as any).title, doc_ids: (s as any).documents }
+      : s
+  );
+}
+
+/** One policy as read_handbook answers it: the reader's facts (lib/handbooks listHandbookItemRows' rule, plus the review schedule's next review) and, when asked, its text. */
+function policyOut(
+  handbookId: number,
+  it: HandbookItem,
+  doc: { review_due_at?: string | null; content?: string } | undefined,
+  withText: boolean
+) {
+  return {
+    number: it.number,
+    doc_id: it.doc_id,
+    title: it.title,
+    type: it.type,
+    space: it.space_name,
+    handbook_only: it.effective_find_mode === "handbook_only",
+    facts: {
+      owner: it.owner_name || null,
+      approved_by: it.approver_name || null,
+      version: it.version,
+      effective: isoDay(it.effective_at),
+      next_review: isoDay(doc?.review_due_at),
+      applies_to: it.applies_to || null,
+    },
+    in_short: it.summary_points.filter((p) => p.trim() !== ""),
+    asks_confirmation: it.ack_required === 1,
+    url: `/handbooks/${handbookId}/${it.doc_id}`,
+    ...(withText && doc?.content !== undefined ? { text: doc.content } : {}),
+  };
 }
 
 // --- HTTP handlers -----------------------------------------------------------------
@@ -1233,7 +1880,7 @@ async function handleRpc(user: User, msg: any, origin: string, ip: string | null
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "CompassDocs", version: currentVersion() },
         instructions:
-          "CompassDocs is this team's knowledge base. Use search_docs/read_doc to look things up, create_doc to save a drafted article as markdown, and update_doc to revise, retitle, retag, move, or publish an existing one. Call list_spaces first when creating, to pick the right space. When drafting a document of a standard kind (runbook, SOP, policy, postmortem, meeting notes, decision record), call list_templates and follow the matching template's structure, passing template to create_doc. To put an image into a document, call add_image with insert:\"append\" — pass source_url if the image has a public address, or from_attachment_id to reuse one already in the workspace; base64 data works only for small files. For a screenshot that exists only as a picture in the conversation there are no bytes you can send, so call request_upload and give the person the link it returns. IMPORTANT: before writing or restructuring a document, call writing_guide — CompassDocs documents support rich interactive blocks well beyond plain markdown (callouts, tabs, accordions, checklists, Mermaid/PlantUML diagrams, decision trees, video/website embeds, auto-filterable tables), and good documents use them.",
+          "CompassDocs is this team's knowledge base. Use search_docs/read_doc to look things up, create_doc to save a drafted article as markdown, and update_doc to revise, retitle, retag, move, or publish an existing one. Call list_spaces first when creating, to pick the right space. When drafting a document of a standard kind (runbook, SOP, policy, postmortem, meeting notes, decision record), call list_templates and follow the matching template's structure, passing template to create_doc. To put an image into a document, call add_image with insert:\"append\" — pass source_url if the image has a public address, or from_attachment_id to reuse one already in the workspace; base64 data works only for small files. For a screenshot that exists only as a picture in the conversation there are no bytes you can send, so call request_upload and give the person the link it returns. Policy handbooks: list_handbooks and read_handbook to read them, handbook_status for where the person stands, create_handbook (always a draft, published by a person in the app) and update_handbook_contents (live at once on a published handbook) to build them; no tool confirms a handbook or a policy, so send the person to the confirm link instead. IMPORTANT: before writing or restructuring a document, call writing_guide — CompassDocs documents support rich interactive blocks well beyond plain markdown (callouts, tabs, accordions, checklists, Mermaid/PlantUML diagrams, decision trees, video/website embeds, auto-filterable tables), and good documents use them.",
       });
     }
     case "ping":

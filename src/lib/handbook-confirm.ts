@@ -44,7 +44,9 @@
 // load). Every check that can refuse runs BEFORE the first write: the
 // licence, the handbook, the ticked statement, the versions the page
 // showed (any outstanding policy whose current version differs answers
-// 409 stale and nothing is written) and the signature. The writes then run
+// 409 stale and nothing is written), the statement and contents
+// fingerprint the page showed (1.18.2: either differing from the server's
+// is 409 stale too) and the signature. The writes then run
 // one policy at a time, each in its own transaction, and each is
 // idempotent (a double submit, or a retry, records nothing for a policy
 // already current). The one window left, a policy republished between the
@@ -82,12 +84,13 @@ import type { Handbook, HandbookItem } from "./handbooks";
 import {
   CONFIRM_ALREADY,
   CONFIRM_NOT_ASKED,
-  CONFIRM_STALE,
   CONFIRM_TICK_FIRST,
   CONFIRM_UNLICENSED,
-  handbookStatement,
+  confirmStale,
+  handbookStatementFor,
 } from "./handbook-confirm-shared";
 import type { ConfirmItem, ConfirmResult, HandbookConfirmView } from "./handbook-confirm-shared";
+import { handbookTypeCounts } from "./handbook-shared";
 import type { DocumentWithSpace, SessionUser } from "./types";
 
 export * from "./handbook-confirm-shared";
@@ -96,6 +99,14 @@ export type ConfirmInput = {
   agreed?: unknown;
   /** The version each outstanding policy showed on the page: { [doc_id]: version_id }. */
   versions?: unknown;
+  /**
+   * The statement printed beside the box the person ticked (the view's
+   * `statement`, 1.18.2). Compared with the one the server would store; a
+   * difference is stale and nothing is written.
+   */
+  statement?: unknown;
+  /** The contents fingerprint the page was drawn with (the view's handbook.fingerprint). */
+  fingerprint?: unknown;
   signed_name?: unknown;
   password?: unknown;
 };
@@ -161,6 +172,7 @@ async function measure(
     doc_id: it.doc_id,
     number: it.number,
     title: it.title,
+    type: it.type,
     section_title: sectionTitle,
     space_name: it.space_name,
     standing: "info",
@@ -216,7 +228,9 @@ async function measure(
 async function measureAll(user: SessionUser, handbook: Handbook): Promise<Measured[]> {
   const ackEnabled = await featureEnabled("policy_ack");
   const flat = handbook.sections.flatMap((s) => s.items.map((it) => ({ it, section: s.title })));
-  const statement = handbookStatement(handbook.title, flat.length);
+  // The type does not decide whether a document asks: a policy, an SOP or
+  // any other document that requires confirmation is measured the same.
+  const statement = handbookStatementFor(handbook.title, flat.map(({ it }) => it));
   return mapLimited(flat, STANDING_CONCURRENCY, ({ it, section }) =>
     measure(user, handbook, it, section, ackEnabled, statement)
   );
@@ -251,7 +265,7 @@ function viewFrom(
     },
     items,
     counts,
-    statement: handbookStatement(handbook.title, items.length),
+    statement: handbookStatementFor(handbook.title, items),
     own_statements: outstanding
       .filter((i) => i.statement !== null)
       .map((i) => ({ doc_id: i.doc_id, title: i.title, statement: i.statement! })),
@@ -300,6 +314,16 @@ function versionsFrom(raw: unknown): Map<number, number> {
   return out;
 }
 
+/** Whether the statement and fingerprint the page posted are the ones the server computes now (see confirmHandbook). */
+function shownMatches(input: ConfirmInput, view: HandbookConfirmView): boolean {
+  const hasStatement = typeof input.statement === "string";
+  const hasFingerprint = typeof input.fingerprint === "string";
+  if (!hasStatement && !hasFingerprint) return false;
+  if (hasStatement && input.statement !== view.statement) return false;
+  if (hasFingerprint && input.fingerprint !== view.handbook.fingerprint) return false;
+  return true;
+}
+
 /**
  * Confirm every outstanding policy in the handbook for this person, then
  * record the handbook itself. The caller takes the password out of
@@ -333,7 +357,17 @@ export async function confirmHandbook(
   // and nothing is written (the card's rule, for the whole list at once).
   const shown = versionsFrom(input.versions);
   if (outstanding.some((m) => shown.get(m.item.doc_id) !== m.item.version_id)) {
-    return { ok: false, status: 409, stale: true, error: CONFIRM_STALE };
+    return { ok: false, status: 409, stale: true, error: confirmStale(handbookTypeCounts(view.items)) };
+  }
+  // The statement and the contents the page showed. The statement is
+  // stored on every row below, so it must be the sentence the person
+  // ticked: contents changed since the page was drawn (a document added
+  // for information, a type changed) would otherwise store words, and a
+  // fingerprint, they never saw. A client that sends only the fingerprint
+  // is checked on it alone; one that sends neither (a tab opened before
+  // this release) is stale, so it refreshes into a page that sends both.
+  if (!shownMatches(input, view)) {
+    return { ok: false, status: 409, stale: true, error: confirmStale(handbookTypeCounts(view.items)) };
   }
 
   // The signature, once for the batch, before anything is written.

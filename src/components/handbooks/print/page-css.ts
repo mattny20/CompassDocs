@@ -12,7 +12,7 @@
 // The strings are handbook titles and people's names, so they are escaped
 // for a CSS string AND for the <style> element they are inlined into.
 
-import { PAPER_CSS, sectionLabel, type PrintHandbook } from "./print-model";
+import { PAPER_CSS, positionLine, sectionLabel, type PrintHandbook } from "./print-model";
 
 /** A CSS string literal: quotes, backslashes, newlines and `<`/`>`/`&`
  *  become hex escapes, so a title cannot end the string or the <style>. */
@@ -57,7 +57,7 @@ export function handbookPageCss(hb: PrintHandbook): string {
     for (const p of section.policies) {
       rules.push(`@page ${policyPageName(p.number)} {
   @top-left { content: ${head}; text-align: left; ${top} }
-  @top-right { content: ${cssString(`Policy ${p.number} of ${hb.policyCount}`)}; text-align: right; ${top} }
+  @top-right { content: ${cssString(positionLine(hb, p.number))}; text-align: right; ${top} }
 }`);
     }
   }

@@ -2,7 +2,7 @@
 
 // The handbooks list (1.18.0, mock-up 4-list): every handbook this person
 // can read, and the drafts they can edit, in one table — the name with its
-// policy count, the owner, the status chip, the whole-handbook confirmation
+// count ("8 policies", "3 policies and 2 SOPs"), the owner, the status chip, the whole-handbook confirmation
 // progress (with the Read confirmation licence: the share of the audience
 // holding a confirmation of the current contents, and how many people that
 // audience is) and the row's actions (Edit for an editor, Print). The one
@@ -18,12 +18,9 @@ import { EmptyState } from "@/components/form";
 import { PageHeader } from "@/components/PageHeader";
 import { TABLE_HEAD_ROW, TR, Table, Td, Th } from "@/components/Table";
 import type { HandbookSummary } from "@/lib/handbooks";
+import { handbookItemsLabel } from "@/lib/handbook-shared";
 
-export const HANDBOOKS_SUBTITLE = "Policies brought together for people to read, print and confirm as one.";
-
-function policies(n: number): string {
-  return `${n} ${n === 1 ? "policy" : "policies"}`;
-}
+export const HANDBOOKS_SUBTITLE = "Policies and SOPs brought together for people to read, print and confirm as one.";
 
 function people(n: number): string {
   return `${n.toLocaleString("en")} ${n === 1 ? "person" : "people"}`;
@@ -67,7 +64,7 @@ export function HandbookList({
           title="No handbooks yet"
           body={
             canCreate
-              ? "Bring published policies from any space together, in order, for people to read, print and confirm as one."
+              ? "Bring published policies and SOPs from any space together, in order, for people to read, print and confirm as one."
               : "When a handbook is shared with you, it appears here."
           }
         />
@@ -94,7 +91,7 @@ export function HandbookList({
                     <Link href={rowHref(h)} className="block font-semibold [overflow-wrap:anywhere] text-slate-900 hover:text-compass-700">
                       {h.title}
                     </Link>
-                    <span className="text-xs text-slate-500">{policies(h.item_count)}</span>
+                    <span className="text-xs text-slate-500">{handbookItemsLabel(h.item_types)}</span>
                     {/* On a phone the other columns fold into this line. */}
                     <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 sm:hidden">
                       <Chip size="sm" tone={h.status === "published" ? "ok" : "neutral"}>

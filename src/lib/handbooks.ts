@@ -57,7 +57,8 @@ import {
   publishedHandbookAdmits,
   publishedHandbookRequiresSignature,
   reconcilePoliciesForHandbook,
-  setDocumentFindMode,
+  documentFindModeRows,
+  setDocumentFindModes,
   setHandbookStatusRow,
   updateHandbookRow,
 } from "./db";
@@ -139,7 +140,7 @@ export interface HandbookItem {
    * A placeholder: the document is in a space this editor can't add from
    * and they don't read the handbook as its audience, so only its id, space
    * id and find mode are real (the title is HANDBOOK_RESTRICTED_ITEM, the
-   * facts empty). Only ever in the editor's view; the reader's view and
+   * type RESTRICTED_ITEM_TYPE, the facts empty). Only ever in the editor's view; the reader's view and
    * the printed copy leave such a document out.
    */
   restricted: boolean;
@@ -169,6 +170,11 @@ export interface HandbookSummary {
   audience: HandbookAudienceMode;
   /** Items as the caller sees them (editors: every live item including drafts; readers: published ones). */
   item_count: number;
+  /**
+   * The same items by kind (1.18.2), for "3 policies and 2 SOPs"
+   * (handbookItemsLabel); a locked placeholder counts as `other`.
+   */
+  item_types: HandbookTypeCounts;
   section_count: number;
   /** "Ask readers to confirm the whole handbook". */
   confirm_whole: boolean;
@@ -188,6 +194,13 @@ export interface HandbookSummary {
    * standing).
    */
   progress: { audience: number; confirmed: number; pct: number } | null;
+  /**
+   * Only when asked (listHandbooks' `readableDocIds`, the connector's
+   * list_handbooks): the documents the caller's reader view of this
+   * handbook holds, as getHandbook would list them, from the rows already
+   * loaded for the list. Absent otherwise.
+   */
+  readable_doc_ids?: number[];
 }
 
 /** Everything a page needs about one handbook. */
@@ -222,7 +235,7 @@ export interface HandbookContentsInput {
   sections: { id?: number; title: string; doc_ids: number[] }[];
 }
 
-/** A row of the editor's "Add policies" panel. */
+/** A row of the editor's "Add documents" panel. */
 export interface HandbookCandidate {
   id: number;
   title: string;
@@ -284,6 +297,8 @@ import {
   HANDBOOK_DOCS_INVALID,
   HANDBOOK_EMPTY_PUBLISH,
   HANDBOOK_FIND_MODE_DENIED,
+  HANDBOOK_FIND_MODE_TWICE,
+  HANDBOOK_FIND_MODES_RANGE,
   HANDBOOK_FIRST_SECTION,
   HANDBOOK_GROUPS_INVALID,
   HANDBOOK_GROUPS_MAX,
@@ -316,7 +331,9 @@ import {
   SUMMARY_POINT_MAX,
   SUMMARY_POINTS_INVALID,
   SUMMARY_POINTS_MAX,
+  handbookTypeCounts,
 } from "./handbook-shared";
+import type { HandbookTypeCounts } from "./handbook-shared";
 
 // --- The caller, resolved once ---------------------------------------------------------
 
@@ -411,6 +428,25 @@ function actorName(user: HandbookUser): string {
   return user.name || user.username || `user #${user.id}`;
 }
 
+/**
+ * Where a write came from, for its audit row, when there is no Request to
+ * read it from: the Claude connector (1.18.2) passes the caller's address
+ * and `via: "mcp"`, as its own document rows say. A route passes its
+ * Request instead and its rows are unchanged.
+ */
+export interface HandbookWriteContext {
+  via?: "mcp";
+  ip?: string | null;
+}
+
+function auditIp(req: Request | undefined, ctx: HandbookWriteContext | undefined): string | null {
+  return req ? ipFrom(req) : (ctx?.ip ?? null);
+}
+
+function viaDetails(ctx: HandbookWriteContext | undefined): { via?: "mcp" } {
+  return ctx?.via ? { via: ctx.via } : {};
+}
+
 function auditActor(user: HandbookUser) {
   return actorFrom({ id: user.id, role: user.role, name: user.name ?? "", username: user.username ?? "" });
 }
@@ -423,6 +459,9 @@ export function handbookFingerprint(items: { doc_id: number; version_id: number 
     .update(items.map((i) => `${i.doc_id}:${i.version_id ?? ""}`).join("\n"))
     .digest("hex");
 }
+
+/** The type a placeholder carries (HandbookItem.restricted): neutral, never the document's own. */
+export const RESTRICTED_ITEM_TYPE: DocType = "knowledge";
 
 function toItem(r: HandbookItemRow, number: number, restricted = false): HandbookItem {
   const item: HandbookItem = {
@@ -454,10 +493,13 @@ function toItem(r: HandbookItemRow, number: number, restricted = false): Handboo
   };
   if (!restricted) return item;
   // Nothing of the document but what the editor needs to keep, move or
-  // remove the item.
+  // remove the item. Its type too is a neutral one (a plain document, as
+  // handbookTypeCounts counts a placeholder), so the JSON never says
+  // whether a locked document is a policy or an SOP.
   return {
     ...item,
     title: HANDBOOK_RESTRICTED_ITEM,
+    type: RESTRICTED_ITEM_TYPE,
     space_name: "",
     space_slug: "",
     space_icon: "",
@@ -502,6 +544,7 @@ function assemble(
     owner_label: row.space_id === null ? HANDBOOK_WORKSPACE_LABEL : (row.space_name ?? ""),
     audience: row.audience === "groups" ? "groups" : "all",
     item_count: n,
+    item_types: handbookTypeCounts(sections.flatMap((s) => s.items)),
     section_count: sections.length,
     confirm_whole: row.confirm_whole === 1,
     require_signature: row.require_signature === 1,
@@ -673,8 +716,13 @@ export async function effectiveFindMode(docId: number): Promise<FindMode> {
 
 // --- Reads ----------------------------------------------------------------------------
 
-/** Handbooks the person can read, plus drafts they can edit; title order. */
-export async function listHandbooks(user: HandbookUser): Promise<HandbookSummary[]> {
+/**
+ * Handbooks the person can read, plus drafts they can edit; title order.
+ * `readableDocIds` adds each one's readable_doc_ids (the reader view's
+ * documents), worked out from the rows this call loads anyway, so a caller
+ * that needs them makes no query per handbook.
+ */
+export async function listHandbooks(user: HandbookUser, opts: { readableDocIds?: boolean } = {}): Promise<HandbookSummary[]> {
   const v = await viewerFor(user);
   const rows = (await listHandbookRows()).filter((r) => readsRow(v, r));
   if (rows.length === 0) return [];
@@ -687,11 +735,13 @@ export async function listHandbooks(user: HandbookUser): Promise<HandbookSummary
   const out: HandbookSummary[] = [];
   for (const row of rows) {
     const canEdit = managesOwner(v, row.space_id);
+    const openable = openableSpaces(v, row);
+    const own = items.filter((i) => i.handbook_id === row.id);
     const h = assemble(
       row,
       sections.filter((s) => s.handbook_id === row.id),
-      items.filter((i) => i.handbook_id === row.id),
-      { forEdit: canEdit, canEdit, groupNames: new Map(), openable: openableSpaces(v, row) }
+      own,
+      { forEdit: canEdit, canEdit, groupNames: new Map(), openable }
     );
     const progress = await progressFor(h, seesProgress(v, canEdit), licensed);
     out.push({
@@ -705,6 +755,7 @@ export async function listHandbooks(user: HandbookUser): Promise<HandbookSummary
       owner_label: h.owner_label,
       audience: h.audience,
       item_count: h.item_count,
+      item_types: h.item_types,
       section_count: h.section_count,
       confirm_whole: h.confirm_whole,
       require_signature: h.require_signature,
@@ -713,6 +764,11 @@ export async function listHandbooks(user: HandbookUser): Promise<HandbookSummary
       published_at: h.published_at,
       can_edit: h.can_edit,
       progress,
+      // The reader view's rule (assemble, forEdit off): live documents of
+      // the spaces this viewer opens in it.
+      ...(opts.readableDocIds
+        ? { readable_doc_ids: own.filter((i) => i.live && (openable === "all" || openable.includes(i.space_id))).map((i) => i.doc_id) }
+        : {}),
     });
   }
   return out;
@@ -766,11 +822,14 @@ export async function getHandbookPolicy(user: HandbookUser, handbookId: number, 
   };
 }
 
-/** The editor's "Add policies" search (published, live documents the person may add to this handbook). */
+/** The editor's type filter (1.18.2: SOPs too); "policy" when left out. */
+export type HandbookCandidateType = "policy" | "sop" | "all";
+
+/** The editor's "Add documents" search (published, live documents the person may add to this handbook). */
 export async function handbookCandidates(
   user: HandbookUser,
   handbookId: number,
-  opts: { q?: string; type?: "policy" | "all"; spaceId?: number | null; limit?: number } = {}
+  opts: { q?: string; type?: HandbookCandidateType; spaceId?: number | null; limit?: number } = {}
 ): Promise<HandbookCandidate[]> {
   const row = await getHandbookRow(handbookId);
   if (!row) throw new HandbookError(HANDBOOK_NOT_FOUND, 404);
@@ -782,10 +841,24 @@ export async function handbookCandidates(
     handbookId,
     spaceIds,
     q: (opts.q ?? "").trim().slice(0, 200),
-    type: opts.type === "all" ? null : "policy",
+    type: opts.type === "all" ? null : opts.type === "sop" ? "sop" : "policy",
     spaceId: opts.spaceId ?? null,
     limit: Math.min(Math.max(1, opts.limit ?? 50), HANDBOOK_CANDIDATES_MAX),
   });
+}
+
+/**
+ * Of these documents, the ones this person may add to a handbook owned by
+ * `ownerSpaceId` (null = the workspace): the check every contents change
+ * makes (changeContents), for a caller that needs the answer before the
+ * handbook exists. The connector's create_handbook (1.18.2) refuses its
+ * initial sections with it, so a bad document id never leaves an empty
+ * draft behind.
+ */
+export async function addableDocumentIds(user: HandbookUser, ownerSpaceId: number | null, docIds: number[]): Promise<number[]> {
+  const ids = [...new Set(docIds)];
+  if (ids.length === 0) return [];
+  return addableHandbookDocIds(ids, addableSpaces(await viewerFor(user), ownerSpaceId));
 }
 
 /** The editor's owner/audience pickers. */
@@ -857,7 +930,12 @@ async function assertOwner(v: Viewer, spaceId: number | null): Promise<void> {
   if (!managesOwner(v, spaceId)) throw new HandbookError(HANDBOOK_OWNER_DENIED, 403);
 }
 
-export async function createHandbook(user: HandbookUser, input: HandbookInput, req?: Request): Promise<Handbook> {
+export async function createHandbook(
+  user: HandbookUser,
+  input: HandbookInput,
+  req?: Request,
+  ctx?: HandbookWriteContext
+): Promise<Handbook> {
   const v = await viewerFor(user);
   await assertOwner(v, input.space_id);
   const id = await createHandbookRow(
@@ -880,8 +958,9 @@ export async function createHandbook(user: HandbookUser, input: HandbookInput, r
       group_ids: h.groups.map((g) => g.id),
       confirm_whole: h.confirm_whole,
       require_signature: h.require_signature,
+      ...viaDetails(ctx),
     },
-    ip: req ? ipFrom(req) : null,
+    ip: auditIp(req, ctx),
   });
   return h;
 }
@@ -951,7 +1030,7 @@ export async function updateHandbook(
   return after;
 }
 
-export async function deleteHandbook(user: HandbookUser, id: number, req?: Request): Promise<void> {
+export async function deleteHandbook(user: HandbookUser, id: number, req?: Request, ctx?: HandbookWriteContext): Promise<void> {
   const { v, row } = await editable(user, id);
   const h = await load(v, row, true);
   await deleteHandbookRow(id);
@@ -962,8 +1041,15 @@ export async function deleteHandbook(user: HandbookUser, id: number, req?: Reque
     targetType: "handbook",
     targetId: id,
     targetLabel: row.title,
-    details: { handbook_id: id, status: row.status, owner: h.owner_label, policies: h.item_count, doc_ids: h.sections.flatMap((s) => s.items.map((i) => i.doc_id)) },
-    ip: req ? ipFrom(req) : null,
+    details: {
+      handbook_id: id,
+      status: row.status,
+      owner: h.owner_label,
+      policies: h.item_count,
+      doc_ids: h.sections.flatMap((s) => s.items.map((i) => i.doc_id)),
+      ...viaDetails(ctx),
+    },
+    ip: auditIp(req, ctx),
   });
 }
 
@@ -1022,7 +1108,7 @@ async function changeContents(
   user: HandbookUser,
   id: number,
   req: Request | undefined,
-  plan: { adding: number[]; fn: (d: Draft) => Draft; op: string; ifUpdatedAt?: string }
+  plan: { adding: number[]; fn: (d: Draft) => Draft; op: string; ifUpdatedAt?: string; ctx?: HandbookWriteContext }
 ): Promise<Handbook> {
   const { v, row } = await editable(user, id);
   const present = new Set((await listHandbookItemRows([id])).map((r) => r.doc_id));
@@ -1074,8 +1160,9 @@ async function changeContents(
         policies: afterIds.length,
         sections: after.sections.map((s) => ({ id: s.id, title: s.title, doc_ids: s.doc_ids })),
         sections_before: before.sections.map((s) => ({ id: s.id, title: s.title, doc_ids: s.doc_ids })),
+        ...viaDetails(plan.ctx),
       },
-      ip: req ? ipFrom(req) : null,
+      ip: auditIp(req, plan.ctx),
     });
   }
   return h;
@@ -1093,12 +1180,13 @@ export async function setHandbookContents(
   id: number,
   input: HandbookContentsInput,
   req?: Request,
-  opts: { ifUpdatedAt?: string } = {}
+  opts: { ifUpdatedAt?: string; ctx?: HandbookWriteContext } = {}
 ): Promise<Handbook> {
   const shown = new Set((await listHandbookItemRows([id])).map((r) => r.doc_id));
   return changeContents(user, id, req, {
     op: "replace",
     ifUpdatedAt: opts.ifUpdatedAt,
+    ctx: opts.ctx,
     adding: input.sections.flatMap((s) => s.doc_ids),
     fn: (current) => {
       const next: Draft = {
@@ -1239,6 +1327,51 @@ export async function removeHandbookSection(user: HandbookUser, id: number, sect
   });
 }
 
+/** One "Where people find it" change: the document and the mode to store. */
+export interface FindModeChange {
+  doc_id: number;
+  find_mode: FindMode;
+}
+
+/** The changes, one per document; refuses (400) a document given two different modes. */
+function oncePerDocument(changes: readonly FindModeChange[]): FindModeChange[] {
+  if (changes.length > HANDBOOK_ITEMS_MAX) throw new HandbookError(HANDBOOK_FIND_MODES_RANGE, 400);
+  const out = new Map<number, FindMode>();
+  for (const c of changes) {
+    const seen = out.get(c.doc_id);
+    if (seen !== undefined && seen !== c.find_mode) throw new HandbookError(HANDBOOK_FIND_MODE_TWICE, 400);
+    out.set(c.doc_id, c.find_mode);
+  }
+  return [...out].map(([doc_id, find_mode]) => ({ doc_id, find_mode }));
+}
+
+/**
+ * Of these find-mode changes (one per document, at most
+ * HANDBOOK_ITEMS_MAX), the ones that would change what is stored, checked
+ * as setItemFindModes checks them: refuses (403) when the person may not
+ * change a document's find mode (handbook.manage on its own space), or
+ * (404) when a document is unknown or in the trash. One permission load
+ * and one query, whatever the number of documents. The connector's
+ * update_handbook_contents (1.18.2) calls it before saving the contents,
+ * so a refusal saves nothing; it does not check that the documents are in
+ * the handbook (they may be about to be added), setItemFindModes does.
+ */
+export async function pendingFindModeChanges(user: HandbookUser, changes: readonly FindModeChange[]): Promise<FindModeChange[]> {
+  const wanted = oncePerDocument(changes);
+  if (wanted.length === 0) return [];
+  const [v, rows] = await Promise.all([viewerFor(user), documentFindModeRows(wanted.map((c) => c.doc_id))]);
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const pending: FindModeChange[] = [];
+  for (const c of wanted) {
+    const doc = byId.get(c.doc_id);
+    if (!doc) throw new HandbookError(HANDBOOK_ITEM_NOT_FOUND, 404);
+    if ((doc.find_mode === "handbook_only" ? "handbook_only" : "space") === c.find_mode) continue;
+    if (!managesOwner(v, doc.space_id)) throw new HandbookError(HANDBOOK_FIND_MODE_DENIED, 403);
+    pending.push(c);
+  }
+  return pending;
+}
+
 /**
  * "Where people find it" for one item. Stored on the document, so it holds
  * in every handbook the document is in; changing it needs handbook.manage
@@ -1246,24 +1379,57 @@ export async function removeHandbookSection(user: HandbookUser, id: number, sect
  * space's document), on top of editing this handbook. Metadata only: the
  * document's updated_at and confirmation marker do not move.
  */
-export async function setItemFindMode(user: HandbookUser, id: number, docId: number, mode: FindMode, req?: Request): Promise<Handbook> {
+export async function setItemFindMode(
+  user: HandbookUser,
+  id: number,
+  docId: number,
+  mode: FindMode,
+  req?: Request,
+  ctx?: HandbookWriteContext
+): Promise<Handbook> {
+  return setItemFindModes(user, id, [{ doc_id: docId, find_mode: mode }], req, ctx);
+}
+
+/**
+ * setItemFindMode for several items at once: every change is checked
+ * first (each document in this handbook, handbook.manage on each one's
+ * space; one refusal writes nothing), the changed ones are written in one
+ * statement, each gets its own handbook.find_mode_changed row (as the
+ * item route writes it), and the handbook is loaded once at the end. A
+ * document given its current mode is not written or audited.
+ */
+export async function setItemFindModes(
+  user: HandbookUser,
+  id: number,
+  changes: readonly FindModeChange[],
+  req?: Request,
+  ctx?: HandbookWriteContext
+): Promise<Handbook> {
+  const wanted = oncePerDocument(changes);
   const { v, row } = await editable(user, id);
-  const item = (await listHandbookItemRows([id])).find((r) => r.doc_id === docId);
-  if (!item) throw new HandbookError(HANDBOOK_ITEM_NOT_FOUND, 404);
-  if (!managesOwner(v, item.space_id)) throw new HandbookError(HANDBOOK_FIND_MODE_DENIED, 403);
-  const before = await setDocumentFindMode(docId, mode);
-  if (before !== null && before !== mode) {
+  const items = new Map((await listHandbookItemRows([id])).map((r) => [r.doc_id, r]));
+  for (const c of wanted) {
+    const item = items.get(c.doc_id);
+    if (!item) throw new HandbookError(HANDBOOK_ITEM_NOT_FOUND, 404);
+    if (!managesOwner(v, item.space_id)) throw new HandbookError(HANDBOOK_FIND_MODE_DENIED, 403);
+  }
+  const writes = wanted.filter((c) => items.get(c.doc_id)!.find_mode !== c.find_mode);
+  const before = await setDocumentFindModes(writes);
+  for (const c of writes) {
+    const from = before.get(c.doc_id);
+    if (from === undefined || from === c.find_mode) continue;
+    const item = items.get(c.doc_id)!;
     await audit({
       actor: auditActor(user),
       action: "handbook.find_mode_changed",
       targetType: "document",
-      targetId: docId,
+      targetId: c.doc_id,
       targetLabel: item.title,
-      details: { handbook_id: id, handbook: row.title, doc_id: docId, space_id: item.space_id, from: before, to: mode },
-      ip: req ? ipFrom(req) : null,
+      details: { handbook_id: id, handbook: row.title, doc_id: c.doc_id, space_id: item.space_id, from, to: c.find_mode, ...viaDetails(ctx) },
+      ip: auditIp(req, ctx),
     });
   }
-  return (await getHandbook(user, id, { forEdit: true }))!;
+  return load(v, row, true);
 }
 
 /** Audits handbook.printed for someone who may read the handbook (POST /api/handbooks/[id]/printed). */

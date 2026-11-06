@@ -9,12 +9,15 @@ import assert from "node:assert/strict";
 import {
   addItem,
   addSection,
+  candidatesEmptyText,
   canMove,
   contentsPayload,
   detailsErrors,
   detailsPayload,
   findModeChanges,
   itemFromCandidate,
+  itemsLabel,
+  itemsNoun,
   itemFromHandbook,
   moveItem,
   removeItem,
@@ -149,5 +152,31 @@ describe("handbook editor model", () => {
       >[0]).restricted,
       false
     );
+  });
+});
+
+describe("handbook editor model: naming what it holds (1.18.2)", () => {
+  const typed = (doc_id: number, type: DraftItem["type"], restricted = false): DraftItem => ({ ...item(doc_id), type, restricted });
+
+  test("the Contents count and the editor's noun follow the kinds; policies only keeps the 1.18.0 words", () => {
+    const one = (items: DraftItem[]): DraftSection[] => [{ key: "s1", id: 1, title: "Policies", items }];
+    assert.equal(itemsLabel([]), "0 policies");
+    assert.equal(itemsNoun([]), "policies");
+    assert.equal(itemsLabel(one([typed(1, "policy"), typed(2, "policy")])), "2 policies");
+    assert.equal(itemsNoun(one([typed(1, "policy")])), "policies");
+    assert.equal(itemsLabel(one([typed(1, "sop")])), "1 SOP");
+    assert.equal(itemsNoun(one([typed(1, "sop"), typed(2, "sop")])), "SOPs");
+    assert.equal(itemsLabel(one([typed(1, "policy"), typed(2, "sop"), typed(3, "sop")])), "1 policy and 2 SOPs");
+    assert.equal(itemsNoun(one([typed(1, "policy"), typed(2, "sop")])), "documents");
+    // A locked placeholder never gives its type away: it counts as a document.
+    assert.equal(itemsLabel(one([typed(1, "policy"), typed(2, "policy", true)])), "1 policy and 1 other document");
+  });
+
+  test("the Add documents panel's empty result is per filter", () => {
+    assert.equal(candidatesEmptyText("policy", false), "No published policies here. Try SOPs or All types.");
+    assert.equal(candidatesEmptyText("sop", false), "No published SOPs here. Try Policies or All types.");
+    assert.equal(candidatesEmptyText("all", false), "No published documents here.");
+    assert.equal(candidatesEmptyText("sop", true), "No published SOPs match your search.");
+    assert.equal(candidatesEmptyText("all", true), "No published documents match your search.");
   });
 });

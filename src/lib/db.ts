@@ -16950,7 +16950,7 @@ export async function handbookCandidateRows(opts: {
         AND ($3 = '' OR d.title ILIKE $4 OR d.search @@ websearch_to_tsquery('english', $3))
         AND ($5::text IS NULL OR d.type = $5)
         AND ($6::int IS NULL OR d.space_id = $6)
-      ORDER BY (d.type = 'policy') DESC, lower(d.title), d.id
+      ORDER BY (d.type = 'policy') DESC, (d.type = 'sop') DESC, lower(d.title), d.id
       LIMIT $7`,
     [
       opts.handbookId,
@@ -16976,6 +16976,53 @@ export async function setDocumentFindMode(docId: number, mode: "space" | "handbo
     [docId, mode]
   );
   return r[0]?.before ?? null;
+}
+
+/**
+ * Store "Where people find it" on several documents in one statement
+ * (setDocumentFindMode's rule: metadata only). Answers each changed
+ * document's previous value; an unknown document is left out.
+ */
+export async function setDocumentFindModes(
+  changes: { doc_id: number; find_mode: "space" | "handbook_only" }[]
+): Promise<Map<number, "space" | "handbook_only">> {
+  if (changes.length === 0) return new Map();
+  const r = await q<{ id: number; before: "space" | "handbook_only" }>(
+    `UPDATE documents d SET find_mode = v.mode
+       FROM unnest($1::int[], $2::text[]) AS v(id, mode), documents old
+      WHERE d.id = v.id AND old.id = v.id
+      RETURNING d.id, old.find_mode AS before`,
+    [changes.map((c) => c.doc_id), changes.map((c) => c.find_mode)]
+  );
+  return new Map(r.map((x) => [x.id, x.before]));
+}
+
+/** Live documents' space and stored find_mode, for a batch of find-mode changes; trashed or unknown ids are left out. */
+export async function documentFindModeRows(
+  docIds: number[]
+): Promise<{ id: number; space_id: number; find_mode: "space" | "handbook_only" }[]> {
+  if (docIds.length === 0) return [];
+  return q(
+    "SELECT id, space_id, find_mode FROM documents WHERE id = ANY($1::int[]) AND deleted_at IS NULL",
+    [docIds]
+  );
+}
+
+/**
+ * What the connector's read_handbook (1.18.2) needs of the documents a
+ * handbook opens, in one query: the status, the next review and, only when
+ * asked, the text. Trashed or unknown ids are left out.
+ */
+export async function handbookDocumentRows(
+  docIds: number[],
+  withContent: boolean
+): Promise<{ id: number; status: string; review_due_at: string | null; content?: string }[]> {
+  if (docIds.length === 0) return [];
+  return q(
+    `SELECT id, status, review_due_at${withContent ? ", content" : ""}
+       FROM documents WHERE id = ANY($1::int[]) AND deleted_at IS NULL`,
+    [docIds]
+  );
 }
 
 /** documents.find_mode as stored and after the no-orphans rule (effectiveHandbookOnlySql); null for an unknown document. */

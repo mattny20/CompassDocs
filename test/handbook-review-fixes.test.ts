@@ -671,6 +671,7 @@ describe("D6 + D7: the whole-handbook record", () => {
     await switchOn(q1, { editDefault: null, recertMonths: null });
     const carol = await sessionUser("carol");
     const shown = (await hb.getHandbook(as("carol"), book))!.fingerprint;
+    const page = (await confirm.loadConfirmView(carol, book))!;
 
     // Hold the policy's row lock, so the confirmation's write waits on it,
     // and change the handbook while it waits.
@@ -680,7 +681,7 @@ describe("D6 + D7: the whole-handbook record", () => {
       await locker.query("BEGIN");
       await locker.query("SELECT id FROM documents WHERE id = $1 FOR UPDATE", [q1]);
       const pid = (await locker.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
-      pending = confirm.confirmHandbook(carol, book, { agreed: true, versions: { [q1]: await latestVersion(q1) } }, { ip: null, userAgent: "t" });
+      pending = confirm.confirmHandbook(carol, book, { agreed: true, versions: { [q1]: await latestVersion(q1) }, statement: page.statement, fingerprint: shown }, { ip: null, userAgent: "t" });
       const deadline = Date.now() + 15_000;
       for (;;) {
         const waiting = await pool().query("SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))", [pid]);
@@ -711,7 +712,8 @@ describe("D6 + D7: the whole-handbook record", () => {
     const book = await rawHandbook("Double", [q3], { groups: [groups.gR], confirmWhole: true });
     await switchOn(q3, { editDefault: null, recertMonths: null });
     const dave = await sessionUser("dave");
-    const body = { agreed: true, versions: { [q3]: await latestVersion(q3) } };
+    const page = (await confirm.loadConfirmView(dave, book))!;
+    const body = { agreed: true, versions: { [q3]: await latestVersion(q3) }, statement: page.statement, fingerprint: page.handbook.fingerprint };
     const results = await Promise.all([
       confirm.confirmHandbook(dave, book, body, { ip: null, userAgent: "a" }),
       confirm.confirmHandbook(dave, book, body, { ip: null, userAgent: "b" }),

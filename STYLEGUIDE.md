@@ -1917,11 +1917,50 @@ Rules:
 
 ## Handbooks
 
-A handbook (1.18.0) is an ordered bundle of published policies from any
+A handbook (1.18.0) is an ordered bundle of published policies and SOPs
+(1.18.2; any other published document through "All types") from any
 space, in numbered sections, read as one (`/handbooks/{id}`), printed as
 one (§Print) and, with read confirmation licensed, confirmed as one
 (`/handbooks/{id}/confirm`). Its components live under
 `components/handbooks/` (`reader/`, `editor/`, `confirm/`, `print/`).
+
+- **Naming what a handbook holds** (1.18.2). Every count, position and
+  sentence about a handbook's items comes from `lib/handbook-shared`
+  (`handbookItemsLabel`, `handbookPositionLabel`, `handbookKind`,
+  `kindNoun`) and `lib/handbook-confirm-shared` (`handbookStatement`,
+  `confirmButtonLabel`), so the list, reader, rail, confirm page, printed
+  copy and editor agree. Never hand-write "policies" next to a count.
+  - **Policies only** (or empty): the 1.18.0 words, unchanged — "8
+    policies", "Policy 3 of 8", "Confirm 5 policies", "I have read and
+    understood all 8 policies in {title}, and I agree to follow them."
+  - **SOPs only**: the same words with **SOP / SOPs** (always upper case,
+    the `TypeBadge` label) — "4 SOPs", "SOP 2 of 4", "Confirm 2 SOPs",
+    "…all 4 SOPs in {title}…"; "an SOP" where an article is needed.
+  - **A mix**: counts name each kind, policies first, then SOPs, then
+    every other type as **other documents** — "3 policies and 2 SOPs",
+    "3 policies, 2 SOPs and 1 other document", "1 SOP and 2 other
+    documents" ("other", because the policies and SOPs are documents too)
+    — and a position uses the neutral house noun, **Document k of N**
+    (never "Item", which is not a product word; the `TypeBadge` beside it
+    says which kind). The whole-handbook statement names the total and
+    the mix: "I have read and understood all 5 documents in {title} (3
+    policies and 2 SOPs), and I agree to follow them."; a total of two is
+    **both** ("both documents in {title} (1 policy and 1 SOP)", "both
+    SOPs in {title}"), except for policies only, which keep "all 2
+    policies". Only other types: "4 documents".
+  - **One document** speaks of itself by its own kind wherever it is read:
+    "this policy", "this SOP", "this document" (the confirm bar, "On this
+    SOP" in the rail), and so does a list row's screen-reader prefix on
+    the confirm page ("SOP 3: " in a mix; the number is the handbook's).
+    What leads to the **next** document names the handbook's kind, not the
+    current one's, since the next may differ: "Next policy", "Next SOP",
+    "Next document" (`nextItemLabel`).
+  - **The printed acknowledgement** agrees to follow "the policies it
+    contains" for policies only, however many (the 1.18.0 sentence);
+    other contents are counted: "the SOP", "the SOPs", "the documents".
+  - The statement is stored on attestation records, so a policy-only
+    handbook's sentence must stay byte-identical; a change to any of these
+    helpers is a change to evidence wording.
 
 - **The reader's frame** (`HandbookReader`) is the page skeleton: a
   `Breadcrumbs` back to Handbooks, then `PageHeader` with `BookOpen`, the
@@ -1942,7 +1981,8 @@ one (§Print) and, with read confirmation licensed, confirmed as one
   "Handbook contents">` on `CARD_CLASS px-2 py-3`, **sticky beside the
   pane from `lg`** (`lg:sticky lg:top-6`, capped at the viewport and
   scrolling itself). On a phone it sits above the pane **collapsed behind
-  one button**, "Contents · Policy k of N · x of y confirmed"
+  one button**, "Contents · Policy k of N · x of y confirmed" (the noun
+  per §Naming what a handbook holds)
   (`TableOfContents`, a turning `ChevronDown`, `aria-expanded` /
   `aria-controls`), so the policy is the first thing a small screen
   shows; following a link closes it. Inside, top to bottom: **Your
@@ -1963,7 +2003,7 @@ one (§Print) and, with read confirmation licensed, confirmed as one
 - **The policy masthead** (`PolicyPage`) sits on `CARD_CLASS` with an
   accent wash (`bg-linear-to-b from-compass-50 to-transparent`, dropped in
   print). One wrapping row of badges: `TypeBadge`, `HandbookOnlyChip`
-  when that is where people find it (its tooltip naming this handbook), "Policy k of N" (`text-xs
+  when that is where people find it (its tooltip naming this handbook), "Policy k of N" ("SOP k of N", "Document k of N" for a mix; `text-xs
   text-slate-500`, plain text), and the reader's `StandingChip` pushed
   right (`ml-auto`). Then the title (an h2 at the document-title size,
   §Page skeleton) and the **facts row** (`PolicyFacts`): a `<dl>` of
@@ -2015,7 +2055,13 @@ one (§Print) and, with read confirmation licensed, confirmed as one
   handbook" once every policy already counts).
 - **The editor** (`HandbookEditor`) is the explicit-save pattern
   (`SaveRow`, Ctrl/⌘+S, the leave guard): Details and Contents beside a
-  sticky Add policies panel (`lg:grid-cols-[minmax(0,1fr)_22rem]`), the
+  sticky **Add documents** panel (`lg:grid-cols-[minmax(0,1fr)_22rem]`;
+  named for documents, not "policies and SOPs", because its All types
+  filter offers every type and its search box already says "Search
+  documents…", §Vocabulary), whose `Segmented` type filter reads
+  **Policies | SOPs | All types** (Policies first, as the default), with
+  an empty result per filter ("No published SOPs here. Try Policies or All
+  types."), the
   status chip and the named actions (Preview, Publish handbook /
   Unpublish) in the header, each `print:hidden`, Delete in the
   `DangerZone`. Each Contents row (a locked placeholder aside, below)

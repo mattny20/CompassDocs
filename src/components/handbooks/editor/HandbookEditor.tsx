@@ -5,7 +5,7 @@
 // handbook's title, its status chip and the named status actions (Preview,
 // Publish handbook / Unpublish; STYLEGUIDE §Status chips: status is shown,
 // changing it is an action); under it the Details and Contents cards beside
-// the sticky "Add policies" panel, one SaveRow for the whole page (the
+// the sticky "Add documents" panel, one SaveRow for the whole page (the
 // editor's explicit-save pattern, Ctrl/⌘+S included, with the leave guard)
 // and the danger zone's Delete.
 //
@@ -68,7 +68,10 @@ import {
   setFindMode,
   type DraftDetails,
   type DraftSection,
+  draftTypeCounts,
+  itemsNoun,
 } from "./model";
+import { handbookKind, kindNoun } from "@/lib/handbook-shared";
 
 /** What Save compares against: the form's values as they would be sent. */
 function snapshotOf(details: DraftDetails, sections: DraftSection[]): string {
@@ -79,8 +82,8 @@ function snapshotOf(details: DraftDetails, sections: DraftSection[]): string {
   ]);
 }
 
-const SUBTITLE = "Pick the policies that make up this handbook, put them in order and group them into sections.";
-const NEW_SUBTITLE = "Name the handbook and choose who owns and reads it. You add its policies next.";
+const SUBTITLE = "Pick the policies and SOPs that make up this handbook, put them in order and group them into sections.";
+const NEW_SUBTITLE = "Name the handbook and choose who owns and reads it. You add its policies and SOPs next.";
 
 export function HandbookEditor({
   initial,
@@ -161,7 +164,7 @@ export function HandbookEditor({
       return;
     }
     markClean();
-    toast("ok", "Handbook created. Add its policies next.");
+    toast("ok", "Handbook created. Add its policies and SOPs next.");
     router.replace(`/handbooks/${res.value.handbook.id}/edit`);
   }
 
@@ -249,7 +252,7 @@ export function HandbookEditor({
     if (!saved || working) return;
     if (invalid()) return;
     if (itemCount(sections) === 0) {
-      toast("error", "Add at least one policy before publishing.");
+      toast("error", "Add at least one document before publishing.");
       return;
     }
     setBusy("publish");
@@ -276,7 +279,7 @@ export function HandbookEditor({
     if (!saved || working) return;
     const ok = await confirmDialog({
       title: "Unpublish this handbook?",
-      body: "Readers lose access to it until it is published again, and its Handbook only policies are listed in their spaces meanwhile. Confirmations are kept.",
+      body: `Readers lose access to it until it is published again, and its Handbook only ${itemsNoun(sections)} are listed in their spaces meanwhile. Confirmations are kept.`,
       confirmLabel: "Unpublish",
       danger: true,
     });
@@ -300,7 +303,7 @@ export function HandbookEditor({
     if (!saved || working) return;
     const ok = await confirmDialog({
       title: `Delete "${saved.title}"?`,
-      body: "The handbook and its sections go. The policies in it stay in their spaces, with their own confirmations, and are listed there again. This cannot be undone.",
+      body: `The handbook and its sections go. The ${itemsNoun(sections)} in it stay in their spaces, with their own confirmations, and are listed there again. This cannot be undone.`,
       confirmLabel: "Delete handbook",
       danger: true,
       typeToConfirm: published ? saved.title : undefined,
@@ -395,12 +398,13 @@ export function HandbookEditor({
                 titleRef={titleRef}
                 introRef={introRef}
                 groupsRef={groupsRef}
+                itemNoun={kindNoun(handbookKind(draftTypeCounts(sections)))}
               />
               <ContentsCard
                 sections={sections}
                 published={published}
                 disabled={working}
-                emptyHint="No policies yet. Tick documents in Add policies to put them here."
+                emptyHint="No documents yet. Tick them in Add documents to put them here."
                 onAddSection={(t) => editSections((s) => addSection(s, t))}
                 onRenameSection={(key, t) => editSections((s) => renameSection(s, key, t))}
                 onRemoveSection={(key) => editSections((s) => removeSection(s, key))}
@@ -435,7 +439,7 @@ export function HandbookEditor({
 
           <div className="mt-10">
             <DangerZone>
-              <DangerAction label="Delete handbook" description="The policies stay in their spaces. This cannot be undone.">
+              <DangerAction label="Delete handbook" description={`The ${itemsNoun(sections)} stay in their spaces. This cannot be undone.`}>
                 <Button variant="danger" busy={busy === "delete"} disabled={working} onClick={remove}>
                   Delete handbook
                 </Button>

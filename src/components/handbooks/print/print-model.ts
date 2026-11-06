@@ -3,6 +3,9 @@
 // the components stay presentational and server-safe. The page builds it
 // from lib/handbooks; nothing here touches the database.
 
+import { handbookItemsLabel, handbookKind, handbookPositionLabel, kindNoun } from "@/lib/handbook-shared";
+import type { HandbookTypeCounts } from "@/lib/handbook-shared";
+
 export type PaperSize = "a4" | "letter";
 
 export interface PrintPolicy {
@@ -47,6 +50,11 @@ export interface PrintHandbook {
   logoUrl: string;
   sections: PrintSection[];
   policyCount: number;
+  /**
+   * The printed items by kind (1.18.2): the counts, "Policy k of N" and the
+   * acknowledgement page name what the handbook holds. Absent: policies only.
+   */
+  mix?: HandbookTypeCounts;
   /** Sections with a title (the "M sections" on the cover). */
   sectionCount: number;
   /** "Nov 5, 2026" */
@@ -65,11 +73,32 @@ export function sectionLabel(s: Pick<PrintSection, "number" | "title">): string 
   return s.number === null ? s.title : `${s.number} · ${s.title}`;
 }
 
-/** "8 policies · 3 sections" — the cover's count line. */
-export function countLine(policies: number, sections: number): string {
-  const p = `${policies} ${policies === 1 ? "policy" : "policies"}`;
+/** "8 policies · 3 sections" — the cover's count line ("3 policies and 2 SOPs · 2 sections" with `mix`). */
+export function countLine(policies: number, sections: number, mix?: HandbookTypeCounts): string {
+  const p = mix ? handbookItemsLabel(mix) : `${policies} ${policies === 1 ? "policy" : "policies"}`;
   if (sections === 0) return p;
   return `${p} · ${sections} ${sections === 1 ? "section" : "sections"}`;
+}
+
+/** "Policy 2 of 8" — the running header; "SOP 2 of 8", "Document 2 of 8" for other contents. */
+export function positionLine(hb: Pick<PrintHandbook, "policyCount" | "mix">, n: number): string {
+  return hb.mix ? handbookPositionLabel(hb.mix, n, hb.policyCount) : `Policy ${n} of ${hb.policyCount}`;
+}
+
+/**
+ * The noun in the acknowledgement's "agree to follow the … it contains":
+ * "policies" for a handbook of policies only, however many (the 1.18.0
+ * sentence, kept exactly); otherwise counted, so one SOP reads "the SOP"
+ * and two read "the SOPs" ("the document" / "the documents" for a mix).
+ */
+export function itemsNoun(hb: Pick<PrintHandbook, "mix" | "policyCount">): string {
+  const kind = hb.mix ? handbookKind(hb.mix) : "policy";
+  return kind === "policy" ? "policies" : kindNoun(kind, hb.policyCount);
+}
+
+/** The possessive in "recorded against each policy's version": "each SOP's", "each document's". */
+export function eachItemNoun(hb: Pick<PrintHandbook, "mix">): string {
+  return hb.mix ? kindNoun(handbookKind(hb.mix), 1) : "policy";
 }
 
 /**

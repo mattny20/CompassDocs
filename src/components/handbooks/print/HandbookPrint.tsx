@@ -19,7 +19,10 @@ import styles from "./HandbookPrint.module.css";
 import { handbookPageCss, policyPageName } from "./page-css";
 import {
   countLine,
+  eachItemNoun,
   introFitsCover,
+  itemsNoun,
+  positionLine,
   sectionLabel,
   type PrintHandbook,
   type PrintPolicy,
@@ -62,7 +65,7 @@ export function HandbookPrint({ hb, toolbar }: { hb: PrintHandbook; toolbar?: Re
           )}
         </div>
         <div className={`mt-auto pt-8 text-xs leading-relaxed opacity-90 ${styles.grow} flex flex-col justify-end`}>
-          <p>{countLine(hb.policyCount, hb.sectionCount)}</p>
+          <p>{countLine(hb.policyCount, hb.sectionCount, hb.mix)}</p>
           <p>
             Printed {hb.printedOn} by {hb.printedBy}
           </p>
@@ -111,7 +114,7 @@ export function HandbookPrint({ hb, toolbar }: { hb: PrintHandbook; toolbar?: Re
           </h2>
           <p className="mt-3 text-sm leading-relaxed text-slate-700">
             I confirm that I have received, read and understood the {hb.title} (
-            {countLine(hb.policyCount, 0)}, listed in the contents), and that I agree to follow the policies it
+            {countLine(hb.policyCount, 0, hb.mix)}, listed in the contents), and that I agree to follow the {itemsNoun(hb)} it
             contains.
           </p>
           <div className={`mt-4 space-y-5 ${styles.keep}`}>
@@ -126,7 +129,7 @@ export function HandbookPrint({ hb, toolbar }: { hb: PrintHandbook; toolbar?: Re
             {hb.confirmOnline ? (
               <>
                 Return this page to {hb.ownerLabel}, or confirm online at {hb.currentUrl}, where your confirmation is
-                recorded against each policy&apos;s version.
+                recorded against each {eachItemNoun(hb)}&apos;s version.
               </>
             ) : (
               <>
@@ -191,9 +194,7 @@ function PolicySheet({
           className={`flex justify-between gap-4 border-b border-slate-200 pb-1.5 print:hidden ${FURNITURE_TEXT}`}
         >
           <span>{section.title ? sectionLabel(section) : hb.title}</span>
-          <span className="shrink-0">
-            Policy {p.number} of {hb.policyCount}
-          </span>
+          <span className="shrink-0">{positionLine(hb, p.number)}</span>
         </div>
         <div className={styles.policyHead}>
           <p className="mt-4 text-xs text-slate-500 print:mt-0">

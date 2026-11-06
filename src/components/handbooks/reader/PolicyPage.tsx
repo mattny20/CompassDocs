@@ -1,6 +1,7 @@
 // One policy as the handbook reader shows it (1.18.0, the approved
 // 6-policy-view mock-up): a masthead on an accent wash (the type, "Handbook
-// only" when that is where people find it, "Policy k of N", the reader's
+// only" when that is where people find it, "Policy k of N" (SOP / Document
+// k of N for other contents, lib/handbook-shared), the reader's
 // status chip), the title, the facts row; then "In short", "What changed in
 // version N" for a reader who confirmed an earlier version, the body
 // through the app's document renderer (MarkdownView in a doc-read article,
@@ -35,9 +36,7 @@ export function PolicyPage({ view }: { view: PolicyView }) {
         <div className="flex flex-wrap items-center gap-2">
           <TypeBadge type={view.type} />
           {view.handbookOnly && <HandbookOnlyChip handbooks={[view.handbookTitle]} />}
-          <span className="text-xs text-slate-500">
-            Policy {view.number} of {view.total}
-          </span>
+          <span className="text-xs text-slate-500">{view.position}</span>
           {view.standing && (
             <span className="ml-auto">
               <StandingChip standing={view.standing} />
@@ -76,6 +75,8 @@ export function PolicyPage({ view }: { view: PolicyView }) {
             docId={view.docId}
             handbookId={view.confirm.handbookId}
             title={view.title}
+            noun={view.noun}
+            handbookNoun={view.handbookNoun}
             statement={view.confirm.statement}
             signature={view.confirm.signature}
             localAccount={view.confirm.localAccount}

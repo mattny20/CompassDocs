@@ -4,7 +4,7 @@ import { BookOpen, ShieldCheck } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { userHolds } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
-import { getHandbook } from "@/lib/handbooks";
+import { getHandbook, handbookKind, handbookTypeCounts, kindNoun } from "@/lib/handbooks";
 import { loadConfirmView } from "@/lib/handbook-confirm";
 import { PageContainer } from "@/components/PageWidth";
 import { PageHeader } from "@/components/PageHeader";
@@ -25,8 +25,9 @@ export const dynamic = "force-dynamic";
 // The column is the mock-up's 44rem: a form read top to bottom, inside
 // the user's page width (a deliberate content column, not a page width).
 
-const SUBTITLE =
-  "One confirmation covers every policy below that is waiting for you. Each is recorded against the version you read, as if you had confirmed it on its own page.";
+/** "One confirmation covers every policy below…"; "every SOP", "every document" for other contents (1.18.2). */
+const subtitleFor = (noun: string) =>
+  `One confirmation covers every ${noun} below that is waiting for you. Each is recorded against the version you read, as if you had confirmed it on its own page.`;
 
 const handbookFor = cache(async (id: number) => {
   const user = await requireUser();
@@ -52,7 +53,9 @@ export default async function ConfirmHandbookPage({ params }: { params: Promise<
       className="mb-2"
     />
   );
-  const header = <PageHeader icon={<ShieldCheck />} title="Confirm the handbook" subtitle={SUBTITLE} />;
+  const kind = handbookKind(handbookTypeCounts(handbook.sections.flatMap((s) => s.items)));
+  const noun = kindNoun(kind);
+  const header = <PageHeader icon={<ShieldCheck />} title="Confirm the handbook" subtitle={subtitleFor(noun)} />;
 
   if (!(await featureEnabled("policy_ack"))) {
     return (
@@ -84,7 +87,7 @@ export default async function ConfirmHandbookPage({ params }: { params: Promise<
           <EmptyState
             icon={<BookOpen />}
             title="This handbook doesn't ask for a confirmation"
-            body="Read it, and confirm any policy that asks you to on its own page."
+            body={`Read it, and confirm any ${kindNoun(kind)} that asks you to on its own page.`}
             action={{ href: `/handbooks/${handbook.id}`, label: "Open the handbook", icon: <BookOpen /> }}
           />
         )}

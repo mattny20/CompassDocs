@@ -18,7 +18,12 @@ import {
   HANDBOOK_SECTION_TITLE_MAX,
   HANDBOOK_SECTIONS_MAX,
   HANDBOOK_TITLE_MAX,
+  handbookItemsLabel,
+  handbookKind,
+  handbookTypeCounts,
+  kindNoun,
 } from "@/lib/handbook-shared";
+import type { HandbookTypeCounts } from "@/lib/handbook-shared";
 import type { DocStatus, DocType } from "@/lib/types";
 
 export const TITLE_MAX = HANDBOOK_TITLE_MAX;
@@ -281,4 +286,32 @@ export function detailsErrors(d: DraftDetails): { title?: string; groups?: strin
 /** "8 policies", "1 policy". */
 export function policies(n: number): string {
   return `${n} ${n === 1 ? "policy" : "policies"}`;
+}
+
+/** What the working copy holds, by kind (a locked placeholder is a plain document). */
+export function draftTypeCounts(sections: DraftSection[]): HandbookTypeCounts {
+  return handbookTypeCounts(allItems(sections));
+}
+
+/** "8 policies", "2 SOPs", "3 policies and 2 SOPs": the Contents card's count (1.18.2). */
+export function itemsLabel(sections: DraftSection[]): string {
+  return handbookItemsLabel(draftTypeCounts(sections));
+}
+
+/**
+ * The plural noun the editor's sentences use for what the handbook holds:
+ * "policies" while it is policies only (or empty), "SOPs" for SOPs only,
+ * else "documents".
+ */
+export function itemsNoun(sections: DraftSection[]): string {
+  return kindNoun(handbookKind(draftTypeCounts(sections)), 2);
+}
+
+/** The Add documents panel's empty result, per type filter (1.18.2): what was searched for, and where else to look. */
+export function candidatesEmptyText(type: "policy" | "sop" | "all", searched: boolean): string {
+  const what = type === "policy" ? "policies" : type === "sop" ? "SOPs" : "documents";
+  if (searched) return `No published ${what} match your search.`;
+  if (type === "policy") return "No published policies here. Try SOPs or All types.";
+  if (type === "sop") return "No published SOPs here. Try Policies or All types.";
+  return "No published documents here.";
 }
