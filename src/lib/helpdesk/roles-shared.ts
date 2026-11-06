@@ -32,7 +32,7 @@ export const HD_ROLE_DESCRIPTION: Record<HdRole, string> = {
   agent: "Replies directly, changes status and priority, and transfers tickets in their teams.",
   team_lead: "An agent who also assigns work, reviews newbies' replies and manages the people in their teams.",
   manager: "Works every team, reads every report and runs the helpdesk's configuration.",
-  admin: "Everything, including email channels, templates, settings and this matrix.",
+  admin: "Everything, including email channels, templates, settings and this matrix. Replies directly.",
 };
 
 /** The ladder: a higher rank outranks a lower one. */
@@ -144,6 +144,27 @@ export const HD_MANAGER_ONLY_CAPS: readonly HdCap[] = ["roles.manage", "agents.a
 /** Pairs a role holds at most one of. */
 export const HD_EXCLUSIVE_CAPS: readonly [HdCap, HdCap][] = [["tickets.reply_public", "tickets.reply_needs_review"]];
 
+/**
+ * Admin's column: every capability except tickets.reply_needs_review, which
+ * is a restriction (hold public replies for review), not a power, and is
+ * exclusive with tickets.reply_public. Admin replies directly.
+ */
+export const HD_ADMIN_CAPS: readonly HdCap[] = HD_CAP_KEYS.filter((c) => c !== "tickets.reply_needs_review");
+
+/**
+ * Capabilities an editor may grant or remove without holding them, because
+ * they hold the stronger one: replying after review is a lesser form of
+ * replying directly.
+ */
+const HD_GRANT_COVERED_BY: Partial<Record<HdCap, HdCap>> = { "tickets.reply_needs_review": "tickets.reply_public" };
+
+/** May an editor holding `editorCaps` grant or remove `cap` on a role? */
+function editorCovers(editorCaps: readonly HdCap[], cap: HdCap): boolean {
+  if (editorCaps.includes(cap)) return true;
+  const via = HD_GRANT_COVERED_BY[cap];
+  return Boolean(via && editorCaps.includes(via));
+}
+
 // --- Defaults ----------------------------------------------------------------------
 
 const NEWBIE: HdCap[] = [
@@ -199,13 +220,13 @@ export const HD_DEFAULT_MATRIX: HdRoleMatrix = {
   agent: ordered(AGENT),
   team_lead: ordered(TEAM_LEAD),
   manager: ordered(MANAGER),
-  admin: [...HD_CAP_KEYS],
+  admin: [...HD_ADMIN_CAPS],
 };
 
 /** Overrides as stored: a full capability list per customised role (never admin). */
 export type HdRoleOverrides = Partial<Record<Exclude<HdRole, "admin">, HdCap[]>>;
 
-/** Lay stored overrides over the defaults. Unknown keys are dropped; Admin is always everything. Never throws. */
+/** Lay stored overrides over the defaults. Unknown keys are dropped; Admin is always everything (HD_ADMIN_CAPS). Never throws. */
 export function resolveMatrix(raw: unknown): HdRoleMatrix {
   const v = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const out = { ...HD_DEFAULT_MATRIX };
@@ -219,7 +240,7 @@ export function resolveMatrix(raw: unknown): HdRoleMatrix {
     for (const [a, b] of HD_EXCLUSIVE_CAPS) if (caps.includes(a) && caps.includes(b)) caps = caps.filter((c) => c !== b);
     out[r] = caps;
   }
-  out.admin = [...HD_CAP_KEYS];
+  out.admin = [...HD_ADMIN_CAPS];
   return out;
 }
 
@@ -240,6 +261,7 @@ export function toOverrides(m: HdRoleMatrix): HdRoleOverrides {
  * Roles page shows the reason on the disabled checkbox.
  */
 export function capForbiddenReason(role: HdRole, cap: HdCap): string | null {
+  if (role === "admin" && cap === "tickets.reply_needs_review") return "Admin replies directly, never after review.";
   if (role === "admin") return "Admin always has every capability.";
   if (HD_MANAGER_ONLY_CAPS.includes(cap) && HD_ROLE_RANK[role] < HD_ROLE_RANK.manager) return "Only Managers and Admins can hold this.";
   return null;
@@ -262,7 +284,7 @@ export function cellLockedReason(role: HdRole, cap: HdCap, editorRole: HdRole | 
   return (
     capForbiddenReason(role, cap) ??
     columnLockedReason(role, editorRole) ??
-    (editorCaps.includes(cap) ? null : "You can't grant a capability you don't have.")
+    (editorCovers(editorCaps, cap) ? null : "You can't grant a capability you don't have.")
   );
 }
 
@@ -277,7 +299,7 @@ export function checkMatrix(
 ): { ok: true; matrix: HdRoleMatrix; changed: HdRole[] } | { ok: false; error: string } {
   if (!proposed || typeof proposed !== "object" || Array.isArray(proposed)) return { ok: false, error: "Send the matrix as an object of role → capabilities." };
   const p = proposed as Record<string, unknown>;
-  const next: HdRoleMatrix = { ...current, admin: [...HD_CAP_KEYS] };
+  const next: HdRoleMatrix = { ...current, admin: [...HD_ADMIN_CAPS] };
   const changed: HdRole[] = [];
   for (const key of Object.keys(p)) {
     if (!isHdRole(key)) return { ok: false, error: `Unknown role "${key.slice(0, 40)}".` };
@@ -300,7 +322,7 @@ export function checkMatrix(
         const why = capForbiddenReason(r, c);
         if (why) return { ok: false, error: `${HD_ROLE_LABEL[r]} → ${HD_CAPABILITIES[c].label}: ${why}` };
       }
-      if (!editor.caps.includes(c)) {
+      if (!editorCovers(editor.caps, c)) {
         return { ok: false, error: `${HD_ROLE_LABEL[r]} → ${HD_CAPABILITIES[c].label}: you can't grant or remove a capability you don't have.` };
       }
     }

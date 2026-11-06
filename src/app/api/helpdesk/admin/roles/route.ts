@@ -3,10 +3,11 @@
 // POST /api/helpdesk/admin/roles  (Reset to defaults: the columns the caller may change) → { matrix }
 // Helpdesk 1.19.0 desk roles (agent J). roles.manage. The invariants
 // (roles-shared checkMatrix) are enforced here whatever the page sent:
-// Admin always has everything; nobody grants or removes a capability they
-// don't hold or changes a role at or above their own; roles.manage and
-// agents.assign_roles stay with Managers; reply after review and direct
-// replies are exclusive.
+// Admin always has everything (and replies directly, never after review);
+// nobody grants or removes a capability they don't hold (direct replies
+// cover reply after review) or changes a role at or above their own;
+// roles.manage and agents.assign_roles stay with Managers; reply after
+// review and direct replies are exclusive.
 
 import { NextResponse } from "next/server";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";

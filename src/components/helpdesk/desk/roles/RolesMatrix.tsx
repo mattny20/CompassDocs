@@ -122,7 +122,7 @@ export function RolesMatrix() {
 
   return (
     <PageContainer>
-      <PageHeader icon={<ShieldCheck />} title="Roles" subtitle="What each desk level can do. Admin always has everything." />
+      <PageHeader icon={<ShieldCheck />} title="Roles" subtitle="What each desk level can do. Admin always has everything and replies directly." />
       {error && <p className="notice-error mb-4 rounded-lg border px-3 py-2 text-sm">{error}</p>}
       {!matrix && !error && <LoadingRow className="py-10" />}
       {matrix && me && (
@@ -190,7 +190,7 @@ export function RolesMatrix() {
             </Table>
           </Card>
           <p className="mt-2 text-xs text-slate-500">
-            Greyed boxes can&rsquo;t change here: Admin always has everything, assigning roles and this page stay with Managers and Admins, and you can only
+            Greyed boxes can&rsquo;t change here: Admin always has everything (its replies never wait for review), assigning roles and this page stay with Managers and Admins, and you can only
             change roles below your own, with capabilities you have yourself. A role replies directly or after review, never both.
           </p>
           <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save roles" className="mt-4">

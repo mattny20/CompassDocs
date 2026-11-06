@@ -87,6 +87,7 @@ const shared = require("../src/lib/helpdesk/roles-shared") as typeof import("../
 const roles = require("../src/lib/helpdesk/roles") as typeof import("../src/lib/helpdesk/roles");
 const access = require("../src/lib/helpdesk/access") as typeof import("../src/lib/helpdesk/access");
 const review = require("../src/lib/helpdesk/review") as typeof import("../src/lib/helpdesk/review");
+const messages = require("../src/lib/helpdesk/messages") as typeof import("../src/lib/helpdesk/messages");
 const tickets = require("../src/lib/helpdesk/tickets") as typeof import("../src/lib/helpdesk/tickets");
 const email = require("../src/lib/helpdesk/email") as typeof import("../src/lib/helpdesk/email");
 const inbound = require("../src/lib/helpdesk/inbound") as typeof import("../src/lib/helpdesk/inbound");
@@ -311,8 +312,10 @@ describe("default matrix", () => {
     assert.deepEqual(shared.assignableRolesFor("manager", shared.HD_DEFAULT_MATRIX.manager), ["newbie", "agent", "team_lead"]);
   });
 
-  test("Admin: every capability; assigns any role", () => {
-    assert.deepEqual(shared.HD_DEFAULT_MATRIX.admin, shared.HD_CAP_KEYS);
+  test("Admin: every capability but reply after review (Admin replies directly); assigns any role", () => {
+    assert.deepEqual(shared.HD_DEFAULT_MATRIX.admin, shared.HD_ADMIN_CAPS);
+    assert.deepEqual(shared.HD_ADMIN_CAPS, shared.HD_CAP_KEYS.filter((c) => c !== "tickets.reply_needs_review"));
+    assert.ok(shared.HD_ADMIN_CAPS.includes("tickets.reply_public"));
     assert.deepEqual(shared.assignableRolesFor("admin", shared.HD_DEFAULT_MATRIX.admin), [...shared.HD_ROLES]);
     assert.deepEqual(shared.assignableRolesFor("team_lead", shared.HD_DEFAULT_MATRIX.team_lead), ["newbie", "agent"]);
     assert.deepEqual(shared.assignableRolesFor("agent", shared.HD_DEFAULT_MATRIX.agent), []);
@@ -321,7 +324,7 @@ describe("default matrix", () => {
   test("every default holds the invariants", () => {
     for (const r of shared.HD_ROLES) {
       const caps = shared.HD_DEFAULT_MATRIX[r];
-      assert.ok(!(caps.includes("tickets.reply_public") && caps.includes("tickets.reply_needs_review")) || r === "admin", r);
+      for (const [a, b] of shared.HD_EXCLUSIVE_CAPS) assert.ok(!(caps.includes(a) && caps.includes(b)), `${r} ${a} ${b}`);
       if (shared.HD_ROLE_RANK[r] < shared.HD_ROLE_RANK.manager) {
         for (const c of shared.HD_MANAGER_ONLY_CAPS) assert.ok(!caps.includes(c), `${r} ${c}`);
       }
@@ -331,14 +334,31 @@ describe("default matrix", () => {
 
 describe("matrix invariants (checkMatrix, resolveMatrix)", () => {
   const D = shared.HD_DEFAULT_MATRIX;
-  const adminEd = { role: "admin" as HdRole, caps: shared.HD_CAP_KEYS };
+  const adminEd = { role: "admin" as HdRole, caps: D.admin };
   const managerEd = { role: "manager" as HdRole, caps: [...D.manager, "roles.manage"] as HdCap[] };
 
   test("Admin's column can't be changed; it is always everything", () => {
     const r = shared.checkMatrix({ admin: [] }, D, adminEd);
     assert.ok(r.ok);
     assert.deepEqual(r.ok && r.changed, []);
-    assert.deepEqual(shared.resolveMatrix({ admin: ["tickets.view_team"] }).admin, shared.HD_CAP_KEYS);
+    assert.deepEqual(shared.resolveMatrix({ admin: ["tickets.view_team"] }).admin, shared.HD_ADMIN_CAPS);
+    assert.deepEqual(shared.resolveMatrix({ admin: [...shared.HD_CAP_KEYS] }).admin, shared.HD_ADMIN_CAPS, "never reply after review");
+    assert.equal(shared.capForbiddenReason("admin", "tickets.reply_needs_review"), "Admin replies directly, never after review.");
+  });
+
+  test("an Admin (or anyone replying directly) may grant and remove reply after review without holding it", () => {
+    assert.equal(shared.cellLockedReason("newbie", "tickets.reply_needs_review", "admin", D.admin), null);
+    assert.equal(shared.cellLockedReason("agent", "tickets.reply_needs_review", "admin", D.admin), null);
+    const off = shared.checkMatrix({ newbie: D.newbie.filter((c) => c !== "tickets.reply_needs_review") }, D, adminEd);
+    assert.ok(off.ok, !off.ok ? off.error : "");
+    const on = shared.checkMatrix(
+      { agent: [...D.agent.filter((c) => c !== "tickets.reply_public"), "tickets.reply_needs_review"] },
+      D,
+      adminEd
+    );
+    assert.ok(on.ok, !on.ok ? on.error : "");
+    // Reset puts it back on Newbie through the same checks.
+    assert.ok(shared.checkMatrix({ newbie: D.newbie }, off.ok ? off.matrix : D, adminEd).ok);
   });
 
   test("roles.manage and agents.assign_roles stay with Managers", () => {
@@ -700,7 +720,7 @@ describe("editing the matrix", () => {
     assert.equal((await put(P.admin, { newbie: [...D.newbie, "tickets.reply_public"] })).status, 400);
     const adminCol = await put(P.admin, { admin: [] });
     assert.equal(adminCol.status, 200);
-    assert.deepEqual(adminCol.body.matrix.admin, shared.HD_CAP_KEYS);
+    assert.deepEqual(adminCol.body.matrix.admin, shared.HD_ADMIN_CAPS);
   });
 
   test("a manager given roles.manage edits roles below them, only with capabilities they hold", async () => {
@@ -765,6 +785,33 @@ describe("newbie reply review", () => {
     assert.equal(t.status, "new");
     assert.ok(notices.some((n) => n.userId === P.lead.id && n.event === "desk_review_requested"), "the team lead is asked");
     assert.ok(!notices.some((n) => n.userId === P.manager.id), "managers only when the team has no lead");
+  });
+
+  test("a desk Admin's public reply is sent straight away: not held, new → open", async () => {
+    assert.equal(await roles.hdCan(P.admin, "tickets.reply_needs_review"), false);
+    const t = await tickets.createTicket(
+      {
+        subject: `${STAMP} admin replies`,
+        body: "Can someone reset my badge?",
+        requester: { id: P.req.id, name: P.req.name, email: P.req.email },
+        team_id: T1,
+      } as never,
+      { silent: true, actorId: P.req.id, actorName: P.req.name }
+    );
+    ticketIds.push(t.id);
+    const r = await messages.addMessage(
+      t.id,
+      { kind: "public", body: "Done, your badge works again.", author: { id: P.admin.id, name: P.admin.name, email: P.admin.email }, via: "desk" },
+      { silent: true }
+    );
+    assert.ok(r);
+    assert.equal(r.held, false);
+    assert.equal(r.message.review_state, null);
+    assert.equal((await row(r.message.id)).review_state, null);
+    assert.equal(r.status, "open");
+    const after = (await pool().query("SELECT status, first_replied_at FROM hd_tickets WHERE id = $1", [t.id])).rows[0];
+    assert.equal(after.status, "open");
+    assert.ok(after.first_replied_at, "the first reply is stamped");
   });
 
   test("an agent's reply is sent straight away (no review)", async () => {
