@@ -39,6 +39,8 @@ import { getComplianceSettings } from "@/lib/compliance-settings";
 import { relationsFor } from "@/lib/relations";
 import { findScopeFor } from "@/lib/handbook-visibility";
 import { formatDate } from "@/lib/format";
+import { handbookItemsLabel, handbookKind, handbookPositionLabel, handbookTypeCounts, itemKind } from "@/lib/handbook-shared";
+import type { HandbookNounKind, HandbookTypeCounts } from "@/lib/handbook-shared";
 
 /** The reader's standing on one policy, as the status chip says it (HandbookStanding without 'info'). */
 export type PolicyStanding = Exclude<HandbookStanding, "info">;
@@ -77,8 +79,10 @@ export interface ReaderBase {
   states: Map<number, MyPolicyState>;
   contents: ContentsSection[];
   progress: { confirmed: number; total: number } | null;
-  /** "8 policies in 3 sections · updated Nov 2, 2026 · owned by People Ops". */
+  /** "8 policies in 3 sections · updated Nov 2, 2026 · owned by People Ops" ("3 policies and 2 SOPs in …" for a mix). */
   subtitle: string;
+  /** What the reader's view holds, by kind (1.18.2): the counts and "Policy k of N" name it. */
+  mix: HandbookTypeCounts;
   /** "Confirm handbook" is offered: licensed and the handbook asks for it. */
   confirmWhole: boolean;
 }
@@ -110,6 +114,7 @@ export async function loadReaderBase(user: SessionUser, handbook: Handbook, fmt:
         number: i.number,
         title: i.title,
         href: policyHref(handbook.id, i.doc_id),
+        type: i.type,
         confirmed: states.get(i.doc_id) === "confirmed",
       })),
     }));
@@ -119,9 +124,10 @@ export async function loadReaderBase(user: SessionUser, handbook: Handbook, fmt:
       ? { confirmed: asked.filter((s) => s === "confirmed").length, total: asked.length }
       : null;
   const sectionCount = contents.length;
+  const mix = handbookTypeCounts(items);
   const owner = handbook.space_id === null ? "for the whole workspace" : `owned by ${handbook.owner_label}`;
   const subtitle = [
-    `${count(items.length, "policy", "policies")} in ${count(sectionCount, "section", "sections")}`,
+    `${handbookItemsLabel(mix)} in ${count(sectionCount, "section", "sections")}`,
     `updated ${formatDate(handbook.updated_at, fmt)}`,
     owner,
   ].join(" · ");
@@ -133,6 +139,7 @@ export async function loadReaderBase(user: SessionUser, handbook: Handbook, fmt:
     contents,
     progress,
     subtitle,
+    mix,
     confirmWhole: ackLicensed && handbook.confirm_whole,
   };
 }
@@ -144,6 +151,12 @@ export interface PolicyView {
   content: string;
   number: number;
   total: number;
+  /** "Policy 2 of 5"; "SOP 2 of 5" in a handbook of SOPs, "Document 2 of 5" in a mixed one. */
+  position: string;
+  /** This document's own noun (policy, SOP, else document): "This SOP doesn't ask you to confirm it." */
+  noun: HandbookNounKind;
+  /** What the handbook holds (handbookKind of the reader's mix): the bar's "Next policy / SOP / document". */
+  handbookNoun: HandbookNounKind;
   handbookOnly: boolean;
   /** The handbook it is read in: the Handbook only chip's tooltip names it. */
   handbookTitle: string;
@@ -298,6 +311,9 @@ export async function loadPolicyView(
     content: doc.content,
     number: item.number,
     total: base.items.length,
+    position: handbookPositionLabel(base.mix, item.number, base.items.length),
+    noun: itemKind(doc.type),
+    handbookNoun: handbookKind(base.mix),
     handbookOnly: item.effective_find_mode === "handbook_only",
     handbookTitle: handbook.title,
     standing,

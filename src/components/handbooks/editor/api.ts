@@ -3,7 +3,7 @@
 // route files cannot drift apart silently. Every call answers the route's
 // own `error` sentence on a refusal, or the caller's fallback.
 
-import type { FindMode, Handbook, HandbookCandidate } from "@/lib/handbooks";
+import type { FindMode, Handbook, HandbookCandidate, HandbookCandidateType } from "@/lib/handbooks";
 import { HANDBOOK_CHANGED_ELSEWHERE, HANDBOOK_FOREIGN_CONTENTS } from "@/lib/handbook-shared";
 
 export const HANDBOOKS_URL = "/api/handbooks";
@@ -90,7 +90,7 @@ export const saveContents = (id: number, body: object, ifUpdatedAt?: string) =>
   save("PUT", contentsUrl(id), body, ifUpdatedAt, "Couldn't save the contents.");
 
 export const saveFindMode = (id: number, docId: number, mode: FindMode) =>
-  call<{ handbook: Handbook }>("PATCH", itemUrl(id, docId), { find_mode: mode }, "Couldn't change where people find that policy.");
+  call<{ handbook: Handbook }>("PATCH", itemUrl(id, docId), { find_mode: mode }, "Couldn't change where people find that document.");
 
 export const setPublished = (id: number, publish: boolean) =>
   call<{ handbook: Handbook }>(
@@ -104,7 +104,7 @@ export const deleteHandbook = (id: number) => call<unknown>("DELETE", handbookUr
 
 export async function searchCandidates(
   id: number,
-  q: { q: string; type: "policy" | "all"; spaceId: number | null },
+  q: { q: string; type: HandbookCandidateType; spaceId: number | null },
   signal?: AbortSignal
 ): Promise<Answer<HandbookCandidate[]>> {
   const params = new URLSearchParams();

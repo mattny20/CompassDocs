@@ -244,7 +244,10 @@ describe("the handbook reader (licensed)", () => {
     assert.equal(f["Applies to"], "All employees");
     assert.equal(f["Next review"], "");
     assert.deepEqual(v.summaryPoints, ["You get **25 days** a year."]);
-    assert.ok(base.subtitle.startsWith("3 policies in 1 section · updated "), base.subtitle);
+    // Two policies and an SOP (the checklist): the count names both kinds (1.18.2).
+    assert.ok(base.subtitle.startsWith("2 policies and 1 SOP in 1 section · updated "), base.subtitle);
+    assert.equal(v.position, "Document 1 of 3", "a mixed handbook numbers documents");
+    assert.equal(v.noun, "policy", "the policy still speaks of itself as a policy");
     assert.ok(base.subtitle.endsWith("for the whole workspace"));
     // Related: inside the handbook it opens here; outside it, only when the reader may open it (not here).
     assert.deepEqual(v.related.map((r) => r.href), [`/handbooks/${hbId}/${infoId}`]);

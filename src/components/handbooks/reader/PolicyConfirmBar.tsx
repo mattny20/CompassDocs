@@ -40,9 +40,11 @@ import { useAckState } from "@/components/AckState";
 import { DEFAULT_CONFIRMATION_STATEMENT, SIGN_FIRST_HELP } from "@/components/AckCard";
 import { useAction } from "@/lib/use-action";
 import { CONFIRM_SECTION_ID } from "@/lib/use-reached-end";
+import { kindNoun, nextItemLabel, type HandbookNounKind } from "@/lib/handbook-shared";
 
-const STALE_MESSAGE =
-  "This policy changed while you were reading it. The page has been refreshed; please read the changes.";
+/** "This policy changed while you were reading it…"; "This SOP…", "This document…" (1.18.2). */
+const staleMessage = (noun: string) =>
+  `This ${noun} changed while you were reading it. The page has been refreshed; please read the changes.`;
 
 /** The visible reason under Confirm until the statement is ticked. */
 export const TICK_FIRST_HELP = "Tick the statement to confirm";
@@ -59,6 +61,8 @@ export function PolicyConfirmBar({
   docId,
   handbookId,
   title,
+  noun: kind = "policy",
+  handbookNoun = "policy",
   statement = DEFAULT_CONFIRMATION_STATEMENT,
   signature = false,
   localAccount = false,
@@ -74,6 +78,10 @@ export function PolicyConfirmBar({
   handbookId: number;
   /** The policy's title, for the version line under the statement. */
   title: string;
+  /** What this document is called in the bar's sentences (1.18.2): "this policy", "this SOP", "this document". */
+  noun?: HandbookNounKind;
+  /** What the handbook holds (1.18.2), for the bar's "Next …" label: the next document may be of another kind. */
+  handbookNoun?: HandbookNounKind;
   /** The confirmation statement the server records (the policy's own, else the workspace default). */
   statement?: string;
   /** A typed signature is asked (C2): the policy requires one, or the handbook does. */
@@ -91,6 +99,7 @@ export function PolicyConfirmBar({
   /** On the last policy: "Confirm handbook" (the whole-handbook page). */
   finish?: ReaderLink | null;
 }) {
+  const noun = kindNoun(kind);
   const ack = useAckState();
   const fmt = useFormatDate();
   const router = useRouter();
@@ -134,7 +143,7 @@ export function PolicyConfirmBar({
         if (res.status === 409) {
           const data = (await res.json().catch(() => ({}))) as { stale?: boolean; error?: string };
           outcome.stale = Boolean(data?.stale);
-          return new Response(JSON.stringify(data?.stale ? { error: STALE_MESSAGE } : data), {
+          return new Response(JSON.stringify(data?.stale ? { error: staleMessage(noun) } : data), {
             status: 409,
             headers: { "content-type": "application/json" },
           });
@@ -234,7 +243,7 @@ export function PolicyConfirmBar({
       id={CONFIRM_SECTION_ID}
       ref={section}
       tabIndex={-1}
-      aria-label={showForm ? "Confirm this policy" : confirmed ? "Confirmation recorded" : "Next policy"}
+      aria-label={showForm ? `Confirm this ${noun}` : confirmed ? "Confirmation recorded" : nextItemLabel(handbookNoun)}
       className="mt-8 scroll-mt-20 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3.5 print:hidden"
     >
       {showForm && signature ? (
@@ -283,7 +292,7 @@ export function PolicyConfirmBar({
                 <span>
                   {ack!.ackedRev !== null
                     ? `You confirmed version ${ack!.ackedRev} on ${fmt.dateTime(ack!.ackedAt)}`
-                    : `You confirmed this policy on ${fmt.dateTime(ack!.ackedAt)}`}
+                    : `You confirmed this ${noun} on ${fmt.dateTime(ack!.ackedAt)}`}
                   {signedAs ? `, signed as ${signedAs}` : ""}.{" "}
                   {/* A link inside the sentence: `link`, underlined. */}
                   <Link href="/compliance/person/me" className="link font-medium">
@@ -292,7 +301,7 @@ export function PolicyConfirmBar({
                 </span>
               </p>
             ) : forInformation ? (
-              <p className="text-sm text-slate-600">For information. This policy doesn&apos;t ask you to confirm it.</p>
+              <p className="text-sm text-slate-600">For information. This {noun} doesn&apos;t ask you to confirm it.</p>
             ) : prev && (next || finish) ? (
               <Button href={prev.href} variant="ghost" icon={<ArrowLeft />} className="-ml-2 max-w-full">
                 <span className="min-w-0 truncate">{prev.label}</span>

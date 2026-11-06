@@ -36,11 +36,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 // POST — confirm every policy that is waiting for the caller.
 //
-// Body: { agreed: true; versions: { [doc_id]: version_id }; signed_name?;
-// password? }. `versions` is what the page showed for each outstanding
-// policy; any that changed since answers 409 { stale: true } and nothing
-// is written (the card's rule). `agreed` is the ticked statement (400
-// without it). The signature is asked when any outstanding policy requires
+// Body: { agreed: true; versions: { [doc_id]: version_id }; statement;
+// fingerprint; signed_name?; password? }. `versions` is what the page
+// showed for each outstanding policy; any that changed since answers 409
+// { stale: true } and nothing is written (the card's rule). `statement`
+// and `fingerprint` (1.18.2) are the sentence beside the box and the
+// contents the page was drawn for: either differing from the server's
+// answers the same 409 { stale: true }, so the stored statement is always
+// the one the person ticked (a page that sends neither is stale too; one
+// that sends only the fingerprint is checked on it). `agreed` is the
+// ticked statement (400 without it). The signature is asked when any outstanding policy requires
 // one or the handbook does: lib/attestation, once for the batch (409 /
 // 429 with its own sentence). The password leaves the body here, before
 // anything below can log or audit it, and is never stored. The rows, their
@@ -66,7 +71,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const outcome = await confirmHandbook(
     user,
     id,
-    { agreed: body.agreed, versions: body.versions, signed_name: body.signed_name, password },
+    {
+      agreed: body.agreed,
+      versions: body.versions,
+      statement: body.statement,
+      fingerprint: body.fingerprint,
+      signed_name: body.signed_name,
+      password,
+    },
     { ip: ipFrom(req), userAgent: req.headers.get("user-agent") ?? "" }
   );
   if (!outcome.ok) {

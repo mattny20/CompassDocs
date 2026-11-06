@@ -27,6 +27,7 @@ export function DetailsCard({
   titleRef,
   introRef,
   groupsRef,
+  itemNoun = "policy",
 }: {
   details: DraftDetails;
   options: HandbookOptions;
@@ -41,6 +42,11 @@ export function DetailsCard({
   introRef?: React.Ref<HTMLTextAreaElement>;
   /** Wraps the groups picker: its search box is focused when no group is chosen. */
   groupsRef?: React.Ref<HTMLDivElement>;
+  /**
+   * What the handbook holds, in the singular (1.18.2): "policy" while it is
+   * policies only (the 1.18.0 words), "SOP" for SOPs only, else "document".
+   */
+  itemNoun?: string;
 }) {
   const ownerSpace = details.owner === "" ? null : options.spaces.find((s) => String(s.id) === details.owner);
   // An owner the person can no longer choose (a workspace handbook opened by
@@ -144,7 +150,7 @@ export function DetailsCard({
         <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4">
           <Toggle
             label="Ask readers to confirm the whole handbook"
-            help="One confirmation covers every policy in it that asks this person to confirm."
+            help={`One confirmation covers every ${itemNoun} in it that asks this person to confirm.`}
             checked={details.confirm_whole}
             disabled={disabled}
             onChange={(confirm_whole) => onChange({ confirm_whole })}
@@ -152,7 +158,7 @@ export function DetailsCard({
           {details.confirm_whole && (
             <Toggle
               label="Require a typed signature"
-              help="Readers type their name (and their password, for a local account) to confirm the handbook, or any policy in it."
+              help={`Readers type their name (and their password, for a local account) to confirm the handbook, or any ${itemNoun} in it.`}
               checked={details.require_signature}
               disabled={disabled}
               onChange={(require_signature) => onChange({ require_signature })}

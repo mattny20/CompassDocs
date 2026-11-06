@@ -20,12 +20,16 @@ import Link from "next/link";
 import { Check, ChevronDown, TableOfContents } from "lucide-react";
 import { RAIL_GROUP_TEXT } from "@/components/RailLink";
 import { CARD_CLASS } from "@/components/Card";
+import type { DocType } from "@/lib/types";
+import { handbookKind, handbookPositionLabel, handbookTypeCounts, itemKind, kindNoun, kindNounTitle } from "@/lib/handbook-shared";
 
 export interface ContentsItem {
   docId: number;
   number: number;
   title: string;
   href: string;
+  /** The document's type (1.18.2): "Policy k of N" or "Document k of N", "On this SOP". */
+  type: DocType;
   /** The reader holds a confirmation that counts for this policy. */
   confirmed: boolean;
 }
@@ -163,7 +167,9 @@ export function HandbookContents({
   const listId = useId();
   const { items: headings, active } = usePolicyHeadings(activeDocId);
   const total = sections.reduce((n, s) => n + s.items.length, 0);
-  const activeItem = sections.flatMap((s) => s.items).find((i) => i.docId === activeDocId) ?? null;
+  const flat = sections.flatMap((s) => s.items);
+  const activeItem = flat.find((i) => i.docId === activeDocId) ?? null;
+  const mix = handbookTypeCounts(flat);
   const pct = progress && progress.total > 0 ? Math.round((progress.confirmed / progress.total) * 100) : 0;
 
   // A phone closes the panel after a jump, so the policy is what it shows.
@@ -181,7 +187,7 @@ export function HandbookContents({
         <TableOfContents className="h-4 w-4 text-slate-400" aria-hidden />
         <span className="min-w-0 flex-1 truncate">
           Contents
-          {activeItem ? ` · Policy ${activeItem.number} of ${total}` : ""}
+          {activeItem ? ` · ${handbookPositionLabel(mix, activeItem.number, total)}` : ""}
           {progress ? ` · ${progress.confirmed} of ${progress.total} confirmed` : ""}
         </span>
         <ChevronDown className={`h-4 w-4 text-slate-400 transition ${open ? "rotate-180" : ""}`} aria-hidden />
@@ -200,7 +206,7 @@ export function HandbookContents({
             <div
               className="mt-1.5 h-1.5 rounded-full bg-slate-100"
               role="progressbar"
-              aria-label="Policies confirmed"
+              aria-label={`${kindNounTitle(handbookKind(mix), 2)} confirmed`}
               aria-valuemin={0}
               aria-valuemax={progress.total}
               aria-valuenow={progress.confirmed}
@@ -259,7 +265,7 @@ export function HandbookContents({
                       )}
                     </Link>
                     {on && (inShortId || headings.length > 0) && (
-                      <ol aria-label="On this policy" className="mb-1 mt-0.5">
+                      <ol aria-label={`On this ${kindNoun(itemKind(it.type))}`} className="mb-1 mt-0.5">
                         {inShortId && (
                           <li>
                             <a

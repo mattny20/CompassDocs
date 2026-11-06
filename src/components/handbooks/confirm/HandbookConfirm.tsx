@@ -15,9 +15,11 @@
 // is printed beside the button is the question"). The button stays
 // focusable while it waits (aria-disabled with a visible reason, never
 // disabled), as the policy card's does. The POST carries the version each
-// outstanding policy showed here, so a policy that changed meanwhile
-// answers 409 {stale} and the page refreshes into it instead of recording
-// a confirmation of words nobody saw.
+// outstanding policy showed here, and the statement and contents
+// fingerprint the page was drawn with, so a policy that changed meanwhile,
+// or contents that changed under the statement, answer 409 {stale} and the
+// page refreshes into them instead of recording a confirmation of words
+// nobody saw.
 //
 // The done state is a sentence in the same card ("You confirmed this
 // handbook on …") with the reader's record beside it; the toast is the
@@ -36,16 +38,19 @@ import { useFormatDate } from "@/components/SettingsProvider";
 import { toast } from "@/components/Toasts";
 import { useAction } from "@/lib/use-action";
 import {
-  CONFIRM_STALE,
-  OWN_STATEMENTS_INTRO,
   SIGN_FIRST_HELP,
   TICK_FIRST_HELP,
   confirmButtonLabel,
+  confirmItemPrefix,
+  confirmListTitle,
+  confirmStale,
   confirmedToast,
   countsLine,
   nameKey,
+  ownStatementsIntro,
   signatureReason,
 } from "@/lib/handbook-confirm-shared";
+import { handbookTypeCounts } from "@/lib/handbook-shared";
 import type { ConfirmResult, HandbookConfirmView } from "@/lib/handbook-confirm-shared";
 import { StandingChip } from "./StandingChip";
 
@@ -66,6 +71,11 @@ export function HandbookConfirm({ view, readerName }: { view: HandbookConfirmVie
   const base = `/handbooks/${handbook.id}`;
   const busy = isBusy("confirm");
   const done = view.confirmed !== null;
+  // What the handbook holds and what is waiting, by kind (1.18.2): a handbook
+  // of policies only reads exactly as before; SOPs and mixes are named.
+  const mix = handbookTypeCounts(items);
+  const waiting = items.filter((i) => i.standing === "to_confirm" || i.standing === "updated");
+  const stale = confirmStale(mix);
 
   const signed = !signature.required || (typedName.trim() !== "" && nameKey(typedName) === nameKey(readerName));
   const ready = agreed && signed;
@@ -89,6 +99,12 @@ export function HandbookConfirm({ view, readerName }: { view: HandbookConfirmVie
           body: JSON.stringify({
             agreed: true,
             versions,
+            // The sentence beside the box and the contents it was drawn
+            // for: the server compares both with its own before writing,
+            // so a change since (a document added, a type changed) answers
+            // stale instead of storing words this page never showed.
+            statement: view.statement,
+            fingerprint: handbook.fingerprint,
             ...(signature.required
               ? { signed_name: typedName.trim(), ...(signature.local_account ? { password } : {}) }
               : {}),
@@ -99,7 +115,7 @@ export function HandbookConfirm({ view, readerName }: { view: HandbookConfirmVie
           // The house sentence for a stale page, through the same toast
           // path as every other failure; the refresh below makes it true.
           if (data?.stale) outcome.stale = true;
-          return new Response(JSON.stringify({ error: data?.stale ? CONFIRM_STALE : data?.error }), {
+          return new Response(JSON.stringify({ error: data?.stale ? stale : data?.error }), {
             status: 409,
             headers: { "content-type": "application/json" },
           });
@@ -110,7 +126,7 @@ export function HandbookConfirm({ view, readerName }: { view: HandbookConfirmVie
           // the others are recorded; say so and show what changed.
           if (outcome.result && outcome.result.stale.length > 0) {
             outcome.stale = true;
-            return new Response(JSON.stringify({ error: CONFIRM_STALE }), {
+            return new Response(JSON.stringify({ error: stale }), {
               status: 409,
               headers: { "content-type": "application/json" },
             });
@@ -139,7 +155,7 @@ export function HandbookConfirm({ view, readerName }: { view: HandbookConfirmVie
             wrap under the title on a phone and the title is this page's h2. */}
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-b border-slate-100 px-4 py-3">
           <CardTitle as="h2" className="">
-            {counts.total} {counts.total === 1 ? "policy" : "policies"}
+            {confirmListTitle(items)}
           </CardTitle>
           <p className="text-sm text-slate-500">{countsLine(counts)}</p>
         </div>
@@ -150,7 +166,7 @@ export function HandbookConfirm({ view, readerName }: { view: HandbookConfirmVie
                 href={`${base}/${i.doc_id}`}
                 className="min-w-0 flex-1 text-sm font-medium text-slate-800 hover:text-compass-700 hover:underline"
               >
-                <span className="sr-only">Policy {i.number}: </span>
+                <span className="sr-only">{confirmItemPrefix(mix, i.number, i.type)}</span>
                 {i.title}
               </Link>
               <StandingChip standing={i.standing} />
@@ -204,7 +220,7 @@ export function HandbookConfirm({ view, readerName }: { view: HandbookConfirmVie
             {own.length > 0 && (
               // Under the statement, in line with its text: the box above covers these too.
               <div id={ownId} className="mt-3 pl-6.5 text-sm text-slate-600">
-                <p>{OWN_STATEMENTS_INTRO}</p>
+                <p>{ownStatementsIntro(handbookTypeCounts(items.filter((i) => own.some((o) => o.doc_id === i.doc_id))))}</p>
                 <ul className="mt-2 space-y-2.5">
                   {own.map((o) => (
                     <li key={o.doc_id} className="border-l-2 border-slate-200 pl-3">
@@ -262,7 +278,7 @@ export function HandbookConfirm({ view, readerName }: { view: HandbookConfirmVie
                 {...(ready ? {} : { "aria-disabled": true, "aria-describedby": helpId })}
                 className={`w-full sm:w-auto ${ready ? "" : "aria-disabled:cursor-not-allowed aria-disabled:opacity-60"}`.trim()}
               >
-                {confirmButtonLabel(counts.outstanding)}
+                {confirmButtonLabel(counts.outstanding, handbookTypeCounts(waiting))}
               </Button>
             </div>
             {waitingHelp && (

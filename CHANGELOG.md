@@ -4,6 +4,84 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.18.2] - 2026-11-05
+
+SOPs in handbooks, and policy handbooks in the Claude connector. A
+handbook now names SOPs and mixed contents properly, and Claude can read
+the handbooks you can read, tell you where you stand, and build draft
+handbooks for a person to review and publish.
+
+### Added
+- **SOPs in handbooks.** The editor's search filters by **Policies**,
+  **SOPs** or **All types** (the panel is now **Add documents**), and
+  every count and position names what a handbook holds: "4 SOPs", "SOP 2
+  of 4", or for a mix "3 policies and 2 SOPs" and "Document 2 of 5".
+  Other document types in a mix are counted as other documents. A
+  handbook of policies only reads as before. An SOP that requires
+  confirmation is confirmed with the handbook like a policy; one that
+  does not is **For information**. The printed copy's cover, running
+  header and acknowledgement page name its contents the same way.
+- **`list_handbooks`** lists the handbooks you can read and the drafts you
+  can edit, with the owner, the status, the number of policies and
+  sections, when each was last updated and whether it asks to be
+  confirmed as a whole. With the Read confirmation licence it gives your
+  own progress (N of M confirmed), and a handbook's editors, and people
+  with Read compliance program, also get the audience progress the
+  Handbooks page shows. It can be narrowed to one space, to workspace
+  handbooks, or to drafts or published handbooks.
+- **`read_handbook`** reads a handbook as its reader shows it: the
+  introduction, the sections in order and each numbered policy with its
+  type, its facts (Owner, Approved by, Version, Effective, Next review,
+  Applies to), its In short points, its text and its reader address. Pass
+  a document id to read one policy. Access is the reader's: a published
+  handbook opens every published policy in it to its audience, even from
+  a space they cannot open, a draft is its editors' alone, and an editor
+  sees a document from a space they can't add from only as "A document
+  you can't open". A long handbook is cut to a text budget and the answer
+  names the policies to read one at a time.
+- **`handbook_status`** gives your own standing on each policy (To
+  confirm, Confirmed, Updated since you confirmed or For information),
+  your progress, and whether your whole-handbook confirmation is on record
+  for the handbook as it stands. Editors also get the share and number of
+  the audience who confirmed it, without names. Without the Read
+  confirmation licence it says that confirmation isn't available.
+- **`create_handbook`** creates a workspace or space handbook, with the
+  same permission (Build handbooks for the owner), checks and limits as
+  **New handbook**, optionally with its first sections. It always creates
+  a draft and never publishes: the answer links to the editor, where a
+  person reviews and publishes it.
+- **`update_handbook_contents`** replaces a handbook's sections and their
+  documents, with the checks of the **Contents** card's Save, and can set
+  **Where people find it** for documents in it, with the permission the
+  editor's menu needs. Send the `updated_at` you read and a save made
+  after someone else's is refused instead of overwriting it. On a
+  published handbook the change is live at once, as Save is; it never
+  publishes or unpublishes.
+- The connector's handbook changes are audited as the editor's are
+  (`handbook.created`, `handbook.contents_changed`,
+  `handbook.find_mode_changed`), marked as made through the connector.
+
+### Changed
+- **Whole-handbook confirmations check what the person saw.** The confirm
+  page sends the statement and the contents it showed, and the server
+  compares both with its own before writing anything. Contents changed
+  since the page was drawn (a document added for information, a type
+  changed) are refused as a changed policy is, and the page refreshes. A
+  confirm page left open from before the upgrade refreshes once.
+- **A handbook that already holds documents other than policies words its
+  statement differently after the upgrade**, for confirmations made from
+  then on: "all 3 documents in ... (2 policies and 1 other document)", or
+  for two, "both documents in ... (1 policy and 1 SOP)" and "both SOPs in
+  ...". A handbook of policies only keeps the 1.18.0 sentence, "all 2
+  policies" included, and records already made keep their words.
+- In a mix, types other than policies and SOPs are counted as "other
+  documents" ("3 policies, 2 SOPs and 1 other document").
+
+### Unchanged
+- **No connector tool confirms a handbook or a policy.** Confirmation is
+  the person's own, in the app: the answers say where to confirm
+  (`/handbooks/{id}/confirm`, or each policy's page).
+
 ## [1.18.1] - 2026-11-05
 
 Sign-in quick links move to the top of the artwork, as buttons in a bar

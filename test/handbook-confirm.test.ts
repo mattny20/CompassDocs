@@ -175,7 +175,7 @@ let uploadDirectory = "";
 const docIds: number[] = [];
 const handbookIds: number[] = [];
 
-async function newDoc(title: string, opts: { required?: boolean; type?: "policy" | "knowledge"; space?: number } = {}) {
+async function newDoc(title: string, opts: { required?: boolean; type?: "policy" | "sop" | "knowledge"; space?: number } = {}) {
   const doc = await createDocument({
     space_id: opts.space ?? spaceId,
     title: `${STAMP} ${title}`,
@@ -192,6 +192,12 @@ async function newDoc(title: string, opts: { required?: boolean; type?: "policy"
 }
 
 const latestVersion = async (docId: number) => (await listVersions(docId))[0].id;
+
+/** What the confirm page posts back about itself (1.18.2): the statement beside the box and the contents fingerprint. */
+const shownBy = (view: { statement: string; handbook: { fingerprint: string } }) => ({
+  statement: view.statement,
+  fingerprint: view.handbook.fingerprint,
+});
 
 /**
  * A published workspace handbook with one section holding `docs` in order.
@@ -363,7 +369,8 @@ describe("confirm the whole handbook", () => {
     assert.deepEqual(got.body.counts, { total: 4, confirmed: 1, to_confirm: 1, updated: 1, info: 1, outstanding: 2 });
     assert.equal(
       got.body.statement,
-      `I have read and understood all 4 policies in ${STAMP} Employee Handbook, and I agree to follow them.`
+      // Three policies and a knowledge document: the statement names the mix (1.18.2).
+      `I have read and understood all 4 documents in ${STAMP} Employee Handbook (3 policies and 1 other document), and I agree to follow them.`
     );
     assert.equal(got.body.signature.required, false);
     assert.equal(got.body.confirmed, null);
@@ -381,7 +388,7 @@ describe("confirm the whole handbook", () => {
     // A page drawn before a version that no longer is the newest: stale, nothing written.
     const stalePage = await call(
       route.POST as Handler,
-      sessionRequest(url, readerSession, { agreed: true, versions: { ...versions, [updated.id]: versions[updated.id] - 1 } }),
+      sessionRequest(url, readerSession, { agreed: true, versions: { ...versions, [updated.id]: versions[updated.id] - 1 }, ...shownBy(got.body) }),
       hb
     );
     assert.equal(stalePage.status, 409);
@@ -390,13 +397,13 @@ describe("confirm the whole handbook", () => {
     // A page that left an outstanding policy out is stale too.
     const partial = await call(
       route.POST as Handler,
-      sessionRequest(url, readerSession, { agreed: true, versions: { [toConfirm.id]: versions[toConfirm.id] } }),
+      sessionRequest(url, readerSession, { agreed: true, versions: { [toConfirm.id]: versions[toConfirm.id] }, ...shownBy(got.body) }),
       hb
     );
     assert.equal(partial.status, 409);
     assert.equal(partial.body.stale, true);
 
-    const posted = await call(route.POST as Handler, sessionRequest(url, readerSession, { agreed: true, versions }), hb);
+    const posted = await call(route.POST as Handler, sessionRequest(url, readerSession, { agreed: true, versions, ...shownBy(got.body) }), hb);
     assert.equal(posted.status, 200, JSON.stringify(posted.body));
     assert.deepEqual(posted.body, { ok: true, confirmed: 2, outstanding: 0, stale: [], handbook_confirmed: true });
 
@@ -465,7 +472,7 @@ describe("confirm the whole handbook", () => {
     });
     const versions = { [signedPolicy.id]: await latestVersion(signedPolicy.id), [plain.id]: await latestVersion(plain.id) };
     const post = (extra: Record<string, unknown>) =>
-      call(route.POST as Handler, sessionRequest(url, otherSession, { agreed: true, versions, ...extra }), hb);
+      call(route.POST as Handler, sessionRequest(url, otherSession, { agreed: true, versions, ...shownBy(got.body), ...extra }), hb);
 
     const { result: signed, seen } = await withConsoleSpy(async () => {
       const unsigned = await post({});
@@ -506,8 +513,9 @@ describe("confirm the whole handbook", () => {
     assert.equal(got.body.signature.required, true);
     assert.deepEqual(got.body.signature.policies, []);
     const versions = { [doc.id]: await latestVersion(doc.id) };
-    const unsigned = await call(route.POST as Handler, sessionRequest(url, readerSession, { agreed: true, versions }), hb);
+    const unsigned = await call(route.POST as Handler, sessionRequest(url, readerSession, { agreed: true, versions, ...shownBy(got.body) }), hb);
     assert.equal(unsigned.status, 409);
+    assert.equal(unsigned.body.stale, undefined, "refused for the signature, not as stale");
     assert.equal((await ackRows(doc.id, readerId)).length, 0);
   });
 
@@ -560,7 +568,7 @@ describe("policies that ask in their own words", () => {
     assert.equal(items[plain.id], null, "a policy on the default statement is not listed");
 
     const versions = { [own.id]: await latestVersion(own.id), [plain.id]: await latestVersion(plain.id) };
-    const posted = await call(route.POST as Handler, sessionRequest(url, readerSession, { agreed: true, versions }), hb);
+    const posted = await call(route.POST as Handler, sessionRequest(url, readerSession, { agreed: true, versions, ...shownBy(got.body) }), hb);
     assert.equal(posted.status, 200, JSON.stringify(posted.body));
     assert.equal(posted.body.confirmed, 2);
     assert.equal((await ackRows(own.id, readerId))[0].statement_text, OWN, "its own words, as its card would store");
@@ -569,6 +577,125 @@ describe("policies that ask in their own words", () => {
     // Confirmed now: nothing waiting asks in its own words.
     const after = await call(route.GET as Handler, sessionRequest(url, readerSession, undefined, "GET"), hb);
     assert.deepEqual(after.body.own_statements, []);
+  });
+});
+
+// --- The statement and contents the page showed (1.18.2) ------------------------------
+//
+// The page posts the statement beside the box and the contents fingerprint
+// it was drawn with; the server compares both with its own before writing
+// anything. Contents that changed under the page (a document added for
+// information, a type changed: neither moves an outstanding policy's
+// version) answer the same 409 { stale } as a changed version, so a stored
+// statement is always the sentence the person ticked.
+
+describe("the statement and contents the page showed", () => {
+  test("a handbook of policies only stores the 1.18.0 sentence byte for byte; a statement the server would not store is stale", async () => {
+    const route = await import("../src/app/api/handbooks/[id]/confirm/route");
+    const a = await newDoc("Pair one");
+    const b = await newDoc("Pair two");
+    const hb = await newHandbook("Policy Pair", [a.id, b.id]);
+    const url = `http://localhost/api/handbooks/${hb}/confirm`;
+    const got = await call(route.GET as Handler, sessionRequest(url, readerSession, undefined, "GET"), hb);
+    // The literal 1.18.0 sentence (lib/handbook-confirm-shared at 1.18.0): "all 2 policies", never "both".
+    const SENTENCE = `I have read and understood all 2 policies in ${STAMP} Policy Pair, and I agree to follow them.`;
+    assert.equal(got.body.statement, SENTENCE);
+    const versions = { [a.id]: await latestVersion(a.id), [b.id]: await latestVersion(b.id) };
+
+    const tampered = await call(
+      route.POST as Handler,
+      sessionRequest(url, readerSession, { agreed: true, versions, ...shownBy(got.body), statement: "I agree." }),
+      hb
+    );
+    assert.equal(tampered.status, 409);
+    assert.equal(tampered.body.stale, true);
+    assert.equal((await ackRows(a.id, readerId)).length, 0);
+
+    const posted = await call(route.POST as Handler, sessionRequest(url, readerSession, { agreed: true, versions, ...shownBy(got.body) }), hb);
+    assert.equal(posted.status, 200, JSON.stringify(posted.body));
+    assert.equal(posted.body.handbook_confirmed, true);
+    for (const doc of [a, b]) {
+      const rows = await ackRows(doc.id, readerId);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].statement_text, SENTENCE, "the stored words are the 1.18.0 sentence");
+    }
+  });
+
+  test("a document added for information after the page was drawn: 409 stale and nothing written; the refreshed page confirms", async () => {
+    const route = await import("../src/app/api/handbooks/[id]/confirm/route");
+    const policy = await newDoc("Expenses again");
+    const guide = await newDoc("Expenses guide", { required: false, type: "knowledge" });
+    const hb = await newHandbook("Grows Handbook", [policy.id]);
+    const url = `http://localhost/api/handbooks/${hb}/confirm`;
+    const drawn = await call(route.GET as Handler, sessionRequest(url, readerSession, undefined, "GET"), hb);
+    assert.equal(drawn.body.statement, `I have read and understood the policy in ${STAMP} Grows Handbook, and I agree to follow it.`);
+    const versions = { [policy.id]: await latestVersion(policy.id) };
+
+    // Added between render and submit: it asks nobody, so no version is stale.
+    const sec = (await pool().query("SELECT id FROM handbook_sections WHERE handbook_id = $1", [hb])).rows[0].id;
+    await pool().query("INSERT INTO handbook_items (handbook_id, section_id, document_id, position) VALUES ($1, $2, $3, 1)", [hb, sec, guide.id]);
+
+    const stale = await call(route.POST as Handler, sessionRequest(url, readerSession, { agreed: true, versions, ...shownBy(drawn.body) }), hb);
+    assert.equal(stale.status, 409);
+    assert.equal(stale.body.stale, true);
+    assert.equal((await ackRows(policy.id, readerId)).length, 0, "nothing written");
+    assert.equal((await handbookRecords(hb)).length, 0);
+    assert.equal((await auditRows("document.acknowledge", policy.id)).length, 0);
+
+    const fresh = await call(route.GET as Handler, sessionRequest(url, readerSession, undefined, "GET"), hb);
+    assert.notEqual(fresh.body.handbook.fingerprint, drawn.body.handbook.fingerprint);
+    assert.equal(
+      fresh.body.statement,
+      `I have read and understood both documents in ${STAMP} Grows Handbook (1 policy and 1 other document), and I agree to follow them.`
+    );
+    const posted = await call(route.POST as Handler, sessionRequest(url, readerSession, { agreed: true, versions, ...shownBy(fresh.body) }), hb);
+    assert.equal(posted.status, 200, JSON.stringify(posted.body));
+    assert.equal((await ackRows(policy.id, readerId))[0].statement_text, fresh.body.statement, "the words the refreshed page showed");
+  });
+
+  test("a type changed after the page was drawn (the fingerprint is unchanged): 409 stale, nothing written", async () => {
+    const route = await import("../src/app/api/handbooks/[id]/confirm/route");
+    const policy = await newDoc("Retyped policy");
+    const sop = await newDoc("Retyped SOP", { type: "sop" });
+    const hb = await newHandbook("Retyped Handbook", [policy.id, sop.id]);
+    const url = `http://localhost/api/handbooks/${hb}/confirm`;
+    const drawn = await call(route.GET as Handler, sessionRequest(url, readerSession, undefined, "GET"), hb);
+    assert.equal(
+      drawn.body.statement,
+      `I have read and understood both documents in ${STAMP} Retyped Handbook (1 policy and 1 SOP), and I agree to follow them.`
+    );
+    const versions = { [policy.id]: await latestVersion(policy.id), [sop.id]: await latestVersion(sop.id) };
+    await pool().query("UPDATE documents SET type = 'policy' WHERE id = $1", [sop.id]);
+    const fresh = await call(route.GET as Handler, sessionRequest(url, readerSession, undefined, "GET"), hb);
+    assert.equal(fresh.body.handbook.fingerprint, drawn.body.handbook.fingerprint, "a type is not in the fingerprint");
+
+    const stale = await call(route.POST as Handler, sessionRequest(url, readerSession, { agreed: true, versions, ...shownBy(drawn.body) }), hb);
+    assert.equal(stale.status, 409);
+    assert.equal(stale.body.stale, true);
+    assert.equal((await ackRows(policy.id, readerId)).length + (await ackRows(sop.id, readerId)).length, 0);
+    assert.equal((await handbookRecords(hb)).length, 0);
+  });
+
+  test("a page from before 1.18.2: its fingerprint alone is checked when it sends one; without either it is stale", async () => {
+    const route = await import("../src/app/api/handbooks/[id]/confirm/route");
+    const policy = await newDoc("Old tab policy");
+    const hb = await newHandbook("Old Tab Handbook", [policy.id]);
+    const url = `http://localhost/api/handbooks/${hb}/confirm`;
+    const got = await call(route.GET as Handler, sessionRequest(url, readerSession, undefined, "GET"), hb);
+    const versions = { [policy.id]: await latestVersion(policy.id) };
+    const post = (extra: Record<string, unknown>) =>
+      call(route.POST as Handler, sessionRequest(url, readerSession, { agreed: true, versions, ...extra }), hb);
+
+    const neither = await post({});
+    assert.equal(neither.status, 409);
+    assert.equal(neither.body.stale, true);
+    const wrong = await post({ fingerprint: "0".repeat(64) });
+    assert.equal(wrong.status, 409);
+    assert.equal(wrong.body.stale, true);
+    assert.equal((await ackRows(policy.id, readerId)).length, 0);
+    const fingerprintOnly = await post({ fingerprint: got.body.handbook.fingerprint });
+    assert.equal(fingerprintOnly.status, 200, JSON.stringify(fingerprintOnly.body));
+    assert.equal((await ackRows(policy.id, readerId))[0].statement_text, got.body.statement);
   });
 });
 

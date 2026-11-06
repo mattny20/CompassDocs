@@ -2,7 +2,7 @@
 
 // The handbook editor's Contents card (1.18.0, mock-ups 1-editor and
 // 7-where-found): the sections in order, each an eyebrow with its number and
-// a Rename / Remove pair, then its policies numbered across the whole
+// a Rename / Remove pair, then its items numbered across the whole
 // handbook, each with "Where people find it", Move up / Move down (crossing
 // into the neighbouring section at an edge) and Remove. Every change is
 // local until the page's Save. Focus never falls to <body>: a move keeps
@@ -32,7 +32,8 @@ import {
   SECTION_TITLE_MAX,
   allItems,
   canMove,
-  policies,
+  itemsLabel,
+  itemsNoun,
   type DraftSection,
 } from "./model";
 
@@ -65,7 +66,7 @@ export function ContentsCard({
   onMove: (docId: number, direction: "up" | "down") => void;
   onRemove: (docId: number) => void;
   onFindMode: (docId: number, mode: FindMode) => void;
-  /** What fills the card while it is empty (the new page has no Add policies panel yet). */
+  /** What fills the card while it is empty (the new page has no Add documents panel yet). */
   emptyHint: string;
 }) {
   const fmt = useFormatDate();
@@ -152,7 +153,7 @@ export function ContentsCard({
         <CardTitle id={titleId} className="min-w-0 flex-wrap">
           Contents{" "}
           <span className="text-sm font-normal text-slate-500">
-            · {policies(total)}
+            · {itemsLabel(sections)}
             {hidden > 0 && ` · ${hidden} handbook only`}
           </span>
         </CardTitle>
@@ -195,7 +196,7 @@ export function ContentsCard({
                 onRemove={() => removeSection(s.key)}
               />
               {s.items.length === 0 ? (
-                <SectionEmpty className="border-t border-slate-100 px-4 py-3">Empty. Move policies here with the arrows.</SectionEmpty>
+                <SectionEmpty className="border-t border-slate-100 px-4 py-3">Empty. Move {itemsNoun(sections)} here with the arrows.</SectionEmpty>
               ) : (
                 <ol className="list-none">
                   {s.items.map((item) => {

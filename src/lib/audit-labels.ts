@@ -126,7 +126,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   "handbook.created": "Created handbook",
   "handbook.updated": "Edited handbook",
   "handbook.contents_changed": "Changed handbook contents",
-  "handbook.find_mode_changed": "Changed where people find a policy",
+  "handbook.find_mode_changed": "Changed where people find a document",
   "handbook.published": "Published handbook",
   "handbook.unpublished": "Unpublished handbook",
   "handbook.deleted": "Deleted handbook",

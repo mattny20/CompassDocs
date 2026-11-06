@@ -15,6 +15,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { formatDate, settingsForUser } from "@/lib/format";
 import { DOC_TYPE_LABEL, type SessionUser } from "@/lib/types";
 import type { PaperSize, PrintHandbook, PrintPolicy, PrintSection } from "@/components/handbooks/print/print-model";
+import { handbookTypeCounts } from "@/lib/handbook-shared";
 
 /** The paper a workspace prints on unless the reader picks: Letter for US dates, else A4. */
 export function defaultPaper(dateFormat: string): PaperSize {
@@ -98,6 +99,7 @@ export async function loadPrintHandbook(
       logoUrl: workspace.logo_url || "",
       sections,
       policyCount: policies.length,
+      mix: handbookTypeCounts(printable.map(({ item }) => item)),
       sectionCount: sections.filter((s) => s.number !== null && s.policies.length > 0).length,
       printedOn: formatDate(new Date().toISOString(), fmt),
       printedBy: user.name || user.username,
