@@ -131,7 +131,7 @@ export function TicketAssetsCard({ number, canWork, refreshKey }: { number: numb
         </h3>
         {view.can_edit && full && (
           <Tooltip label={`A ticket can have up to ${ASSET_LIMITS.perTicket} assets.`} className="ml-auto">
-            <button type="button" disabled className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-medium text-slate-400">
+            <button type="button" disabled className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-medium text-slate-500 cursor-not-allowed">
               <Plus className="h-3.5 w-3.5" aria-hidden />
               Link
             </button>
