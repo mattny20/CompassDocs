@@ -1331,8 +1331,10 @@ because compass-200 does not invert) and the `BookOpen` icon,
 confirm the policy through a published handbook because they can't open
 its space, so their reminders link to the handbook reader. It sits after
 the person's name on every roster of a policy's people (the Record tab's
-`AckRoster`, which the portal's policy expand row mounts; the team page)
-and after the policy's title on a person's record. It carries `data-tt`
+`AckRoster`, which the portal's policy expand row mounts; the team page;
+the person rows of the portal's Needs attention queue, where the row's
+`gap` spaces it, so it takes `className=""` instead of its default
+`ml-2`) and after the policy's title on a person's record. It carries `data-tt`
 "Asked through {handbook}: they can't open this policy's space, so
 reminders link to the handbook." with `tabIndex={0}` and `data-tt-wrap`,
 and an `sr-only` ": {handbook}" so a screen reader hears where; `inLink`

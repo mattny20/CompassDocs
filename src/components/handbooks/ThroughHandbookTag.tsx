@@ -43,17 +43,18 @@ export function handbookConfirmHref(handbookId: number, docId: number): string {
 export function ThroughHandbookTag({
   title,
   inLink = false,
-  className = "",
+  className = "ml-2",
 }: {
   title: string | null | undefined;
   inLink?: boolean;
+  /** Spacing from what it follows; "ml-2" beside a name in running text, "" in a row that spaces its children with gap. */
   className?: string;
 }) {
   if (!title) return null;
   const cls = chipClass(
     "accent",
     "sm",
-    `ml-2 shrink-0 align-middle ring-1 ring-inset ring-compass-200 dark:ring-compass-500/40 ${className}`
+    `shrink-0 align-middle ring-1 ring-inset ring-compass-200 dark:ring-compass-500/40 ${className}`
   );
   if (inLink) {
     return (

@@ -25,6 +25,16 @@ export interface EmailTemplateDef {
    * substituted before the markdown pass, as they always were.
    */
   text?: string[];
+  /**
+   * Tags whose values are a sentence the sender builds around `text` tags
+   * (1.18.3: ack_request's and ack_due's {{handbook_line}}, "It's in
+   * **{{handbook_title}}**."): a `{{tag}}` inside the value that names one
+   * of this template's `text` tags is filled in as that tag is (inert in
+   * the markdown pass, escaped in the html part), so the sentence keeps its
+   * markdown while the title it carries is never read as markdown. Nothing
+   * else inside the value is substituted.
+   */
+  compose?: string[];
 }
 
 const T = (tag: string, label: string) => ({ tag, label });
@@ -108,15 +118,23 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       T("due_line", 'The sentence "Please confirm by 29 Oct 2026." (blank when there is no due date)'),
       T("due_suffix", 'Subject ending " by 29 Oct 2026" (blank when there is no due date)'),
       T("days_left", "Days until the due date (blank when there is none)"),
+      T("handbook_title", "The handbook the person reads the policy in (blank unless they read it only through a handbook)"),
+      T("handbook_line", 'The sentence "It\'s in Employee Handbook." (blank unless they read it only through a handbook)'),
       T("org_name", "Workspace name"),
     ],
     // 1.13.0 (E1): the due tags come from each recipient's own assignment row,
     // so one fan-out may render as several mails when people's dates differ.
-    text: ["requester_name", "doc_title", "change_note", "reason"],
+    // 1.18.3: so do the handbook tags and {{doc_url}}: a person who cannot
+    // open the policy's space but reads it through a published handbook is
+    // sent into the handbook, and their mail names it. An override saved
+    // before 1.18.3 has no {{handbook_line}} and simply leaves it out.
+    text: ["requester_name", "doc_title", "change_note", "reason", "handbook_title"],
+    compose: ["handbook_line"],
     subject: '[{{org_name}}] {{request_label}}: confirm "{{doc_title}}"{{due_suffix}}',
     body:
       "**{{requester_name}}** {{request_type}} that you read and confirm:\n\n" +
       "> **{{doc_title}}**\n\n" +
+      "{{handbook_line}}\n\n" +
       "{{change_note}}{{reason}}\n\n" +
       "{{due_line}}\n\n" +
       "[Open the document]({{doc_url}}) and confirm at the end that you have read and understood it.",
@@ -135,12 +153,17 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       T("due_date", "Due date (blank when the policy has no deadline)"),
       T("due_line", 'The sentence "Please confirm by 29 Oct 2026." (blank when there is no due date)'),
       T("status_label", "Due soon / Overdue / Reminder"),
+      T("handbook_title", "The handbook the person reads the policy in (blank unless they read it only through a handbook)"),
+      T("handbook_line", 'The sentence "It\'s in Employee Handbook." (blank unless they read it only through a handbook)'),
       T("org_name", "Workspace name"),
     ],
-    text: ["doc_title"],
+    // 1.18.3: the handbook tags and {{doc_url}} are each person's, as on ack_request.
+    text: ["doc_title", "handbook_title"],
+    compose: ["handbook_line"],
     subject: '[{{org_name}}] {{status_label}}: confirm "{{doc_title}}"',
     body:
       "**{{status_label}}**: you still need to read and confirm **{{doc_title}}**.\n\n" +
+      "{{handbook_line}}\n\n" +
       "{{due_line}}\n\n" +
       "[Open the document]({{doc_url}}) and confirm at the end that you have read and understood it.",
   },
@@ -151,7 +174,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       "Sent instead of several due reminders when one person has more than three policies to confirm in the same hour. Sent regardless of personal notification settings.",
     tags: [
       T("count", "How many policies"),
-      T("policy_list", "The policies, one per line, with their due dates"),
+      T("policy_list", "The policies, one per line, with their due dates and, for one read through a handbook, \"(in {handbook})\""),
       T("portal_url", "Link to My policies"),
       T("org_name", "Workspace name"),
     ],
@@ -190,7 +213,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     // is never read as markdown.
     tags: [
       T("count", "How many policies"),
-      T("policy_list", "The policies, one per line, with their due dates"),
+      T("policy_list", "The policies, one per line, with their due dates and, for one read through a handbook, \"(in {handbook})\""),
       T("portal_url", "Link to My policies"),
       T("org_name", "Workspace name"),
     ],
@@ -322,6 +345,13 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
   },
 ];
 
+/**
+ * The {{handbook_line}} value for a person who reads the policy only
+ * through a handbook (1.18.3); a `compose` tag, so {{handbook_title}} inside
+ * it is filled in as the text tag it is. Blank for everyone else.
+ */
+export const HANDBOOK_LINE = "It's in **{{handbook_title}}**.";
+
 /** Realistic per-template values used by the admin preview pane. */
 export const SAMPLE_VARS: Record<string, Record<string, string>> = {
   training_assigned: {
@@ -385,13 +415,17 @@ export const SAMPLE_VARS: Record<string, Record<string, string>> = {
     due_line: "Please confirm by 29 Oct 2026.",
     due_suffix: " by 29 Oct 2026",
     days_left: "9",
+    handbook_title: "",
+    handbook_line: "",
   },
   ack_due: {
     doc_title: "Acceptable Use Policy",
-    doc_url: "/doc/42#confirm-reading",
+    doc_url: "/handbooks/7/42#confirm-reading",
     due_date: "29 Oct 2026",
     due_line: "Please confirm by 29 Oct 2026.",
     status_label: "Due soon",
+    handbook_title: "Employee Handbook",
+    handbook_line: HANDBOOK_LINE,
   },
   ack_due_bundle: {
     count: "5",
@@ -521,6 +555,18 @@ async function renderParts(
     bodyVars[tag] = token;
     tokens.push([token, value]);
   }
+  // A `compose` value names text tags inside it: they are filled in the way
+  // the text tags themselves are (a token in the body, the raw value in the
+  // subject), and nothing else inside the value is substituted.
+  const subjectVars = { ...vars };
+  const textTags = new Set(def?.text ?? []);
+  const fill = (value: string, from: Record<string, string>) =>
+    value.replace(/\{\{\s*([\w]+)\s*\}\}/g, (whole, tag) => (textTags.has(tag) && tag in from ? from[tag] : whole));
+  for (const tag of def?.compose ?? []) {
+    if (!(tag in vars)) continue;
+    bodyVars[tag] = fill(vars[tag], bodyVars);
+    subjectVars[tag] = fill(vars[tag], vars);
+  }
   const bodyMd = substitute(bodyTpl, bodyVars);
   let html = await renderBodyHtml(bodyMd, accent, origin);
   let text = mdToText(bodyMd);
@@ -528,7 +574,7 @@ async function renderParts(
     html = html.split(token).join(escapeHtmlText(value));
     text = text.split(token).join(value);
   }
-  return { subject: substitute(subjectTpl, vars), text, html };
+  return { subject: substitute(subjectTpl, subjectVars), text, html };
 }
 
 /**

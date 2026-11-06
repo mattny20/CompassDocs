@@ -6665,6 +6665,7 @@ const ATTENTION_ROWS_SQL = (graceParam: string, docsParam: string, withView: boo
          GREATEST(d.ack_revision_at, pa.cycle_started_at) AS asked_at,
          ${withView ? "v.viewed_at" : "NULL::timestamptz"} AS last_viewed_at,
          pa.due_at + make_interval(days => ${ATTENTION_GRACE_SQL(graceParam)}) AS overdue_since,
+         ${withView ? viaHandbookTitleSql("u.id") : "NULL::text"} AS via_handbook_title,
          (pa.due_at IS NOT NULL AND pa.due_at + make_interval(days => ${ATTENTION_GRACE_SQL(graceParam)}) < now()) AS overdue
   FROM policy_assignments pa
   JOIN documents d ON d.id = pa.document_id
@@ -6713,6 +6714,7 @@ interface AttentionQueueRow {
   detail: string | null;
   due_at: string | null;
   since: string | null;
+  via_handbook_title: string | null;
 }
 
 /**
@@ -6742,15 +6744,18 @@ export async function policyNeedsAttention(limit = 200, opts: { documentIds?: nu
                   ELSE p.last_viewed_at END AS since,
              (p.snoozed_until IS NOT NULL AND p.snoozed_until > now()) AS snoozed,
              CASE WHEN p.overdue THEN 1 WHEN p.escalated_at IS NOT NULL THEN 2
-                  WHEN p.last_viewed_at IS NULL THEN 3 ELSE 4 END AS rank
+                  WHEN p.last_viewed_at IS NULL THEN 3 ELSE 4 END AS rank,
+             p.via_handbook_title
       FROM people p
       WHERE p.overdue OR p.escalated_at IS NOT NULL
          OR p.asked_at < now() - make_interval(days => $3::int)
       UNION ALL
       SELECT pa.id, u.id, u.name, d.id, d.title, d.space_id,
-             'standing_exemption', pa.exempt_reason, NULL::timestamptz, pa.exempt_at, false, 5
+             'standing_exemption', pa.exempt_reason, NULL::timestamptz, pa.exempt_at, false, 5,
+             ${viaHandbookTitleSql("u.id")}
       FROM policy_assignments pa
       JOIN documents d ON d.id = pa.document_id
+      JOIN spaces s ON s.id = d.space_id
       JOIN users u ON u.id = pa.user_id AND u.status = 'active'
       WHERE ${LIVE_POLICY_SQL} AND pa.removed_at IS NULL
         AND pa.exempt_at IS NOT NULL AND pa.exempt_until IS NULL
@@ -6761,7 +6766,7 @@ export async function policyNeedsAttention(limit = 200, opts: { documentIds?: nu
   const [people, counts, kept] = await Promise.all([
     q<AttentionQueueRow>(
       `${queue}
-       SELECT assignment_id, user_id, user_name, document_id, title, space_id, reason, detail, due_at, since
+       SELECT assignment_id, user_id, user_name, document_id, title, space_id, reason, detail, due_at, since, via_handbook_title
        FROM queue WHERE NOT snoozed
        ORDER BY rank, due_at ASC NULLS LAST, since ASC NULLS LAST, title, user_name
        LIMIT $5`,
@@ -6800,6 +6805,7 @@ export async function policyNeedsAttention(limit = 200, opts: { documentIds?: nu
       space_id: k.space_id,
       due_at: null,
       since: k.ack_revision_at,
+      via_handbook_title: null,
     };
     // The raw drift is compared, as the Drifted tile compares it (the route
     // filters complianceDocs' drift_pct); only the detail rounds.
@@ -6828,6 +6834,7 @@ export async function policyNeedsAttention(limit = 200, opts: { documentIds?: nu
     detail: r.reason === "overdue" ? r.due_at : r.detail,
     due_at: r.due_at,
     since: r.since,
+    via_handbook_title: r.via_handbook_title,
   }));
   return {
     rows: [...policyRows, ...personRows].slice(0, take),
@@ -7125,6 +7132,13 @@ export interface EnrolledPolicy {
   id: number;
   title: string;
   due_at: string | null;
+  /**
+   * listOwedPoliciesFor only (1.18.3): the title of the handbook the person
+   * reads the policy through when they cannot open its space (the welcome's
+   * list line says "(in {handbook})"); null when they can. Absent on the
+   * enrolment hook's answer.
+   */
+  via_handbook_title?: string | null;
 }
 
 /**
@@ -7759,10 +7773,11 @@ export async function canSeeSpace(userId: number, spaceId: number): Promise<bool
  */
 export async function listOwedPoliciesFor(userId: number): Promise<EnrolledPolicy[]> {
   return q<EnrolledPolicy>(
-    `SELECT d.id, d.title, pa.due_at
+    `SELECT d.id, d.title, pa.due_at, ${viaHandbookTitleSql("u.id")} AS via_handbook_title
      FROM policy_assignments pa
      JOIN users u ON u.id = pa.user_id
      JOIN documents d ON d.id = pa.document_id
+     JOIN spaces s ON s.id = d.space_id
      WHERE pa.user_id = $1 AND ${PA_OWES}
        AND d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL
        AND d.branch_of IS NULL AND d.ack_retired_at IS NULL
@@ -8806,11 +8821,19 @@ export interface AckStatusRow {
    */
   asked_again_reason: string;
   asked_again_by: string;
+  /**
+   * The handbook through which the person is asked (1.18.3): its title when
+   * they cannot open the policy's space and read it through a published
+   * handbook (VIA_HANDBOOK_FIRST, the lowest id), for the Record tab's and
+   * the portal's "Through a handbook" tag; null when they can open the space.
+   */
+  via_handbook_title: string | null;
 }
 
 /**
  * Compliance status: everyone who is expected to confirm the doc (active
- * accounts that can see its space) with their current confirmation, if any,
+ * accounts that can see its space, or read it through a published handbook:
+ * `via_handbook_title`) with their current confirmation, if any,
  * and their assignment row beside it (exempt rows last). A confirmation is
  * current against the later of the document marker and the person's own
  * cycle start (D4), so a per-person re-ask shows that person pending and
@@ -8838,10 +8861,12 @@ export async function ackStatusForDocument(docId: number): Promise<AckStatusRow[
             CASE WHEN pa.cycle_started_at > d.ack_revision_at AND pa.cycle_started_at > pa.assigned_at
                  THEN COALESCE(reask.reason, '') ELSE '' END AS asked_again_reason,
             CASE WHEN pa.cycle_started_at > d.ack_revision_at AND pa.cycle_started_at > pa.assigned_at
-                 THEN COALESCE(reask.decided_by_name, '') ELSE '' END AS asked_again_by
+                 THEN COALESCE(reask.decided_by_name, '') ELSE '' END AS asked_again_by,
+            ${viaHandbookTitleSql("u.id")} AS via_handbook_title
      FROM policy_assignments pa
      JOIN users u ON u.id = pa.user_id
      JOIN documents d ON d.id = pa.document_id
+     JOIN spaces s ON s.id = d.space_id
      LEFT JOIN LATERAL (
        SELECT a.acknowledged_at, a.version_id, a.content_sha256, a.read_seconds, a.reached_end,
               a.statement_text, a.signed_name, a.identity_proof
@@ -9507,9 +9532,38 @@ export async function listAckLedgerAll(): Promise<AckLedgerRow[]> {
 const MY_POLICY_DOC = `d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL
        AND d.branch_of IS NULL AND d.ack_retired_at IS NULL`;
 
-/** `AND d.space_id = ANY($n)` for a list scope; nothing for "all". */
+/**
+ * The space-scope test of a My policies query for a list scope: the policy's
+ * space is in the person's scope ($n), or (1.18.3) they read it through a
+ * published handbook whose audience holds them (viaHandbookSql over the
+ * person `$1`: the same arm ACK_DOC_VISIBILITY gives the reconcile, so a
+ * handbook-only reader's open row counts here exactly when it was
+ * materialised). Unlisted ("all") reads every space: TRUE.
+ */
+function myPolicyInScope(scope: SpaceScope, param: number): string {
+  return Array.isArray(scope) ? `d.space_id = ANY($${param})` : "TRUE";
+}
+
+/** `AND (in scope OR via a handbook)` for a list scope; nothing for "all". */
 function myPolicyScope(scope: SpaceScope, param: number): string {
-  return Array.isArray(scope) ? ` AND d.space_id = ANY($${param})` : "";
+  return Array.isArray(scope) ? ` AND (${myPolicyInScope(scope, param)} OR ${viaHandbookSql("$1")})` : "";
+}
+
+/**
+ * The person-facing row's space and handbook columns (1.18.3): for a
+ * policy in the person's space scope, the space's name and icon and
+ * `via_handbook` NULL (the space path wins); for one they read only
+ * through a handbook, blank space fields (the space is not theirs to see,
+ * so its name never leaves the database) and `via_handbook` {id, title}
+ * (VIA_HANDBOOK_FIRST: the lowest-id published handbook holding the policy
+ * whose audience admits them). Needs aliases d and s, the person as $1.
+ */
+function myPolicyPlaceCols(scope: SpaceScope, param: number): string {
+  const inScope = myPolicyInScope(scope, param);
+  return `CASE WHEN ${inScope} THEN s.name ELSE '' END AS space_name,
+            CASE WHEN ${inScope} THEN s.icon ELSE '' END AS space_icon,
+            CASE WHEN ${inScope} THEN NULL
+                 ELSE ${VIA_HANDBOOK_FIRST("$1", "json_build_object('id', ah.id, 'title', ah.title)")} END AS via_handbook`;
 }
 
 /**
@@ -9552,21 +9606,40 @@ function myPolicyParams(userId: number, scope: SpaceScope, grace: number | null)
   return { params, graceParam: `$${params.length}` };
 }
 
+/**
+ * The handbook a person reads a policy through when they cannot open its
+ * space (1.18.3): the lowest-id PUBLISHED handbook holding the published
+ * policy whose audience admits them. The person-facing rows carry it as
+ * `via_handbook` (null when the person can open the space: the space path
+ * wins), and such a row's link is the handbook reader's,
+ * `/handbooks/{id}/{docId}#confirm-reading`, not `/doc/{docId}`.
+ */
+export interface ViaHandbook {
+  id: number;
+  title: string;
+}
+
 /** The dashboard's row (listPendingAcksFor): one policy the person has not confirmed the current ask of. */
 export interface PendingAckRow {
   id: number;
   title: string;
+  /** '' on a row the person reads only through a handbook (`via_handbook` set): the space is not theirs to see. */
   space_name: string;
+  /** '' on a row the person reads only through a handbook. */
   space_icon: string;
   /** The person's deadline on this policy (their open row, E1); null without one. */
   due_at: string | null;
   /** The deadline plus the policy's grace has passed (E1). */
   overdue: boolean;
+  /** Where the person reads it when they cannot open its space (1.18.3); null when they can. */
+  via_handbook: ViaHandbook | null;
 }
 
 /**
  * Published ack-required docs in the user's scope they haven't confirmed
- * yet (the dashboard row), in the person's own priority: overdue first,
+ * yet (the dashboard row), with the ones they read only through a
+ * published handbook (1.18.3: `via_handbook` set, the space fields blank),
+ * in the person's own priority: overdue first,
  * then the soonest deadline, then the most recently changed (the order My
  * policies uses for its To confirm group, so the dashboard's three titles
  * are the page's first three). Unlimited since 1.12.0: the dashboard shows
@@ -9575,7 +9648,7 @@ export interface PendingAckRow {
 export async function listPendingAcksFor(userId: number, scope: SpaceScope): Promise<PendingAckRow[]> {
   const { params, graceParam } = myPolicyParams(userId, scope, await workspaceOverdueGraceDays());
   return q(
-    `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon, pa.due_at,
+    `SELECT d.id, d.title, ${myPolicyPlaceCols(scope, 2)}, pa.due_at,
             (${paOverdueSql(graceParam)}) AS overdue
      FROM policy_assignments pa
      JOIN documents d ON d.id = pa.document_id
@@ -9602,7 +9675,9 @@ export type MyPolicyState = "pending" | "reconfirm" | "overdue" | "confirmed";
 export interface MyPolicyRow {
   id: number;
   title: string;
+  /** '' on a row the person reads only through a handbook (`via_handbook` set). */
   space_icon: string;
+  /** '' on a row the person reads only through a handbook (`via_handbook` set). */
   space_name: string;
   state: MyPolicyState;
   /** The current confirmation's time; null unless 'confirmed'. */
@@ -9618,10 +9693,14 @@ export interface MyPolicyRow {
   set_names: string[];
   /** The policy's position (0-based) in the first of those sets, the group's order; null when in none. */
   set_position: number | null;
+  /** Where the person reads it when they cannot open its space (1.18.3); null when they can. */
+  via_handbook: ViaHandbook | null;
 }
 
 /**
- * The My policies page (B4): every policy in the person's scope with their
+ * The My policies page (B4): every policy in the person's scope, and every
+ * one they are asked through a published handbook whose space they cannot
+ * open (1.18.3: `via_handbook` set, the space fields blank), with their
  * current confirmation and their latest earlier one. To-confirm rows first,
  * in the person's priority (E1): overdue ones, then the soonest deadline,
  * then the most recently changed (updated_at, the date each row prints);
@@ -9632,7 +9711,7 @@ export interface MyPolicyRow {
 export async function listMyPolicies(userId: number, scope: SpaceScope): Promise<MyPolicyRow[]> {
   const { params, graceParam } = myPolicyParams(userId, scope, await workspaceOverdueGraceDays());
   return q(
-    `SELECT d.id, d.title, s.icon AS space_icon, s.name AS space_name,
+    `SELECT d.id, d.title, ${myPolicyPlaceCols(scope, 2)},
             CASE WHEN cur.acknowledged_at IS NOT NULL THEN 'confirmed'
                  WHEN ov.overdue THEN 'overdue'
                  WHEN prior.acknowledged_at IS NOT NULL THEN 'reconfirm'
@@ -9669,7 +9748,11 @@ export async function listMyPolicies(userId: number, scope: SpaceScope): Promise
   );
 }
 
-/** The sidebar badge: how many policies in scope the person has not confirmed the current ask of. Equals listPendingAcksFor's length. */
+/**
+ * The sidebar badge: how many policies in scope the person has not confirmed
+ * the current ask of, a policy read only through a handbook included
+ * (1.18.3, the same myPolicyScope). Equals listPendingAcksFor's length.
+ */
 export async function countPendingAcksFor(userId: number, scope: SpaceScope): Promise<number> {
   const r = await q<{ n: number }>(
     `SELECT COUNT(*)::int AS n
@@ -9718,7 +9801,8 @@ export async function countOverdueAcksFor(userId: number, scope: SpaceScope): Pr
  * is confirmed (a confirmed row is still open).
  */
 export async function hasPolicyInScope(userId: number, scope: SpaceScope): Promise<boolean> {
-  if (scope !== "all" && scope.length === 0) return false;
+  // No early answer for an empty scope (1.18.3): a person who can open no
+  // space may still be asked through a handbook.
   const r = await q<{ some: boolean }>(
     `SELECT EXISTS (
        SELECT 1 FROM policy_assignments pa
@@ -10072,6 +10156,14 @@ export interface PolicyTranscriptRow {
   superseded_by: TranscriptSuccessor | null;
   /** 'superseded' rows: the policy was purged; the title is the row's snapshot. */
   purged: boolean;
+  /**
+   * The handbook through which the person is asked (1.18.3): its title when
+   * they cannot open the policy's space and read it through a published
+   * handbook, for the record's "Through a handbook" tag; null when they can
+   * open the space, and on 'superseded' rows. On the person's own record
+   * (viewer_kind 'self') such a row's space_name and space_icon are ''.
+   */
+  via_handbook_title: string | null;
 }
 
 /** One row of the person's notice log (E3), as listAckNotices lists it. */
@@ -10206,6 +10298,8 @@ function transcriptParams(ctx: {
   const rosterAll = () => param("roster_all", roster === "all", "::boolean");
   return {
     values,
+    /** The person reads their own record: a space they cannot open is not named on it (1.18.3). */
+    self: ctx.access.kind === "self",
     user: () => param("user", ctx.userId),
     grace: () => param("grace", ctx.grace, "::int"),
     visible: (): string => {
@@ -10241,7 +10335,11 @@ function transcriptAssignmentSql(
                        WHEN a.acknowledged_at IS NOT NULL THEN 'confirmed'
                        ${opts.overdue ? `WHEN ${paOverdueSql(p.grace())} THEN 'overdue'` : ""}
                        ELSE 'pending' END`;
-  return `SELECT '${record}' AS record, d.id AS document_id, d.title, d.space_id, s.name AS space_name, s.icon AS space_icon,
+  const sees = ackVisibilitySql(user);
+  const space = (col: string) => (p.self ? `CASE WHEN ${sees} THEN s.${col} ELSE '' END` : `s.${col}`);
+  return `SELECT '${record}' AS record, d.id AS document_id, d.title, d.space_id,
+                 ${space("name")} AS space_name, ${space("icon")} AS space_icon,
+                 ${viaHandbookTitleSql(user)} AS via_handbook_title,
                  pa.id AS assignment_id, pa.source, pa.assigned_at, pa.cycle_started_at, pa.due_at,
                  pa.removed_at, COALESCE(pa.removed_reason, '') AS removed_reason, ${opts.stopped ? "true" : "false"} AS stopped,
                  ${status} AS status,
@@ -10284,8 +10382,12 @@ function transcriptAssignmentSql(
 function transcriptSupersededSql(p: ReturnType<typeof transcriptParams>): string {
   const user = p.user();
   const ipVisible = p.ipVisible();
+  const sees = ackVisibilitySql(user);
+  const space = (col: string) =>
+    p.self ? `CASE WHEN ${sees} THEN COALESCE(s.${col}, '') ELSE '' END` : `COALESCE(s.${col}, '')`;
   return `SELECT 'superseded' AS record, x.document_id, COALESCE(d.title, x.document_title, '') AS title,
-                 d.space_id, COALESCE(s.name, '') AS space_name, COALESCE(s.icon, '') AS space_icon,
+                 d.space_id, ${space("name")} AS space_name, ${space("icon")} AS space_icon,
+                 NULL::text AS via_handbook_title,
                  NULL::int AS assignment_id, '' AS source, NULL::timestamptz AS assigned_at,
                  NULL::timestamptz AS cycle_started_at, NULL::timestamptz AS due_at,
                  NULL::timestamptz AS removed_at, '' AS removed_reason, false AS stopped,
@@ -10907,6 +11009,48 @@ export async function ackNoticeRecipients(
   );
 }
 
+/** The handbook a notice sends a person into (1.18.3): its id and title. */
+export interface AckHandbookRoute {
+  id: number;
+  title: string;
+}
+
+/** The key of ackHandbookRoutes' map: one (policy, person) pair. */
+export function ackRouteKey(docId: number, userId: number): string {
+  return `${docId}:${userId}`;
+}
+
+/**
+ * Where each (policy, person) pair's notice links (1.18.3): for a person
+ * who cannot open the policy's space (ACK_VISIBILITY) but reads it through
+ * a published handbook whose audience holds them, that handbook
+ * (VIA_HANDBOOK_FIRST: the lowest id among them), keyed by ackRouteKey. A
+ * pair absent from the map keeps the document page: the person can open
+ * the space (the space path wins), or no published handbook admits them
+ * (a row the hourly reconcile has not closed yet), where the link stays
+ * what it always was. Only ever a handbook the person may read, so a
+ * notice never links into one they cannot open; a draft or unpublished
+ * handbook, or an unpublished policy, routes nobody.
+ */
+export async function ackHandbookRoutes(
+  pairs: { document_id: number; user_id: number }[]
+): Promise<Map<string, AckHandbookRoute>> {
+  const out = new Map<string, AckHandbookRoute>();
+  if (pairs.length === 0) return out;
+  const rows = await q<{ doc_id: number; user_id: number; hb: AckHandbookRoute | null }>(
+    `SELECT p.doc_id, p.user_id,
+            ${VIA_HANDBOOK_FIRST("u.id", "json_build_object('id', ah.id, 'title', ah.title)")} AS hb
+     FROM (SELECT DISTINCT * FROM unnest($1::int[], $2::int[]) AS x(doc_id, user_id)) p
+     JOIN documents d ON d.id = p.doc_id AND d.deleted_at IS NULL
+     JOIN spaces s ON s.id = d.space_id
+     JOIN users u ON u.id = p.user_id
+     WHERE NOT ${ACK_VISIBILITY}`,
+    [pairs.map((p) => p.document_id), pairs.map((p) => p.user_id)]
+  );
+  for (const r of rows) if (r.hb) out.set(ackRouteKey(r.doc_id, r.user_id), { id: Number(r.hb.id), title: String(r.hb.title) });
+  return out;
+}
+
 /**
  * People who already have a notice of this kind for this document within
  * the window and have not acted on it since (H1's coalescing key). A
@@ -11276,10 +11420,11 @@ export async function escalationRecipients(
  * The portal's manual Remind stamps the rows it reaches (reminded_at,
  * reminder_count), so the automatic cadence counts from it and the row
  * subtitle reads "last reminded today": every open row of an active
- * account with no current confirmation who can still see the space (the
- * people compliancePendingUsers hands the drain: a row the Remind did not
- * reach is not stamped), or the named people among them. Returns how many
- * rows were stamped.
+ * account with no current confirmation who can still read the policy, in
+ * its space or through a published handbook (ACK_DOC_VISIBILITY, 1.18.3:
+ * the people compliancePendingUsers hands the drain, whose notice links
+ * into the handbook; a row the Remind did not reach is not stamped), or the
+ * named people among them. Returns how many rows were stamped.
  */
 export async function stampAckReminded(docId: number, userIds: number[] | null = null): Promise<number> {
   const rows = await q<{ id: number }>(
@@ -11289,7 +11434,7 @@ export async function stampAckReminded(docId: number, userIds: number[] | null =
      WHERE d.id = pa.document_id AND u.id = pa.user_id AND pa.document_id = $1
        AND ($2::int[] IS NULL OR pa.user_id = ANY($2::int[]))
        AND pa.removed_at IS NULL AND pa.exempt_at IS NULL AND u.status = 'active'
-       AND ${ACK_VISIBILITY}
+       AND ${ACK_DOC_VISIBILITY}
        AND ${SWEEP_UNCONFIRMED}
      RETURNING pa.id`,
     [docId, userIds]
@@ -14095,7 +14240,9 @@ export async function listTrainingDigestLeads(): Promise<
 // The policy counterpart of teamTrainingRows: where the members of the
 // groups a lead leads stand on the policies that ask them, scoped twice.
 // First to what the member owes (an open or exempt row of a live policy,
-// for an active account who can still see the space: the roster's rows);
+// for an active account who can still read it, in its space or through a
+// published handbook, ACK_DOC_VISIBILITY since 1.18.3: the roster's rows,
+// a handbook-only member's carrying `via_handbook_title`);
 // then to what the VIEWER may read (readableSpaceIdsSql: the same predicate
 // the weekly digest and the app use for a private space), applied in SQL so
 // a hidden policy's title, dates and status never leave the database. A
@@ -14123,6 +14270,13 @@ export interface TeamPolicyRow {
   reminded_at: string | null;
   /** Policies this member owes in spaces the viewer cannot read (a count, never a title). */
   hidden_count: number;
+  /**
+   * The handbook through which the member is asked (1.18.3): its title when
+   * the member cannot open the policy's space and reads it through a
+   * published handbook, for the team view's "Through a handbook" tag; null
+   * when they can open the space, and on a member's empty row.
+   */
+  via_handbook_title: string | null;
 }
 
 /**
@@ -14139,7 +14293,7 @@ export async function teamPolicyRows(groupIds: number[], viewerId: number): Prom
   return q<TeamPolicyRow>(
     `SELECT g.id AS group_id, g.name AS group_name, u.id AS user_id, u.name AS user_name, u.username,
             x.assignment_id, x.document_id, x.title, x.space_id, x.status, x.due_at, x.acknowledged_at, x.reminded_at,
-            h.n AS hidden_count
+            h.n AS hidden_count, x.via_handbook_title
      FROM groups g
      JOIN group_members gm ON gm.group_id = g.id
      JOIN users u ON u.id = gm.user_id AND u.status = 'active'
@@ -14148,12 +14302,13 @@ export async function teamPolicyRows(groupIds: number[], viewerId: number): Prom
        FROM policy_assignments pa
        JOIN documents d ON d.id = pa.document_id
        JOIN spaces s ON s.id = d.space_id
-       WHERE pa.user_id = u.id AND pa.removed_at IS NULL AND ${MY_POLICY_DOC} AND ${ACK_VISIBILITY}
+       WHERE pa.user_id = u.id AND pa.removed_at IS NULL AND ${MY_POLICY_DOC} AND ${ACK_DOC_VISIBILITY}
          AND d.space_id NOT IN (${readable})
      ) h
      LEFT JOIN LATERAL (
        SELECT pa.id AS assignment_id, d.id AS document_id, d.title, d.space_id,
               pa.due_at, pa.reminded_at, cur.acknowledged_at,
+              ${viaHandbookTitleSql("u.id")} AS via_handbook_title,
               CASE WHEN pa.exempt_at IS NOT NULL THEN 'exempt'
                    WHEN cur.acknowledged_at IS NOT NULL THEN 'confirmed'
                    WHEN ${paOverdueSql(grace)} THEN 'overdue'
@@ -14166,7 +14321,7 @@ export async function teamPolicyRows(groupIds: number[], viewerId: number): Prom
          WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT_PA}
          ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1
        ) cur ON true
-       WHERE pa.user_id = u.id AND pa.removed_at IS NULL AND ${MY_POLICY_DOC} AND ${ACK_VISIBILITY}
+       WHERE pa.user_id = u.id AND pa.removed_at IS NULL AND ${MY_POLICY_DOC} AND ${ACK_DOC_VISIBILITY}
          AND d.space_id IN (${readable})
      ) x ON true
      WHERE g.id = ANY($1::int[])
@@ -14183,8 +14338,9 @@ export async function teamPolicyRows(groupIds: number[], viewerId: number): Prom
 // TeamComplianceTile): for a manager whose directory entry has direct
 // reports mapped to accounts, how many of those reports hold a current
 // confirmation of each policy that asks them. Same fragments as
-// teamPolicyRows (an open, non-exempt row of an active account; the
-// current-ask confirmation; the viewer's readable spaces, so a private-space
+// teamPolicyRows (an open, non-exempt row of an active account who reads
+// the policy in its space or through a handbook; the current-ask
+// confirmation; the viewer's readable spaces, so a private-space
 // title never reaches a manager who cannot read it). The caller decides who
 // counts as a report (lib/dashboard-people) and whether the viewer may see
 // policy standing at all.
@@ -14223,7 +14379,7 @@ export async function reportPolicyStanding(
          WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT_PA}
        ) AS ok
      ) cur
-     WHERE pa.user_id = ANY($1::int[]) AND ${PA_OWES} AND ${MY_POLICY_DOC} AND ${ACK_VISIBILITY}
+     WHERE pa.user_id = ANY($1::int[]) AND ${PA_OWES} AND ${MY_POLICY_DOC} AND ${ACK_DOC_VISIBILITY}
        AND d.space_id IN (${readableSpaceIdsSql("$2")})
      GROUP BY d.id, d.title
      ORDER BY (COUNT(*) FILTER (WHERE cur.ok))::float / COUNT(*), COUNT(*) DESC, d.title, d.id
@@ -14255,7 +14411,8 @@ export interface LeadRemindRow {
 /**
  * The row behind POST /api/compliance/team { assignment_id } for one
  * leader: the open or exempt row of a live policy for an active account who
- * can see the space, in a space the LEADER can read (a hidden policy reads
+ * can read it (its space, or a published handbook: 1.18.3), in a space the
+ * LEADER can read (a hidden policy reads
  * as absent: null, the route's 404), with whether the leader leads one of
  * the member's groups (else 403), whether there is anything left to remind
  * (confirmed / exempt: 400), when the person was last reminded and the
@@ -14287,7 +14444,7 @@ export async function leadMayRemind(
      JOIN spaces s ON s.id = d.space_id
      JOIN users u ON u.id = pa.user_id AND u.status = 'active'
      LEFT JOIN policy_settings ps ON ps.document_id = d.id
-     WHERE pa.id = $1 AND pa.removed_at IS NULL AND ${MY_POLICY_DOC} AND ${ACK_VISIBILITY}
+     WHERE pa.id = $1 AND pa.removed_at IS NULL AND ${MY_POLICY_DOC} AND ${ACK_DOC_VISIBILITY}
        AND d.space_id IN (${readableSpaceIdsSql("$2")})`,
     [assignmentId, leaderId, workspaceRemindEveryDays]
   );
