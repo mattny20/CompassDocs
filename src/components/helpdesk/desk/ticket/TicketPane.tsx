@@ -58,6 +58,7 @@ import { IncidentBanner } from "../incidents/IncidentBanner";
 import { IncidentPanel } from "../incidents/IncidentPanel";
 import { useIncidentMenu } from "../incidents/IncidentActions";
 import { revealChecklists, TicketChecklists } from "../checklists/TicketChecklists";
+import { askMaintenanceOnSolve, logMaintenanceAfterSolve, SolveMaintenanceHost, type MaintenancePlan } from "../assets/SolveMaintenance";
 import { isChecklistBlock } from "@/lib/helpdesk/checklists-shared";
 
 const PILL_TONE: Record<string, string> = {
@@ -103,6 +104,13 @@ export function TicketPane({ number }: { number: number }) {
 
   const patch = useCallback(
     async (p: HdTicketPatch, ok?: string) => {
+      // 1.19.3: a linked asset may log a maintenance record once solved (lib/helpdesk/assets); cancelling keeps it open.
+      let maintenance: MaintenancePlan | null = null;
+      if (p.status === "solved") {
+        const plan = await askMaintenanceOnSolve(number, d?.ticket.subject ?? "");
+        if (plan === false) return;
+        maintenance = plan;
+      }
       // A team that records time asks for it before a solve (1.19.1, agent V8); cancelling keeps it open.
       if (p.status === "solved" && !(await askTimeOnSolve(number, me.id))) return;
       setBusy(true);
@@ -113,6 +121,7 @@ export function TicketPane({ number }: { number: number }) {
         if (t && "ticket" in t && t.messages) setD(t as HdTicketDetail);
         else await load(true);
         if (ok) toast("ok", ok);
+        if (maintenance) void logMaintenanceAfterSolve(number, maintenance);
         refreshQueue();
       } catch (e) {
         // A workflow task with required hand-off fields is solved through Mark done (agent M).
@@ -126,7 +135,7 @@ export function TicketPane({ number }: { number: number }) {
         setBusy(false);
       }
     },
-    [number, load, refreshQueue, d?.parent, me.id]
+    [number, load, refreshQueue, d?.parent, d?.ticket.subject, me.id]
   );
 
   async function afterSend({ macro }: { macro: HdMacro | null; status: HdStatus | null }) {
@@ -326,6 +335,8 @@ export function TicketPane({ number }: { number: number }) {
               <p className="notice-warn rounded-lg border px-3 py-2 text-sm">You can read this ticket but not work it: it belongs to a team you're not in.</p>
             )}
           </div>
+          {/* The solve flow's "Log a maintenance record" dialog (1.19.3, assets/SolveMaintenance). */}
+          <SolveMaintenanceHost />
           <SidePanel
             d={d}
             onPatch={patch}

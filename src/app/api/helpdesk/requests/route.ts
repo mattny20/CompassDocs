@@ -1,6 +1,8 @@
 // GET  /api/helpdesk/requests?status=open|solved   the caller's own requests
-// POST /api/helpdesk/requests  { request_type_id?, subject, body, answers?, source?, source_ref?, attachments?, cc? }
-//        → 201 { ticket } (requester-safe)
+// POST /api/helpdesk/requests  { request_type_id?, subject, body, answers?, source?, source_ref?, attachments?, cc?, asset_id? }
+//        → 201 { ticket } (requester-safe). asset_id (1.19.3): the requester's own device from
+//        Get help's Device picker (lib/helpdesk/assets); anyone else's is refused, and it is
+//        dropped (the request still goes ahead) when Snipe-IT isn't connected.
 // Helpdesk 1.19.0 (helpdesk.request). A request of a type with a published
 // workflow starts its run once the ticket has committed (lib/helpdesk/events).
 // Rate-limited: 10 a minute, 60 an hour per person.
@@ -79,6 +81,12 @@ export async function POST(req: Request) {
   // "Add people" (1.19.1, lib/helpdesk/ccs): copied on the request once it exists.
   const ccPeople = parseCcInput(b.cc);
   if (!ccPeople) return badRequest("Choose up to 20 people to add.");
+  // 1.19.3: the device the requester picked (optional; only their own, lib/helpdesk/assets).
+  const assetsLib = await import("@/lib/helpdesk/assets");
+  let assetId = b.asset_id === undefined || b.asset_id === null ? null : Number(b.asset_id);
+  // Snipe-IT disconnected since the form loaded (no Device picker now): the request goes ahead without it.
+  if (assetId !== null && !(await assetsLib.assetsConnected())) assetId = null;
+  if (assetId !== null && !(await assetsLib.isRequesterAsset(gate, assetId))) return badRequest("Choose one of your own devices, or none.");
 
   const ticket = await createTicket(
     {
@@ -99,5 +107,9 @@ export async function POST(req: Request) {
     if (first) await attachToMessage(attachments.map((a) => a.id), ticket.id, first.id, { userId: gate.id });
   }
   if (ccPeople.length) await addCcs(ticket.id, ccPeople, { userId: gate.id, name: gate.name || gate.username, role: gate.role, via: "portal" });
+  if (assetId !== null && (await assetsLib.linkRequesterAsset(ticket.id, assetId, { id: gate.id, name: gate.name || gate.username }))) {
+    const { audit, actorFrom, ipFrom } = await import("@/lib/audit");
+    await audit({ actor: actorFrom(gate), action: "helpdesk.asset.linked", targetType: "helpdesk_ticket", targetId: ticket.id, targetLabel: `#${ticket.number} ${ticket.subject}`.slice(0, 200), details: { number: ticket.number, asset_id: assetId, via: "get_help" }, ip: ipFrom(req) });
+  }
   return NextResponse.json({ ticket: requesterSafe(ticket, []).summary }, { status: 201 });
 }

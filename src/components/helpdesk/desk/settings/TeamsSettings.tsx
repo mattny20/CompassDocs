@@ -78,7 +78,7 @@ export function TeamsSettings() {
           </Button>
         }
       />
-      {/* 1.19.2 (agent W5): "New in 1.19.2" until dismissed (DeskNew). */}
+      {/* 1.19.2 (agent W5): the "New in <release>" strip until dismissed (DeskNew). */}
       <DeskNewStrip />
       {error && <p className="notice-error mb-4 rounded-lg border px-3 py-2 text-sm">{error}</p>}
       {teams === null && <LoadingRow className="py-10" />}

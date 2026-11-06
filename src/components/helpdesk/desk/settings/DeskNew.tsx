@@ -2,7 +2,7 @@
 
 // "New" in the desk settings (Helpdesk 1.19.2, mock e2): the rail's New
 // chip on the pages a release adds (lib/helpdesk/whats-new-shared), until
-// the person opens the page, and the "New in 1.19.2" strip until they
+// the person opens the page, and the "New in 1.19.x" strip until they
 // dismiss it. The settings layout reads what this person has not seen
 // (lib/helpdesk/whats-new) and hands it to <DeskNewProvider>; opening a
 // New page records it (POST /api/helpdesk/whats-new) and the chip goes at
@@ -66,7 +66,7 @@ export function DeskNewChip() {
 }
 
 /**
- * "New in 1.19.2: Skills and languages, Canned responses and Checklists.
+ * "New in 1.19.3: Assets.
  * The New badge goes once you've opened the page." Dismissable; shown
  * until dismissed, to people whose rail has at least one of the pages.
  */

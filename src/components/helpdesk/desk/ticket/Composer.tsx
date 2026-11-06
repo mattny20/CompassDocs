@@ -31,6 +31,7 @@ import { CollisionError, clearTyping, noteTyping, postGuarded } from "../presenc
 import { CollisionDialog } from "../presence/CollisionDialog";
 import { useDeskMe } from "../me";
 import { askTimeOnSolve } from "../time/TimeCard";
+import { askMaintenanceOnSolve, logMaintenanceAfterSolve, type MaintenancePlan } from "../assets/SolveMaintenance";
 
 export type ComposerMode = "public" | "internal";
 
@@ -233,6 +234,9 @@ export const Composer = forwardRef<
     if (fileInput.current) fileInput.current.value = "";
   }
 
+  // 1.19.3: the maintenance record chosen for this send's solve (assets/SolveMaintenance).
+  const maintenancePlan = useRef<MaintenancePlan | null>(null);
+
   async function send(then: HdStatus | null, force = false) {
     setThenOpen(false);
     if (!text.trim() || busy || uploading) {
@@ -243,6 +247,13 @@ export const Composer = forwardRef<
     // A team that records time asks for it before a solve, as Solve and `e`
     // do (1.19.1, agent V8's askTimeOnSolve); cancelling sends nothing. A
     // forced resend after a collision warning was already asked.
+    // 1.19.3: a linked asset may log a maintenance record once solved (assets/SolveMaintenance);
+    // a forced resend keeps what was chosen the first time.
+    if (status === "solved" && !force) {
+      const plan = await askMaintenanceOnSolve(number, subject);
+      if (plan === false) return;
+      maintenancePlan.current = plan;
+    }
     if (status === "solved" && !force && !(await askTimeOnSolve(number, me.id))) return;
     setBusy(true);
     try {
@@ -263,6 +274,8 @@ export const Composer = forwardRef<
       toast("ok", mode === "public" ? (forReview ? "Sent for review. A lead checks it before it goes out." : "Reply sent.") : "Note added.");
       // 1.19.2: sent, but a required checklist item was unticked meanwhile, so the status stayed (agent W3).
       if (sent?.status_unchanged) toast("error", `Sent, but the status didn't change. ${sent.status_unchanged}`);
+      else if (status === "solved" && maintenancePlan.current) void logMaintenanceAfterSolve(number, maintenancePlan.current);
+      maintenancePlan.current = null;
       writeDraft(number, mode, "");
       setText("");
       setFiles([]);

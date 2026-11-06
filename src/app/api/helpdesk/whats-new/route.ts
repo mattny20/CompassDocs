@@ -1,7 +1,7 @@
 // POST /api/helpdesk/whats-new   { item }  → { ok: true }
 // Helpdesk 1.19.2 (agent W5, lib/helpdesk/whats-new): record that the
 // signed-in agent has opened one of the release's New settings pages
-// (item = its path) or dismissed the release strip (item = "strip:1.19.2").
+// (item = its path) or dismissed the release strip (item = "strip:1.19.3").
 // Their own record only; an item not on the current list is a 400.
 
 import { NextResponse } from "next/server";

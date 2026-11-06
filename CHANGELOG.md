@@ -4,6 +4,62 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.19.3] - 2026-11-06
+
+Assets on helpdesk tickets, with Snipe-IT as the source. Agents see which
+laptop or monitor a ticket is about, its warranty and the tickets raised on
+it before, and can log a maintenance record in Snipe-IT when they solve the
+ticket. Requesters can pick their own device when they ask for help.
+
+### Added
+- **Desk settings → Assets:** connect Snipe-IT with its address and an API
+  key (stored encrypted and never shown again), with **Test connection** and
+  **Sync now**. Assets sync every 30 minutes, and a tag or serial is also
+  looked up live. Every change is in the audit log.
+- **Assets card on each ticket:** link devices, with the requester's own
+  listed first, and see each one's status, warranty and earlier tickets.
+  **Open in Snipe-IT** opens the asset there. Up to 10 assets can be linked
+  by hand; merging moves every link to the kept ticket, so it may hold more,
+  and the maintenance record then covers the 10 you choose.
+- **An asset's page** lists its tickets and its maintenance records in
+  Snipe-IT. A ticket or record from a queue you don't work is counted but
+  not shown.
+- **Log a maintenance record when solving.** If a ticket has a linked asset
+  and the setting is on, Solve, the `e` key and **Send and set Solved**
+  offer a maintenance record (type, supplier and your note). The ticket
+  number is added; the subject never is. It is sent once, right after your
+  solve. If Snipe-IT refuses it, an internal note says why and the ticket
+  stays solved.
+- **Get help:** requesters can pick one of their own devices when they raise
+  a request. Devices are matched on a confirmed email address only.
+- **Who sees assets:** agents see the assets of the people whose tickets
+  they work, and can search every asset by tag, serial or name while
+  **Agents can search all assets** is on (the default). Requesters see only
+  their own devices.
+- **Claude connector:** an agent's ticket read lists the linked assets, and
+  `hd_asset_lookup` finds assets by tag, serial, name or person.
+- **Merging, anonymising and the personal data export** cover assets:
+  merging moves the links, anonymising removes them (and the device from the
+  ticket's audit entries), and the export lists the assets on the person's
+  own requests.
+- **Desk settings:** the New badge and the "New in" note now point to
+  Assets.
+
+### Upgrading
+- **Additive schema, applied on start:** new tables `hd_assets`,
+  `hd_ticket_assets` and `hd_asset_maintenance_log`. No existing data
+  changes.
+- **Nothing reaches Snipe-IT until an admin connects it.** The sync runs
+  with the other helpdesk sweeps, only with the helpdesk licensed and a
+  source connected.
+- **A Snipe-IT server on a private network** needs
+  `COMPASSDOCS_FETCH_ALLOW_PRIVATE=1`, like other outbound connections.
+- **Disconnecting Snipe-IT** stops new links, lookups, the Get help device
+  picker and maintenance records. Assets already linked stay on their
+  tickets and can still be unlinked, and reconnecting to the same address
+  keeps them.
+- **Rolling back to 1.19.2 is safe:** it ignores the new tables.
+
 ## [1.19.2] - 2026-11-06
 
 Major incidents, skills and language routing, checklists and canned

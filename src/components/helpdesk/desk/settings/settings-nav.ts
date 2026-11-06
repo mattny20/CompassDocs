@@ -27,6 +27,7 @@ import {
   Languages,
   Link,
   Shield,
+  Package,
   type LucideIcon,
 } from "lucide-react";
 import { CHECKLIST_MANAGE_CAPS } from "@/lib/helpdesk/checklists-caps";
@@ -67,6 +68,8 @@ const NEED: Record<string, string[]> = {
   // Shortcut defaults and retention (1.19.1, agent V5).
   "/desk/settings/shortcuts": ["settings.manage"],
   "/desk/settings/retention": ["settings.manage"],
+  // Assets: the Snipe-IT source (1.19.3, lib/helpdesk/assets).
+  "/desk/settings/assets": ["settings.manage"],
 };
 
 const HELPDESK: SettingsNavItem[] = [
@@ -91,6 +94,7 @@ const HELPDESK: SettingsNavItem[] = [
   { href: "/desk/settings/import", label: "Import", icon: Upload },
   { href: "/desk/settings/retention", label: "Retention and privacy", icon: Shield },
   { href: "/desk/settings/claude", label: "Claude connector", icon: Bot },
+  { href: "/desk/settings/assets", label: "Assets", icon: Package },
 ];
 const PEOPLE: SettingsNavItem[] = [
   { href: "/desk/settings/agents", label: "Agents", icon: UsersRound },

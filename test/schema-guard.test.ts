@@ -36,6 +36,7 @@ import { HD_INCIDENTS_SCHEMA } from "../src/lib/helpdesk/incidents-schema";
 import { HD_WHATS_NEW_SCHEMA } from "../src/lib/helpdesk/whats-new-schema";
 import { HD_IMPORT_CHECK_SCHEMA } from "../src/lib/helpdesk/import-check-schema";
 import { HD_STATUS_TEAMS_SCHEMA } from "../src/lib/helpdesk/status-teams-schema";
+import { HD_ASSETS_SCHEMA } from "../src/lib/helpdesk/assets-schema";
 
 /** The schema blocks db.ts interpolates into SCHEMA_SQL (1.19.0). */
 const INTERPOLATED: Record<string, string> = {
@@ -64,6 +65,7 @@ const INTERPOLATED: Record<string, string> = {
   HD_WHATS_NEW_SCHEMA,
   HD_IMPORT_CHECK_SCHEMA,
   HD_STATUS_TEAMS_SCHEMA,
+  HD_ASSETS_SCHEMA,
 };
 
 const COLUMN_PREDICATE = (table: string, column: string) =>

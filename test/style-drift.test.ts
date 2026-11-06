@@ -76,6 +76,8 @@ describe("style drift guard", () => {
       // Mastheads whose 48px icon tile or photo replaces the 24px lucide icon.
       "app/(app)/directory/[id]/page.tsx",
       "app/(app)/spaces/[slug]/page.tsx",
+      // An asset's page in the desk (1.19.3, §Helpdesk: assets): the 48px device tile.
+      "components/helpdesk/desk/assets/AssetPage.tsx",
       // Documented exceptions and standalone surfaces outside the shell.
       "components/DashboardGreeting.tsx",
       "components/DocEditor.tsx",

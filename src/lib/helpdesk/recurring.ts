@@ -64,6 +64,7 @@ import {
  *   7_281_931 retention batches           7_281_962 assignment per-agent class (two-key)
  *   7_281_963 assignment sweep            7_281_971 recurring sweep (this)
  *   7_281_983 status services per team (two-key with the service id, status-teams)
+ *   7_281_991 asset source sync claim (assets ASSETS_SYNC_LOCK)
  * test/helpdesk-recurring checks they stay distinct.
  */
 export const RECURRING_SWEEP_LOCK = 7_281_971;

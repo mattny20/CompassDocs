@@ -103,6 +103,8 @@ export const SETTINGS_CAP: Record<string, string[]> = {
   // Shortcut defaults and retention and privacy (1.19.1, agent V5).
   shortcuts: ["settings.manage"],
   retention: ["settings.manage"],
+  // Assets: the Snipe-IT source (1.19.3, lib/helpdesk/assets).
+  assets: ["settings.manage"],
 };
 
 /** May this person open that settings page? */
