@@ -128,9 +128,13 @@ export interface AckRosterRow {
   /**
    * The published handbook this person is asked through (1.18.3): set when
    * they can't open the policy's space, so their reminders link to the
-   * handbook reader; null or absent otherwise. The "Through a handbook" tag.
+   * handbook reader; null or absent otherwise, and null when the viewer may
+   * not see that handbook (`asked_through_handbook` alone then). The
+   * "Through a handbook" tag.
    */
   via_handbook_title?: string | null;
+  /** Asked through a handbook (1.18.3), whether or not the viewer may see its title. */
+  asked_through_handbook?: boolean;
 }
 
 /** One row of the ledger (the All confirmations view): AckLedgerRow's shape, personal data already blanked by the server. */
@@ -268,12 +272,14 @@ function PersonCell({
   email,
   href,
   viaHandbook,
+  askedThroughHandbook = false,
 }: {
   name: string;
   username: string;
   email?: string;
   href?: string;
   viaHandbook?: string | null;
+  askedThroughHandbook?: boolean;
 }) {
   const label = name || username;
   return (
@@ -285,7 +291,7 @@ function PersonCell({
       ) : (
         <span className="font-medium text-slate-800">{label}</span>
       )}
-      <ThroughHandbookTag title={viaHandbook} />
+      <ThroughHandbookTag title={viaHandbook} asked={askedThroughHandbook} />
       {email && <span className="ml-2 text-xs text-slate-500">{email}</span>}
     </>
   );
@@ -1170,6 +1176,7 @@ function CurrentTable({
                   email={r.email}
                   href={recordLinks ? `/compliance/person/${r.id}` : undefined}
                   viaHandbook={r.via_handbook_title}
+                  askedThroughHandbook={r.asked_through_handbook}
                 />
               </Td>
               <Td className="text-slate-500">{r.role ?? ""}</Td>

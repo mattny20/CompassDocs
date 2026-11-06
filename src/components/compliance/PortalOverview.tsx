@@ -178,7 +178,7 @@ export function PortalOverview({ licensed, canManageLicense = false }: PortalPag
                       </Link>
                     )}
                     {/* Asked through a handbook (1.18.3): they can't open the policy's space. */}
-                    {r.user_id != null && <ThroughHandbookTag title={r.via_handbook_title} className="" />}
+                    {r.user_id != null && <ThroughHandbookTag title={r.via_handbook_title} asked={r.asked_through_handbook} className="" />}
                     <Link
                       href={`/doc/${r.document_id}/acknowledgements`}
                       className={`min-w-0 flex-1 truncate hover:text-compass-600 hover:underline ${

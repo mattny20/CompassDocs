@@ -571,10 +571,19 @@ async function renderParts(
   const textTags = new Set(def?.text ?? []);
   const fill = (value: string, from: Record<string, string>) =>
     value.replace(/\{\{\s*([\w]+)\s*\}\}/g, (whole, tag) => (textTags.has(tag) && tag in from ? from[tag] : whole));
+  // A subject is plain text, never markdown: the sentence's own emphasis
+  // ("It's in **{{handbook_title}}**.") is dropped there before the title is
+  // filled in, so an admin who puts {{handbook_line}} in a subject reads
+  // "It's in Title." and a title's own characters are kept as typed.
+  const plainSentence = (value: string) =>
+    value
+      .split(/(\{\{\s*[\w]+\s*\}\})/g)
+      .map((part, i) => (i % 2 === 1 ? part : part.replace(/\*\*|__|[*`]/g, "")))
+      .join("");
   for (const tag of def?.compose ?? []) {
     if (!(tag in vars)) continue;
     bodyVars[tag] = fill(vars[tag], bodyVars);
-    subjectVars[tag] = fill(vars[tag], vars);
+    subjectVars[tag] = fill(plainSentence(vars[tag]), vars);
   }
   const bodyMd = substitute(bodyTpl, bodyVars);
   let html = await renderBodyHtml(bodyMd, accent, origin);

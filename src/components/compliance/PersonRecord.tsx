@@ -582,7 +582,7 @@ export function PersonRecord({
                     <Td>
                       <PolicyLink row={r} self={self} />
                       {/* Asked through a handbook (1.18.3): they can't open the space, so reminders link to the handbook. */}
-                      <ThroughHandbookTag title={r.via_handbook_title} />
+                      <ThroughHandbookTag title={r.via_handbook_title} asked={r.asked_through_handbook} self={self} />
                       {r.space_name && <span className="ml-2 text-xs text-slate-500">{r.space_name}</span>}
                     </Td>
                     <Td className="text-slate-500">{r.set_names.join(", ")}</Td>

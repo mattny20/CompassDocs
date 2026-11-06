@@ -30,6 +30,7 @@ import {
   ledgerCsvCells,
   rosterStatus,
   exemptionCsvCells,
+  askedThroughCell,
 } from "@/lib/read-evidence";
 
 export const dynamic = "force-dynamic";
@@ -67,7 +68,8 @@ export const dynamic = "force-dynamic";
 // formula-leading value prefixed with a quote), so a name or a note that
 // starts with = never runs when the sheet opens. Last (1.18.3),
 // asked_through: the handbook a person who cannot open the space is asked
-// through (blank otherwise).
+// through ("a handbook" when the caller may not see that one by name, blank
+// otherwise).
 //
 // The JSON rows (the Record tab and the portal's expand row, AckRoster) are
 // AckStatusRow as is: with 1.13.0 each carries its assignment (D2:
@@ -225,7 +227,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   const [rows, former, lastDecision, lastReset, kept, defaults] = await Promise.all([
-    ackStatusForDocument(doc.id),
+    ackStatusForDocument(doc.id, user.id),
     ackFormerStaffRows(doc.id),
     lastAckDecision(doc.id),
     lastAckDecision(doc.id, { outcome: "reset" }),
@@ -274,7 +276,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           ...recert,
           ...exemptionCsvCells(r).map(esc),
           setCell,
-          esc(r.via_handbook_title ?? ""),
+          esc(askedThroughCell(r)),
         ].join(",")
       ),
       ...former.map((r) =>

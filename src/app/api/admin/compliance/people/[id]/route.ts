@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // One person's compliance record (F3, 1.14.0): every policy they must
 // confirm with the evidence, their prior confirmations, the closed
 // assignments, the rows on retired policies and the notices they were sent.
-// JSON, or ?format=csv (the 21 columns of RECORD_CSV_HEADER). `me` is the
+// JSON, or ?format=csv (the 22 columns of RECORD_CSV_HEADER). `me` is the
 // viewer's own record.
 //
 // Any signed-in account may ask; who sees what is the four-way rule in
