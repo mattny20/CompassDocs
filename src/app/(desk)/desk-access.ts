@@ -80,11 +80,17 @@ export const SETTINGS_CAP: Record<string, string[]> = {
   email: ["channels.manage"],
   automations: ["automations.manage"],
   macros: ["macros.manage_all", "macros.manage_team", "macros.manage_personal"],
+  // Canned responses (1.19.2, agent W4).
+  canned: ["macros.manage_all", "macros.manage_team", "macros.manage_personal"],
+  // Checklists (1.19.2, agent W3, lib/helpdesk/checklists-caps).
+  checklists: ["settings.manage", "request_types.manage", "workflows.manage"],
   csat: ["csat.manage"],
   workflows: ["workflows.manage"],
   "contact-cards": ["settings.manage"],
   // Team settings, people and on call: agents.manage_team (a lead for their own teams); rules: automations.manage (agent N).
   assignment: ["agents.manage_team", "automations.manage"],
+  // Skills and languages (1.19.2, agent W2).
+  skills: ["agents.manage_team", "teams.manage"],
   integrations: ["settings.manage", "channels.manage"],
   // Recurring tickets: every team (settings.manage) or a lead's own teams (1.19.1, agent V8).
   recurring: ["settings.manage", "agents.manage_team"],

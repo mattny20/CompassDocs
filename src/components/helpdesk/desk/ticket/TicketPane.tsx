@@ -54,6 +54,11 @@ import { MenuSeparator } from "@/components/Popover";
 import { MergeDialog, type MergeCandidate } from "../merge/MergeDialog";
 import { MergedComposerLock, MergedNotice } from "../merge/MergeCards";
 import { askTimeOnSolve } from "../time/TimeCard";
+import { IncidentBanner } from "../incidents/IncidentBanner";
+import { IncidentPanel } from "../incidents/IncidentPanel";
+import { useIncidentMenu } from "../incidents/IncidentActions";
+import { revealChecklists, TicketChecklists } from "../checklists/TicketChecklists";
+import { isChecklistBlock } from "@/lib/helpdesk/checklists-shared";
 
 const PILL_TONE: Record<string, string> = {
   info: "bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-500/15 dark:text-sky-300",
@@ -111,7 +116,11 @@ export function TicketPane({ number }: { number: number }) {
         refreshQueue();
       } catch (e) {
         // A workflow task with required hand-off fields is solved through Mark done (agent M).
-        if (e instanceof ApiError && e.status === 409 && p.status === "solved" && d?.parent) openTaskOutcome(number);
+        // 1.19.2: required checklist items first (agent W3): say so and show them.
+        if (e instanceof ApiError && isChecklistBlock(e.message)) {
+          toast("error", e.message);
+          revealChecklists(number);
+        } else if (e instanceof ApiError && e.status === 409 && p.status === "solved" && d?.parent) openTaskOutcome(number);
         else toast("error", (e as Error).message);
       } finally {
         setBusy(false);
@@ -195,6 +204,8 @@ export function TicketPane({ number }: { number: number }) {
       <article aria-labelledby="ticket-subject" className="@container px-4 py-4 sm:px-6 sm:py-5">
         {back}
         <PageHeader className="sr-only" title={`Ticket #${t.number}: ${t.subject}`} />
+        {/* A major incident's own ticket, or one linked to it (1.19.2, agent W1). */}
+        {can && <IncidentBanner number={t.number} refreshKey={t.updated_at} />}
         <div className="flex flex-wrap items-start gap-3">
           <div className="min-w-[min(100%,18rem)] flex-1">
             <p className="text-xs text-slate-500">
@@ -267,8 +278,10 @@ export function TicketPane({ number }: { number: number }) {
                 Solve
               </Button>
             )}
-            {can && (can$("tickets.delete") || canMergeFrom(t, can$)) && (
+            {/* 1.19.2: the menu also carries the major incident actions (agent W1), so it decides itself whether to show. */}
+            {can && (
               <TicketMoreMenu
+                ticket={t}
                 number={t.number}
                 canDelete={can$("tickets.delete")}
                 mergeFrom={canMergeFrom(t, can$) ? t : null}
@@ -284,6 +297,10 @@ export function TicketPane({ number }: { number: number }) {
             <BlockedRunBanner detail={d} onChanged={() => void load(true).then(refreshQueue)} />
             <TaskOutcomeBar detail={d} onChanged={() => void load(true).then(refreshQueue)} />
             <MergedNotice d={d} />
+            {/* A major incident's updates and linked tickets (1.19.2, agent W1). */}
+            {can && <IncidentPanel number={t.number} refreshKey={t.updated_at} onChanged={() => void load(true).then(refreshQueue)} />}
+            {/* Checklists (1.19.2, agent W3); refreshed as the timeline moves. */}
+            {can && <TicketChecklists number={t.number} refreshKey={d.messages.length} />}
             <Conversation messages={d.messages} requesterId={t.requester_id} meId={me.id} ticketNumber={t.number} origins={d.merge?.message_origins} />
             {can && !merged && <ClaudeDraftCard number={t.number} onUse={(body) => composer.current?.fill(body)} />}
             {can && merged ? (
@@ -314,6 +331,7 @@ export function TicketPane({ number }: { number: number }) {
             onPatch={patch}
             onInsertArticle={(title, url) => composer.current?.insertLink(title, url)}
             onReply={() => composer.current?.focus("public")}
+            onReload={() => void load(true)}
           />
         </div>
       </article>
@@ -327,12 +345,14 @@ function canMergeFrom(t: HdTicketDetail["ticket"], can$: (cap: string) => boolea
 }
 
 function TicketMoreMenu({
+  ticket,
   number,
   onDeleted,
   canDelete = true,
   mergeFrom = null,
   onMerged,
 }: {
+  ticket: HdTicketDetail["ticket"];
   number: number;
   onDeleted: () => void;
   canDelete?: boolean;
@@ -342,6 +362,7 @@ function TicketMoreMenu({
   const [open, setOpen] = useState(false);
   const [merging, setMerging] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
+  const incident = useIncidentMenu(ticket);
   async function remove() {
     setOpen(false);
     const ok = await confirmDialog({
@@ -359,6 +380,7 @@ function TicketMoreMenu({
       toast("error", (e as Error).message);
     }
   }
+  if (!canDelete && !mergeFrom && !incident.any) return null;
   return (
     <div className="relative">
       <button
@@ -374,6 +396,8 @@ function TicketMoreMenu({
         <MoreHorizontal aria-hidden />
       </button>
       <Popover open={open} onClose={() => setOpen(false)} triggerRef={btn} role="menu" label={`Ticket #${number}`} align="end" width="w-60">
+        {incident.items(() => setOpen(false))}
+        {incident.any && (mergeFrom || canDelete) && <MenuSeparator />}
         {mergeFrom && (
           <MenuItem icon={<GitMerge />} onClick={() => { setOpen(false); setMerging(true); }}>
             Merge into another ticket…
@@ -395,6 +419,7 @@ function TicketMoreMenu({
           onMerged={(keep) => { setMerging(false); onMerged?.(keep); }}
         />
       )}
+      {incident.dialogs}
     </div>
   );
 }

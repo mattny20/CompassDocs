@@ -4,9 +4,12 @@
 // Helpdesk 1.19.1, Desk settings → Import: a CSV import's optional second
 // file, one row per message keyed by ticket id. Replaces an earlier one
 // and rescans. Same size limit as the upload. Desk capability settings.manage.
+// 1.19.2 (agent W5): the rescan runs in the background (lib/helpdesk/import-check).
 
 import { NextResponse } from "next/server";
+import { actorFrom, ipFrom } from "@/lib/audit";
 import { attachMessagesFile, getImportSettings, jobView, saveImportUpload } from "@/lib/helpdesk/import";
+import { auditCheckStarted } from "@/lib/helpdesk/import-check";
 import { importErrorResponse, importGate, loadJob, uploadFilename } from "@/lib/helpdesk/import-routes";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +27,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
   try {
     const stored = await saveImportUpload(req.body, max, "csv");
-    return NextResponse.json({ job: await jobView(await attachMessagesFile(job.id, stored, uploadFilename(req, "messages.csv"))) });
+    const row = await attachMessagesFile(job.id, stored, uploadFilename(req, "messages.csv"), { background: { by: gate.id } });
+    if (row.status === "checking") await auditCheckStarted(row, "rescan", actorFrom(gate), ipFrom(req));
+    return NextResponse.json({ job: await jobView(row) });
   } catch (e) {
     return importErrorResponse(e);
   }

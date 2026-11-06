@@ -7,7 +7,10 @@ import { ADMIN, api, ensureUser, login } from "./helpers";
 // skip themselves and the EE rig runs them. The matrix is never saved here
 // (it is shared state); the Agents flow adds and removes its own account.
 
-const NEWBIE = { username: "e2e_hd_newbie", password: "E2eNewbie!12345" };
+// Its own account and display name: test/helpdesk-roles.test.ts names a
+// fixture "Nia Newbie" too, and the Agents rows are labelled by name.
+const NEWBIE = { username: "e2e_hd_roles_newbie", password: "E2eNewbie!12345" };
+const NEWBIE_NAME = "Noor Newcomer";
 
 async function deskLicensed(page: Page): Promise<boolean> {
   const res = await api(page, "/api/helpdesk/admin/roles");
@@ -23,7 +26,7 @@ test.describe("desk roles", () => {
 
   test("Agents: the admin is Admin from their workspace role; add a newbie, promote, remove", async ({ page }) => {
     test.skip(!(await deskLicensed(page)), "helpdesk is not licensed in this build; the EE rig runs the flow");
-    await ensureUser(page, NEWBIE, "viewer", "Nia Newbie");
+    await ensureUser(page, NEWBIE, "viewer", NEWBIE_NAME);
     const users = await api(page, "/api/users/mentionable");
     const nia = (users.body.users as { id: number; username: string }[]).find((u) => u.username === NEWBIE.username)!;
     await api(page, `/api/helpdesk/admin/agents/${nia.id}`, { method: "DELETE" }); // a clean start
@@ -34,26 +37,28 @@ test.describe("desk roles", () => {
 
     await page.getByRole("button", { name: "Add agent" }).click();
     const dialog = page.getByRole("dialog");
-    await dialog.getByRole("combobox", { name: "Person" }).fill("Nia Newbie");
+    await dialog.getByRole("combobox", { name: "Person" }).fill(NEWBIE.username);
     await page.keyboard.press("Enter");
-    await dialog.getByLabel("Role").selectOption("newbie");
+    // The dialog also lists every team as a checkbox, and getByLabel matches a
+    // substring: a team named "…roles…" (another suite's fixture) would match too.
+    await dialog.getByRole("combobox", { name: /^Role/ }).selectOption("newbie");
     const added = page.waitForResponse((r) => r.url().endsWith("/api/helpdesk/admin/agents") && r.request().method() === "POST");
     await dialog.getByRole("button", { name: "Add to desk" }).click();
     expect((await added).status()).toBe(201);
 
-    const role = page.getByRole("combobox", { name: "Desk role of Nia Newbie" });
+    const role = page.getByRole("combobox", { name: `Desk role of ${NEWBIE_NAME}`, exact: true });
     await expect(role).toHaveValue("newbie");
     const changed = page.waitForResponse((r) => r.url().includes(`/api/helpdesk/admin/agents/${nia.id}`) && r.request().method() === "PATCH");
     await role.selectOption("agent");
     expect((await changed).status()).toBe(200);
     await page.reload();
-    await expect(page.getByRole("combobox", { name: "Desk role of Nia Newbie" })).toHaveValue("agent");
+    await expect(page.getByRole("combobox", { name: `Desk role of ${NEWBIE_NAME}`, exact: true })).toHaveValue("agent");
 
-    await page.getByRole("button", { name: "Remove Nia Newbie from the desk" }).click();
+    await page.getByRole("button", { name: `Remove ${NEWBIE_NAME} from the desk`, exact: true }).click();
     const removed = page.waitForResponse((r) => r.url().includes(`/api/helpdesk/admin/agents/${nia.id}`) && r.request().method() === "DELETE");
     await page.getByRole("dialog").getByRole("button", { name: "Remove from desk" }).click();
     expect((await removed).status()).toBe(200);
-    await expect(page.getByRole("combobox", { name: "Desk role of Nia Newbie" })).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: `Desk role of ${NEWBIE_NAME}`, exact: true })).toHaveCount(0);
   });
 
   test("Roles: Admin's column is locked, the exclusive reply pair flips, unsaved changes are flagged", async ({ page }) => {

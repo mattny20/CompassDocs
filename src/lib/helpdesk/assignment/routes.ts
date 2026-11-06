@@ -53,6 +53,9 @@ export interface RuleChoices {
   integrations: { id: number; name: string }[];
   agents: { id: number; name: string }[];
   form_fields: { key: string; label: string }[];
+  /** The workspace's skills and languages (1.19.2, agent W2): the skills action and the ticket language condition. */
+  skills: { id: number; name: string }[];
+  languages: { code: string; name: string }[];
 }
 
 /** What the rule editor's pickers list. */
@@ -65,6 +68,8 @@ export async function ruleChoices(): Promise<RuleChoices> {
     ),
   ]);
   const integrations = await hq<{ id: number; name: string }>("SELECT id, name FROM hd_integrations ORDER BY name").catch(() => []);
+  const { skillChoices } = await import("../skills/routes");
+  const sk = await skillChoices();
   const seen = new Map<string, string>();
   for (const t of types) for (const f of Array.isArray(t.form) ? t.form : []) if (f?.key && !seen.has(f.key)) seen.set(f.key, f.label || f.key);
   return {
@@ -73,6 +78,8 @@ export async function ruleChoices(): Promise<RuleChoices> {
     integrations,
     agents,
     form_fields: [...seen].map(([key, label]) => ({ key, label })).slice(0, 200),
+    skills: sk.skills,
+    languages: sk.languages,
   };
 }
 
@@ -104,7 +111,10 @@ export async function auditAssignment(
 }
 
 /** The teams and person a rule names exist (and the person is active). Returns an error sentence or null. */
-export async function ruleRefsProblem(input: { scope_team_id?: number | null; action?: { team_id?: number | null; user_id?: number | null } }): Promise<string | null> {
+export async function ruleRefsProblem(input: {
+  scope_team_id?: number | null;
+  action?: { team_id?: number | null; user_id?: number | null; skills?: import("../skills/shared").HdSkillCriteria };
+}): Promise<string | null> {
   const teamIds = [input.scope_team_id, input.action?.team_id].filter((x): x is number => typeof x === "number");
   if (teamIds.length) {
     const found = await hq<{ id: number }>("SELECT id FROM hd_teams WHERE id = ANY($1::int[])", [teamIds]);
@@ -113,6 +123,11 @@ export async function ruleRefsProblem(input: { scope_team_id?: number | null; ac
   if (input.action?.user_id) {
     const u = await hqOne("SELECT 1 FROM users WHERE id = $1 AND status = 'active'", [input.action.user_id]);
     if (!u) return "That person is not an active user.";
+  }
+  if (input.action?.skills) {
+    const { skillsRefsProblem } = await import("../skills/routes");
+    const p = await skillsRefsProblem(input.action.skills);
+    if (p) return p;
   }
   return null;
 }

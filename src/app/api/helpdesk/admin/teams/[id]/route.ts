@@ -1,5 +1,5 @@
 // PATCH  /api/helpdesk/admin/teams/[id]   { name?, description?, icon?, email_alias?, position? } → { team }
-// DELETE /api/helpdesk/admin/teams/[id]   its members go; its tickets and request types keep their history (team NULL)
+// DELETE /api/helpdesk/admin/teams/[id]   its members go; its tickets and request types keep their history (team NULL); its canned responses go (counted in the audit)
 // Helpdesk 1.19.0 (desk capability teams.manage). Audited (helpdesk.team.updated / .deleted).
 
 import { NextResponse } from "next/server";
@@ -9,6 +9,7 @@ import { hdCapGate } from "@/lib/helpdesk/roles";
 import { deleteTeam, getTeam, updateTeam, validateTeamInput } from "@/lib/helpdesk/teams";
 import { badRequest, notFound } from "@/lib/helpdesk/routes";
 import { invalidateCalendarCache } from "@/lib/helpdesk/calendars";
+import { cannedCountForTeam } from "@/lib/helpdesk/canned";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,8 @@ export async function DELETE(req: Request, { params }: Ctx) {
   const gate = await hdCapGate("teams.manage");
   if (gate instanceof NextResponse) return gate;
   const id = Number((await params).id);
+  // Its canned responses are deleted with it (1.19.2, agent W4): counted for the audit.
+  const cannedGone = Number.isInteger(id) ? await cannedCountForTeam(id) : 0;
   const team = Number.isInteger(id) ? await deleteTeam(id) : undefined;
   if (!team) return notFound();
   invalidateCalendarCache();
@@ -55,6 +58,7 @@ export async function DELETE(req: Request, { params }: Ctx) {
     targetType: "helpdesk_team",
     targetId: id,
     targetLabel: team.name,
+    details: { canned_responses_deleted: cannedGone },
     ip: ipFrom(req),
   });
   return NextResponse.json({ ok: true });

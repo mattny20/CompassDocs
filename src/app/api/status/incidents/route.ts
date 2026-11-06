@@ -70,6 +70,7 @@ export async function POST(req: Request) {
       severity,
       resolved: false,
       origin: requestOrigin(req),
+      serviceId: service.id,
     }).catch(() => {});
     return NextResponse.json({ id }, { status: 201 });
   }
@@ -116,6 +117,7 @@ export async function POST(req: Request) {
       severity: "outage",
       resolved: true,
       origin: requestOrigin(req),
+      serviceId: service?.id,
     }).catch(() => {});
     return NextResponse.json({ ok: true });
   }

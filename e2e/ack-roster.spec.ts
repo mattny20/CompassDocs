@@ -52,10 +52,10 @@ async function confirmLatest(page: Page, docId: number): Promise<number> {
   return versionId;
 }
 
-async function makeUser(page: Page, user: { username: string; password: string }, name: string): Promise<number> {
+async function makeUser(page: Page, user: { username: string; password: string }, name: string, email = ""): Promise<number> {
   const created = await api(page, "/api/admin/users", {
     method: "POST",
-    body: { ...user, role: "viewer", name },
+    body: { ...user, role: "viewer", name, email },
   });
   expect(created.status, `${name} created`).toBe(201);
   const id = created.body?.user?.id;
@@ -87,7 +87,7 @@ test("the Record tab: Due and Exemption columns, the Overdue and Exempt filters,
     // The person first, then the policy: switching the requirement on
     // enrols everyone who can see the sample space (D1), the admin and the
     // person alike, each with a due date from the workspace's rule (E1).
-    personId = await makeUser(page, person, PERSON);
+    personId = await makeUser(page, person, PERSON, `${ADMIN.username}+roster${suffix}@example.test`);
     docId = await makePolicy(page, title);
     test.skip(
       (await requireConfirmation(page, docId)) === "unlicensed",
@@ -116,6 +116,16 @@ test("the Record tab: Due and Exemption columns, the Overdue and Exempt filters,
     // A toast's Undo, by the toast's own text: action toasts stay ten
     // seconds and several may be up at once.
     const undoOn = (text: string | RegExp) => status.locator("div", { hasText: text }).getByRole("button", { name: "Undo" });
+    // The roster shows 50 people a page, ordered by standing then name, and
+    // the shared database holds other suites' accounts: the two rows this
+    // test works on (which move as their standing changes) are kept on the
+    // page by the filter, which matches the admin's username and the
+    // person's email alike.
+    const filter = main.getByRole("textbox", { name: "Filter people" });
+    const narrow = () => filter.fill(ADMIN.username);
+    await narrow();
+    await expect(row).toBeVisible();
+    await expect(mine).toBeVisible();
 
     // The columns: Due (the person's deadline, formatted) and Exemption
     // (blank until something is recorded); the five Show choices.
@@ -129,12 +139,15 @@ test("the Record tab: Due and Exemption columns, the Overdue and Exempt filters,
       await expect(show.getByRole("radio", { name, exact: true })).toBeVisible();
     }
     // Nobody is overdue the day a 14-day rule enrolled them, and nobody is
-    // exempt yet: both filters leave the table empty with their own line.
+    // exempt yet: both filters leave the table empty with their own line
+    // (the people filter cleared, which has a line of its own).
+    await filter.fill("");
     await show.getByRole("radio", { name: "Overdue", exact: true }).click();
     await expect(main.getByText("Nobody is overdue.")).toBeVisible();
     await show.getByRole("radio", { name: "Exempt", exact: true }).click();
     await expect(main.getByText("Nobody is exempt from this policy.")).toBeVisible();
     await show.getByRole("radio", { name: "All", exact: true }).click();
+    await narrow();
     await expect(row).toBeVisible();
 
     // The checkbox column and the actions are there for the admin.

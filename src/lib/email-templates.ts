@@ -516,7 +516,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       T("ticket_number", "Request number"),
       T("subject", "Request subject"),
       T("agent_name", "Who solved it"),
-      T("csat_block", "The rating question with five links (blank when surveys are off or it is already rated)"),
+      T("csat_block", "The rating question with its links: 1 to 5 in Get help, Good / OK / Not good for customer portal requests (blank when surveys are off or it is already rated)"),
       T("ticket_url", "Link to the request"),
       T("thread_ref", "Thread reference for email replies"),
       T("org_name", "Workspace name"),
@@ -654,6 +654,33 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       "Your request **#{{ticket_number}}** has been joined with **#{{target_number}}** so one person can help with both:\n\n" +
       "> {{subject}}\n\n" +
       "Nothing is lost: your messages are now part of #{{target_number}}. Reply to this email to add to it, or [open your request]({{ticket_url}}).",
+  },
+  // 1.19.2 (agent W1, lib/helpdesk/incidents): a major incident's update to
+  // everyone on a linked ticket and everyone who said "Me too" in Get help.
+  {
+    key: "hd_incident_update",
+    label: "Helpdesk: major incident update",
+    description:
+      "Sent when the desk posts an update on a major incident: to the requester of every open linked ticket (with the people copied on it), and to people who said \"Me too\" in Get help. Replies from a linked ticket's requester go to their request.",
+    tags: [
+      T("incident_title", "The incident's title, as Get help shows it"),
+      T("message", "The update"),
+      T("team_name", "The team running the incident"),
+      T("request_line", "\"(your request #1099 is part of it)\", blank for Me too"),
+      T("link_label", "Open your request, or See it in Get help"),
+      T("reply_line", "\"or reply to this email.\" when replies reach a request"),
+      T("ticket_number", "The linked request's number (blank for Me too)"),
+      T("ticket_url", "Link to the request, or to Get help"),
+      T("thread_ref", "Thread reference for email replies"),
+      T("org_name", "Workspace name"),
+    ],
+    text: ["incident_title", "message", "team_name", "request_line", "link_label", "reply_line"],
+    optional: ["request_line", "reply_line", "ticket_number"],
+    subject: "[{{org_name}}] Update: {{incident_title}} {{thread_ref}}",
+    body:
+      "**{{team_name}}** posted an update on **{{incident_title}}**{{request_line}}:\n\n" +
+      "{{message}}\n\n" +
+      "[{{link_label}}]({{ticket_url}}){{reply_line}}",
   },
   // 1.19.1 (agent V6, lib/helpdesk/portal): the customer portal's one-time
   // sign-in link. Its recipients have no account, so no "Manage your
@@ -916,6 +943,17 @@ export const SAMPLE_VARS: Record<string, Record<string, string>> = {
     target_number: "1049",
     ticket_url: "/help/requests/1051",
     thread_ref: "[#1051 ref:m2r8kq4v7xqa1b2c]",
+  },
+  hd_incident_update: {
+    incident_title: "VPN is down from home",
+    message: "We've found the cause: an expired certificate on the VPN gateway. A new one is going in now.",
+    team_name: "IT Service Desk",
+    request_line: " (your request #1099 is part of it)",
+    link_label: "Open your request",
+    reply_line: " or reply to this email.",
+    ticket_number: "1099",
+    ticket_url: "/help/requests/1099",
+    thread_ref: "[#1099 ref:k7q2xz9m4pqa1b2c]",
   },
   hd_portal_link: {
     portal_name: "Acme Support",

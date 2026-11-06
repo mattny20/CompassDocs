@@ -392,7 +392,11 @@ describe("carry-over: a bare re-time counts paused time in business minutes", ()
     assert.ok(Math.abs(new Date(row.resolve_due).getTime() - want) < 120_000, `due ${row.resolve_due} ≈ ${new Date(want).toISOString()}`);
     // The 1.19.0 rule (created + 16 wall hours, then business time) lands elsewhere.
     const wallRule = addBusinessMinutes(now, policy!.resolve_minutes - businessMinutesBetween(created + 57_600_000, now, hours), hours).getTime();
-    assert.notEqual(Math.round(wallRule / 60_000), Math.round(want / 60_000), "the business rule differs from the wall-clock one here");
+    // At some times of day the 16 wall hours after creation hold exactly the
+    // 30 business minutes banked, and the two rules agree by coincidence.
+    if (businessMinutesBetween(created, created + 57_600_000, hours) !== 30) {
+      assert.notEqual(Math.round(wallRule / 60_000), Math.round(want / 60_000), "the business rule differs from the wall-clock one here");
+    }
   });
 
   test("a resume banks the pause in business minutes", async () => {

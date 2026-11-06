@@ -43,6 +43,7 @@ import type { HdStepCondition, HdTaskStepDefB, HdWorkflowStepB } from "../workfl
 import { conditionFields, routeFields } from "../workflow-multi/conditions";
 import { OnlyIfEditor } from "../workflow-multi/OnlyIfEditor";
 import { CantDoSetting, OutputsEditor, RouteEditor } from "../workflow-multi/TaskExtras";
+import { TaskChecklistsSetting } from "../checklists/TaskChecklistsSetting";
 
 const REMIND = [0, 4, 8, 16, 40];
 const AFTER = [4, 8, 24, 48, 72, 120, 168];
@@ -113,6 +114,8 @@ export function StepSettings({
             <RouteEditor step={task} fields={routeFields(c.form)} teams={c.teams} onChange={(route) => patch({ route })} />
             <CantDoSetting step={task} coordinator={coordinator} onChange={(on_cant_do) => patch({ on_cant_do })} />
             <OutputsEditor step={task} onChange={(outputs) => patch({ outputs })} />
+            {/* 1.19.2: checklists on the task's ticket (agent W3). */}
+            <TaskChecklistsSetting step={task} onChange={(checklist_ids) => patch({ checklist_ids })} />
           </>
         )}
         <OnlyIfEditor

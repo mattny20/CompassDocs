@@ -343,6 +343,8 @@ export type MacroApplyResult =
       message_id: number | null;
       /** The reply was held for a lead's review (a Newbie's): not sent, and its status change not made. */
       held?: boolean;
+      /** 1.19.2: the status change was left out because required checklist items are open (an automation's macro, or a race); the sentence. */
+      status_unchanged?: string;
     }
   | { ok: false; status: 403 | 404 | 409; error: string; missing?: string[] };
 
@@ -392,6 +394,19 @@ export async function applyMacroToTicket(
     const refused = await opts.authorize({ body, patch });
     if (refused) return { ok: false, ...refused };
   }
+  // 1.19.2 (agent W3): required checklist items block the macro's solve before its reply
+  // is posted, for every caller. A person's macro is refused whole (409); an automation's
+  // drops only the status change and still sends the reply and makes the rest.
+  const checklists = await import("./checklists");
+  let statusDropped: string | undefined;
+  if (checklists.solvesForChecklists(t.status, patch.status)) {
+    const held = await checklists.checklistSolveRefusal(ticketId);
+    if (held && !opts.fromAutomation) return { ok: false, status: 409, error: held.error };
+    if (held) {
+      delete patch.status;
+      statusDropped = held.error;
+    }
+  }
   const hook = { fromAutomation: opts.fromAutomation, actorId: actor.id, actorName: actor.name, origin: opts.origin };
   let messageId: number | null = null;
   let held = false;
@@ -411,7 +426,16 @@ export async function applyMacroToTicket(
   if (held && patch.status !== undefined) delete patch.status;
   if (Object.keys(patch).length) {
     const { updateTicket } = await import("./tickets");
-    await updateTicket(ticketId, patch, { id: actor.id, name: actor.name }, hook);
+    try {
+      await updateTicket(ticketId, patch, { id: actor.id, name: actor.name }, hook);
+    } catch (e) {
+      // An item unticked since the check above: the reply is out, so keep the rest of the change (W3).
+      const msg = e instanceof Error ? e.message : "";
+      if (patch.status === undefined || !checklists.isChecklistBlock(msg)) throw e;
+      delete patch.status;
+      statusDropped = msg;
+      if (Object.keys(patch).length) await updateTicket(ticketId, patch, { id: actor.id, name: actor.name }, hook);
+    }
   }
-  return { ok: true, preview: false, body, patch, message_id: messageId, held };
+  return { ok: true, preview: false, body, patch, message_id: messageId, held, ...(statusDropped ? { status_unchanged: statusDropped } : {}) };
 }

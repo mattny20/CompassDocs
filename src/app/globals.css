@@ -837,9 +837,12 @@ table {
 :root[data-theme="dark"] :focus-visible {
   outline-color: rgb(var(--compass-300));
 }
-/* The two documented opt-outs: the panel is the frame. */
+/* The documented opt-outs: the panel is the frame. .frame-input (1.19.2)
+ * is a control inside a bordered frame that carries the outline itself
+ * (has-[:focus-visible]:outline …): the incident composer, a prefixed input. */
 .cmd-input:focus-visible,
-.tiptap:focus-visible {
+.tiptap:focus-visible,
+.frame-input:focus-visible {
   outline: none;
 }
 

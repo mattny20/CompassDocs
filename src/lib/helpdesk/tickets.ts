@@ -592,6 +592,9 @@ export async function updateTicket(
         const missing = await validateTaskSolve(ticketId, client);
         if (missing) throw new HdTicketError(missing.error, 409);
       }
+      // 1.19.2: required checklist items block solving, whatever solves it (lib/helpdesk/checklists, agent W3): 409.
+      const held = await (await import("./checklists")).checklistSolveBlockTx(client, ticketId, before.status, to);
+      if (held) throw new HdTicketError(held, 409);
       set("status", to);
       changed.push("status");
       lines.push({ kind: "system", body: `${who} changed the status from ${HD_STATUS_LABEL[before.status]} to ${HD_STATUS_LABEL[to]}` });
@@ -901,6 +904,13 @@ export async function listTickets(
     }
   } catch (e) {
     console.error("[helpdesk] vip:", e);
+  }
+  // 1.19.2: major incident chips (agent W1, lib/helpdesk/incidents), one batch call.
+  try {
+    const chips = await (await import("./incidents")).incidentChips(out.map((r) => r.id));
+    for (const r of out) if (chips.has(r.id)) r.incident = chips.get(r.id);
+  } catch (e) {
+    console.error("[helpdesk] incident chips:", e);
   }
   return { rows: out, total };
 }

@@ -1,6 +1,6 @@
 // POST /api/helpdesk/admin/assignment/rules/test   { ticket_number } or { sample: { subject, body, source,
 //      automated, integration_id, team_id, priority, category, request_type_id, tags, department, office,
-//      vip, hours: 'open'|'closed', severity } } → { matched, trace: [{rule_id, name, matched, reason}], outcome }
+//      vip, hours: 'open'|'closed', severity, language } } → { matched, trace: [{rule_id, name, matched, reason}], outcome }
 // Which rule would match, why each one did or didn't, and what would happen next. Writes nothing.
 // Helpdesk 1.19.0 (agent N). automations.manage; a ticket number must be one the caller can work.
 
@@ -9,6 +9,7 @@ import { canWorkTicket, readJson } from "@/lib/helpdesk/access";
 import { hdCapGate } from "@/lib/helpdesk/roles";
 import { badRequest, notFound } from "@/lib/helpdesk/assignment/routes";
 import { testRules, ticketForTest, type RuleTestSample } from "@/lib/helpdesk/assignment/engine";
+import { isLanguageCode } from "@/lib/helpdesk/skills/shared";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,7 @@ export async function POST(req: Request) {
     vip: s.vip === true,
     hours: s.hours === "closed" ? "closed" : s.hours === "open" ? "open" : undefined,
     severity: str(s.severity, 40),
+    language: isLanguageCode(s.language) ? s.language : null,
   };
   return NextResponse.json(await testRules(sample, null));
 }

@@ -599,7 +599,8 @@ export async function planCcNotice(
   event: string,
   excludeUserId: number | null,
   excludeEmail = "",
-  opts: { excludeUserIds?: Iterable<number> } = {}
+  /** alreadyMailed (1.19.2, agent W5): addresses an inbound email already reached; they keep the bell, no mail or digest. */
+  opts: { excludeUserIds?: Iterable<number>; alreadyMailed?: Set<string> } = {}
 ): Promise<CcNoticePlan> {
   const plan: CcNoticePlan = { cc: [], bellIds: [], digestIds: [] };
   const ccs = await hq<{ user_id: number | null; email: string; active: boolean | null }>(
@@ -618,13 +619,14 @@ export async function planCcNotice(
       if (bells.get(id)?.send) plan.bellIds.push(id);
       const d = gate.decision(id);
       if (!d.send) continue;
+      if (opts.alreadyMailed?.has((ccs.find((c) => c.user_id === id)?.email ?? "").toLowerCase())) continue;
       if (d.mode === "instant") {
         const addr = ccs.find((c) => c.user_id === id)?.email ?? "";
         if (addr && validCcEmail(addr.toLowerCase())) plan.cc.push(addr);
       } else plan.digestIds.push(id);
     }
   }
-  const outside = ccs.filter((c) => c.user_id === null && c.email && c.email.toLowerCase() !== ex && validCcEmail(c.email.toLowerCase()));
+  const outside = ccs.filter((c) => c.user_id === null && c.email && c.email.toLowerCase() !== ex && !opts.alreadyMailed?.has(c.email.toLowerCase()) && validCcEmail(c.email.toLowerCase()));
   if (outside.length && (await outsideSendersAllowed())) {
     const { portalContactBlocked } = await import("./portal-hooks");
     for (const c of outside) if (!(await portalContactBlocked(c.email))) plan.cc.push(c.email);

@@ -4,6 +4,134 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.19.2] - 2026-11-06
+
+Major incidents, skills and language routing, checklists and canned
+responses for the helpdesk, plus the loose ends from 1.19.1. When something
+breaks for everyone, one incident ticket keeps every affected person updated
+and puts a banner in Get help. Tickets reach the agent who knows the subject
+and speaks the language, routine jobs follow a checklist, and agents insert
+their usual answers with a keystroke.
+
+### Added
+- **Major incidents.** Declare one from a ticket or a queue selection: a
+  ticket for the outage, with the related tickets linked to it. Link and
+  unlink more by hand (each ticket checked on its own), or let new tickets
+  of the incident's team whose subject or description contains chosen words
+  (three letters or more) link themselves while it is open.
+- **Post update** sends one update to everyone affected: a public reply on
+  every open linked ticket the poster may answer, and one email and bell per
+  person (requesters, CCs and people who said "Me too"), never held for a
+  digest. Notification policies list it as **Major incident updates**, with
+  a new email template.
+- **Solve the incident and its linked tickets** solves each ticket as if it
+  were solved by hand (solved email, survey, time and checklist rules). Any
+  that can't be solved stay open, with the reason.
+- **Get help shows a banner** for an open major incident, to everyone or to
+  the team's requesters, with the latest update and a **Me too** button that
+  counts you as affected without raising a request.
+- **Desk:** a Major incidents group in the queue, and chips on the
+  incident's ticket and the tickets linked to it. Incidents can also post
+  their updates to an internal service on the Status page and resolve it
+  there when solved.
+- **Desk roles:** Link tickets to a major incident (Agent and up) and Run
+  major incidents (Team lead and up).
+- **Skills and languages** (Desk settings → Skills and languages): tag
+  agents with what they know and the languages they speak. Team leads tag
+  the people below them in their own teams.
+- **Every ticket has a language,** taken from the requester's directory
+  entry or detected on your server from the first message (English, French,
+  German, Spanish, Italian, Portuguese, Dutch). Agents can change it in the
+  ticket's properties.
+- **Assignment rules** can check the ticket's language and assign to an
+  agent with the right skills or language, in turn, falling back to the
+  team's turn or waiting in the queue. The rule editor shows who matches
+  today, and **Test a ticket** explains the match.
+- **Checklists** (Desk settings → Checklists): reusable lists of steps with
+  required items, an owner team and due dates counted in business days. Add
+  one to a ticket by hand, or have a request type or a workflow task add it;
+  a ticket can hold several.
+- **Ticking a checklist item** is noted on the timeline and in the audit
+  log. Required items must be ticked before a ticket can be solved, whether
+  from the desk, bulk edit, a macro or the Claude connector; an automation
+  whose solve is blocked still sends its reply and applies its other
+  changes. Requesters and portal customers never see checklists; the Claude
+  connector's ticket read lists them for agents.
+- **Canned responses:** text-only snippets for replies and notes. Type `;`
+  in the reply box, or use the **Canned response** button, to insert one at
+  the cursor. Unlike macros they never change the ticket. The requester's
+  name, the ticket number, the team and your name are filled in when you
+  insert.
+- **Desk settings → Canned responses:** yours, a team's or the workspace's,
+  in folders, with their uses in the last 30 days. Team leads edit their
+  teams' ones, using the existing macro permissions. Deleting a team deletes
+  its canned responses, and its dialog says how many; Managers can delete a
+  deactivated person's personal ones without reading them.
+- **Claude connector:** `hd_canned_responses` lists the canned responses you
+  can use (read only), filled in for a ticket when given its number.
+- **Customer portal survey:** a solved request asks "How did we do?" (Good,
+  OK, Not good, optional comment) in the portal and by email link. Answers
+  count in the same satisfaction reports as Get help's survey. The kept
+  request also lists a request that was joined with it.
+- **Desk settings:** new pages show a **New** badge until you open them, and
+  a "New in 1.19.2" note you can dismiss.
+- **Import:** the dry run and re-reading the export run in the background,
+  with progress and time left; you can leave the page, and the bell says
+  when it's ready.
+
+- **Status services per team.** In Desk settings → Teams, tick the Status
+  page services that matter to each team, with a pop-up level per service:
+  outage and degraded, outage only, or off (banner only). Team leads choose
+  for their own teams from the desk's status popover.
+- **Desk status pill:** the top bar shows how many of your teams' services
+  are affected, with their states, when they were last checked and a link to
+  the Status page. Agents see only their teams' services, and only with the
+  Status page's own read permission.
+- **Desk pop-up** when a service your team follows degrades or goes down,
+  once per person, with **Declare major incident** (or a link to the major
+  incident already open for it) and **View details**, and a note when it is
+  back. Trouble that returns within ten minutes counts as the same spell.
+  New desk notification: A service your team uses is down (bell and push by
+  default); it replaces the workspace's own status bell for you.
+- **Queue banner:** a team's queue shows a banner while a service it follows
+  has trouble, with **Declare major incident** and **Hide for today**.
+- **Declare a major incident from a Status page service,** prefilled with a
+  title, auto-link words and the team's open tickets that mention it. Once
+  the service has recovered, the people who can run the incident are asked
+  whether to solve it and its linked tickets; nothing is solved
+  automatically.
+
+### Changed
+- **Recurring tickets:** a holiday or calendar change updates each
+  schedule's next run straight away.
+
+### Fixed
+- **Helpdesk email:** a colleague copied on the first email who replies to
+  all before the desk has answered now joins that ticket (verified senders
+  only), instead of opening a new one, and people already on that email get
+  no second copy.
+- **Import:** saving the mapping no longer re-reads the whole export each
+  time, and "Not in the file" stays chosen. A dry run never uses an export
+  read with other columns or files; saving the mapping reads it again first.
+
+### Upgrading
+- **Additive schema, applied on start.** New tables for canned responses and
+  their uses, skills and languages (and agents' tags), checklist templates
+  and ticket checklists, major incidents (links, updates, people affected),
+  team status services (followed services, episodes, notices and asks) and
+  the desk's "New" badges; new columns `hd_tickets.language` and
+  `language_source`, and four background-check columns on `hd_import_jobs`.
+  No existing data changes.
+- **Desk roles** gain two capabilities, Link tickets to a major incident
+  (Agent and up) and Run major incidents (Team lead and up). Roles
+  customised before get them only if they can already reply to requesters.
+- **New notifications:** Major incident updates (requesters, email and
+  bell), A service your team uses is down (desk, bell and push) and Import
+  checks (bell).
+- **Import API:** `POST /api/helpdesk/admin/import/<id>/dry-run` now answers
+  202 and runs in the background; poll the job until it is ready.
+- **Rolling back to 1.19.1 is safe:** it ignores the new tables and columns.
+
 ## [1.19.1] - 2026-11-06
 
 The helpdesk grows up. Claude can work in the helpdesk through the Claude

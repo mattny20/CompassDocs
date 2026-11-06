@@ -8,10 +8,13 @@
 import { usePathname } from "next/navigation";
 import { RailLink, RAIL_GROUP_TEXT } from "@/components/RailLink";
 import { settingsItems } from "./settings-nav";
+import { DeskNewChip, useDeskNew } from "./DeskNew";
 
 export function DeskSettingsNav({ caps }: { caps: readonly string[] }) {
   const pathname = usePathname() || "";
   const groups = settingsItems(caps);
+  // 1.19.2 (agent W5): the New chip on pages this person hasn't opened yet.
+  const fresh = useDeskNew();
   return (
     <nav
       aria-label="Desk settings"
@@ -22,7 +25,13 @@ export function DeskSettingsNav({ caps }: { caps: readonly string[] }) {
           <p className={`${RAIL_GROUP_TEXT} mb-1 hidden px-3 lg:block`}>{g.group}</p>
           {g.items.map((i) => (
             <div key={i.href} className="shrink-0 lg:shrink">
-              <RailLink href={i.href} icon={i.icon} label={i.label} active={pathname === i.href || pathname.startsWith(`${i.href}/`)} />
+              <RailLink
+                href={i.href}
+                icon={i.icon}
+                label={i.label}
+                active={pathname === i.href || pathname.startsWith(`${i.href}/`)}
+                badge={fresh?.isNew(i.href) ? <DeskNewChip /> : undefined}
+              />
             </div>
           ))}
         </div>

@@ -149,6 +149,8 @@ export const HELPDESK_SWEEPS: HelpdeskSweep[] = [
   { name: "hd_import", run: async () => (await import("./helpdesk/import")).importSweep() },
   // V5 (1.19.1 retention and privacy): once a night, close solved tickets, then anonymise or delete old closed ones.
   { name: "hd_retention", run: async (now) => (await import("./helpdesk/retention")).retentionSweep(now) },
+  // W4 (1.19.2 canned responses): drop use counts older than 90 days (at most every six hours; no lock needed).
+  { name: "hd_canned", run: async () => (await import("./helpdesk/canned")).pruneCannedUses() },
 ];
 
 export interface HelpdeskSweepResult {

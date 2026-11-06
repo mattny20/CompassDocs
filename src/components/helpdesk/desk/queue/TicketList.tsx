@@ -17,6 +17,7 @@ import { OutsideCustomerChip } from "../OutsideCustomerChip";
 import { ContactHoverCard } from "@/components/helpdesk/contacts/ContactHoverCard";
 import { PRIORITY_DOT, compactDue, priorityLabel, slaInk, statusChip, ticketHref } from "../ui";
 import type { RowSelection } from "../merge/selection";
+import { IncidentChip } from "../incidents/IncidentChip";
 
 export function TicketList({
   rows,
@@ -85,6 +86,7 @@ export function TicketList({
                 <span className="sr-only">{priorityLabel(t.priority)}, </span>
                 <span className="text-xs text-slate-500">#{t.number}</span>
                 {t.parent_ticket_id && <span className="text-xs text-slate-500">· Task</span>}
+                <IncidentChip chip={t.incident} />
                 <span className={chipClass(chip.tone, "sm", "ml-auto")}>{chip.label}</span>
               </span>
               <span className="mt-1 block truncate text-sm font-semibold text-slate-900">{t.subject}</span>

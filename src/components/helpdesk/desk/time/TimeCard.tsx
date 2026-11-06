@@ -20,6 +20,7 @@ import { confirmDialog, formDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
 import { formatClock, formatMinutes, TIME_LIMITS, type HdTicketTime, type HdTimeEntry } from "@/lib/helpdesk/time-shared";
 import { getJson, sendJson } from "../api";
+import { checklistsHoldSolve } from "../checklists/TicketChecklists";
 import { useDeskMe } from "../me";
 
 /** Today / yesterday / "Mon 3 Nov" for an entry without a note. */
@@ -250,7 +251,9 @@ export function TimeCard({ ticketNumber, refreshKey }: { ticketNumber: number; r
  * Before a solve (TicketPane): when the ticket's team asks for time on
  * solve and the agent has none logged here, ask for it. Resolves false when
  * the agent cancels (the ticket stays unsolved). A timer running here is
- * offered as the time and stopped. Never blocks on a failed lookup.
+ * offered as the time and stopped. Never blocks on a failed lookup. Also
+ * false, without asking, when required checklist items would refuse the
+ * solve (the desk shows them).
  */
 export async function askTimeOnSolve(ticketNumber: number, meId: number): Promise<boolean> {
   let data: HdTicketTime;
@@ -262,6 +265,9 @@ export async function askTimeOnSolve(ticketNumber: number, meId: number): Promis
   if (!data.ask_on_solve) return true;
   const here = data.timer && data.timer.ticket_number === ticketNumber ? data.timer : null;
   if (!here && data.entries.some((e) => e.user_id === meId)) return true;
+  // 1.19.2: a solve that required checklist items will refuse never stops the timer or asks for
+  // time; the desk says why and shows the items instead (agent W3).
+  if (await checklistsHoldSolve(ticketNumber)) return false;
   const running = here ? Math.max(1, Math.round((Date.now() - new Date(here.started_at).getTime()) / 60_000)) : 0;
   const v = await formDialog({
     title: "Log your time before solving?",

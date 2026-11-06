@@ -566,6 +566,8 @@ async function startTask(c: Ctx, t: HdTaskStepDefB, retryRow?: Row): Promise<voi
     created_at: c.now,
   });
   await c.client.query("UPDATE hd_tickets SET first_reply_due = NULL, resolve_due = coalesce($2::timestamptz, resolve_due) WHERE id = $1", [child.id, due]);
+  // 1.19.2: the task's checklists on its ticket (agent W3, lib/helpdesk/checklists).
+  await (await import("./checklists")).addTaskChecklistsTx(c.client, child.id, t.checklist_ids, t.key, c.now);
   const base = {
     title: t.title,
     team_id: teamId,
@@ -805,7 +807,10 @@ async function evalFinish(c: Ctx, s: HdWorkflowStepB & { kind: "finish" }): Prom
       await sysMsg(c.client, c.ticket.id, "No access was granted: the space's owner did not approve access to this space.", "internal");
     }
   }
-  const solved = await solveRequest(c);
+  // 1.19.2: required checklist items still open keep the request open for its team (agent W3).
+  const held = await (await import("./checklists")).checklistSolveRefusal(c.ticket.id, c.client);
+  if (held) await sysMsg(c.client, c.ticket.id, `The workflow has finished, but the request stays open: ${held.error}`, "internal");
+  const solved = held ? false : await solveRequest(c);
   if (solved) await sysMsg(c.client, c.ticket.id, `Solved by the workflow: ${s.title}.`);
   await endRun(c, "done");
   const ticketId = c.ticket.id;
@@ -817,6 +822,14 @@ async function evalFinish(c: Ctx, s: HdWorkflowStepB & { kind: "finish" }): Prom
     c.effects.push(() => afterGrant(g, info));
   }
   if (solved) c.effects.push(async () => (await notifyMod()).notifySolvedCsat(ticketId, { csat, actorName: SYSTEM_AUTHOR }));
+  if (held) {
+    // 1.19.2 (agent W3): the run keeps the step's survey choice for the solve that comes later
+    // (lib/helpdesk/checklists heldFinishCsat), and the request's owner, else its team's leads, hear of it.
+    await c.client.query(`UPDATE hd_workflow_runs SET current = current || jsonb_build_object('held_finish', jsonb_build_object('csat', $2::boolean)) WHERE id = $1`, [c.run.id, csat]);
+    const ids = await (await import("./checklists")).heldFinishRecipients(ticketId, c.client);
+    const message = `The ${c.cursor.workflow_title} workflow has finished, but the request stays open until its required checklist items are ticked. ${held.error}`;
+    if (ids.length) c.effects.push(async () => (await notifyMod()).notifyWorkflowMessage(ticketId, ids, `Checklist to finish on #${c.ticket.number}`, message, { actorName: SYSTEM_AUTHOR }));
+  }
 }
 
 // --- The loop ------------------------------------------------------------------------
@@ -1225,6 +1238,11 @@ export async function recordTaskOutcome(
   if (!outputs.ok) {
     const keys = outputs.missing ?? [];
     return { ok: false, status: 400, error: outputs.error, ...(keys.length ? { missing: labelled(def?.outputs, keys), missing_keys: keys } : {}) };
+  }
+  // 1.19.2: "Done" waits for the task ticket's required checklist items; "can't be done" never does (agent W3).
+  if (outcome === "done") {
+    const held = await (await import("./checklists")).checklistSolveRefusal(childTicketId);
+    if (held) return { ok: false, status: 409, error: held.error };
   }
 
   const name = user.name || user.username;

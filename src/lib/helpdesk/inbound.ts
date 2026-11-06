@@ -397,6 +397,11 @@ export async function processInboundEmail(
 
   // A reply to a ticket?
   const token = findReplyToken(email);
+  // 1.19.2 (agent W5, lib/helpdesk/reply-all): no token, but a verified
+  // sender's In-Reply-To/References name an email that opened (or was added
+  // to) a ticket: a colleague's Reply all before the desk answered. The
+  // same authority rules as a token reply follow.
+  const threadTicketId = !token && verified ? await (await import("./reply-all")).ticketForReplyAll(email) : null;
   let followUpOf: number | null = null;
   // 1.19.1 review (lib/helpdesk/portal-hooks): the portal contact whose
   // closed ticket this follows up; the follow-up opens as their portal ticket.
@@ -405,8 +410,10 @@ export async function processInboundEmail(
     // Never into an existing ticket on an unverified From: the token is in
     // every copy of the thread, so anyone on it could write as anyone.
     logEvent("info", "helpdesk.inbound_unverified_reply", { from: email.from.email, state: verdict.state });
-  } else if (token) {
-    const replied = await hqOne<HdTicketRow>("SELECT * FROM hd_tickets WHERE reply_token = $1", [token]);
+  } else if (token || threadTicketId) {
+    const replied = threadTicketId
+      ? await hqOne<HdTicketRow>("SELECT * FROM hd_tickets WHERE id = $1", [threadTicketId])
+      : await hqOne<HdTicketRow>("SELECT * FROM hd_tickets WHERE reply_token = $1", [token]);
     // A merged ticket's thread replies into the ticket it was merged into,
     // where its requester counts as one (1.19.1, lib/helpdesk/merge).
     const t = replied ? await (await import("./merge")).mergedReplyTarget(replied) : undefined;
@@ -452,7 +459,13 @@ export async function processInboundEmail(
                 asRequester: Boolean(isRequester || isCc),
                 email_message_id: messageId,
               },
-              { origin: opts.origin, actorId: author.id, actorName: author.name }
+              {
+                origin: opts.origin,
+                actorId: author.id,
+                actorName: author.name,
+                // 1.19.2 (agent W5): a reply-all already reached its own To/Cc; the notice mails them no copy.
+                directRecipients: threadTicketId ? (await import("./reply-all")).directRecipients(email) : undefined,
+              }
             );
           } catch (e) {
             // 1.19.1: a merge committed between the lookup above and the

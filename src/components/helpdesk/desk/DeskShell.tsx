@@ -21,6 +21,10 @@ import { DeskSearch } from "./DeskSearch";
 import { AvailabilityMenu } from "./AvailabilityMenu";
 import { DeskCountsContext, useCountsPoll } from "./counts";
 import { DeskMeContext } from "./me";
+// Status page services per team (1.19.2, agent W6): the pill, the pop-ups, the queue banner's data.
+import { StatusPill } from "./team-status/StatusPill";
+import { StatusPopups } from "./team-status/StatusPopups";
+import { TeamStatusProvider } from "./team-status/data";
 
 export interface DeskCaps {
   agent: boolean;
@@ -114,6 +118,7 @@ export function DeskShell({
   return (
     <DeskMeContext.Provider value={{ id: user.id, name: user.name, agent: caps.agent, admin: caps.admin, reports: caps.reports, role, caps: roleCaps }}>
     <DeskCountsContext.Provider value={{ counts, refresh }}>
+    <TeamStatusProvider enabled={caps.agent}>
       <div className="flex h-dvh flex-col overflow-hidden bg-canvas print:h-auto print:overflow-visible">
         <a
           href="#main"
@@ -173,6 +178,7 @@ export function DeskShell({
             <DeskSearch />
           </div>
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            {caps.agent && <StatusPill />}
             <a
               href="/"
               target="_blank"
@@ -221,6 +227,8 @@ export function DeskShell({
           </main>
         </div>
       </div>
+      {caps.agent && <StatusPopups />}
+    </TeamStatusProvider>
     </DeskCountsContext.Provider>
     </DeskMeContext.Provider>
   );

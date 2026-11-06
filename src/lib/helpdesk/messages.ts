@@ -17,7 +17,8 @@ import "server-only";
 import { hq, hqOne, withTx } from "./db-core";
 import { afterMessageAdded } from "./events";
 import type { HdHookContext } from "./events";
-import { assertNotMergedTx, getTicketRow, TICKET_LIMITS, updateTicket } from "./tickets";
+import { assertNotMergedTx, getTicketRow, HdTicketError, TICKET_LIMITS, updateTicket } from "./tickets";
+import { isChecklistBlock, solvesForChecklists } from "./checklists-shared";
 import type { HdAttachment, HdMessage, HdMessageKind, HdMessageVia, HdReviewState, HdStatus } from "./types";
 
 export const MESSAGE_LIMITS = { body: TICKET_LIMITS.body, page: 1000 } as const;
@@ -63,6 +64,8 @@ export interface AddMessageResult {
   status: HdStatus;
   /** A newbie's public reply held for review (review_state 'pending'): not sent yet. */
   held: boolean;
+  /** 1.19.2: then_status was refused for required checklist items after the reply was stored (it was still sent); the sentence. */
+  status_unchanged?: string;
 }
 
 /**
@@ -92,6 +95,15 @@ export async function addMessage(ticketId: number, input: AddMessageInput, ctx: 
     if (!t) return undefined;
     // 1.19.1: re-checked under the lock a merge takes (HdTicketError 409, messageUnsent).
     await assertNotMergedTx(client, t, { messageUnsent: true });
+    // 1.19.2: "Send and set Solved" with required checklist items open is refused before anything is written (agent W3).
+    if (!held && !asRequester && solvesForChecklists(t.status, input.then_status)) {
+      const blocked = await (await import("./checklists")).checklistSolveRefusal(ticketId, client);
+      if (blocked) {
+        const err = new HdTicketError(blocked.error, 409);
+        err.messageUnsent = true;
+        throw err;
+      }
+    }
     const ins = await hq<HdMessage>(
       `INSERT INTO hd_messages (ticket_id, author_id, author_name, author_email, kind, body, via, attachments, email_message_id, review_state)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING ${MSG_COLS}`,
@@ -123,6 +135,7 @@ export async function addMessage(ticketId: number, input: AddMessageInput, ctx: 
   // Status effects go through updateTicket (the SLA pause/resume, the
   // timeline line, the solve hooks), after the message has committed.
   let reopened = false;
+  let statusUnchanged: string | undefined;
   let status = res.ticket.status;
   const actor = { id: input.author.id, name: input.author.name };
   if (asRequester && (status === "pending" || status === "solved")) {
@@ -130,8 +143,15 @@ export async function addMessage(ticketId: number, input: AddMessageInput, ctx: 
     reopened = status === "solved";
     status = r?.ticket.status ?? status;
   } else if (!held && !asRequester && input.then_status && input.then_status !== status) {
-    const r = await updateTicket(ticketId, { status: input.then_status }, actor, ctx);
-    status = r?.ticket.status ?? status;
+    try {
+      const r = await updateTicket(ticketId, { status: input.then_status }, actor, ctx);
+      status = r?.ticket.status ?? status;
+    } catch (e) {
+      // 1.19.2: a required item unticked since the check above. The reply is stored, so it is
+      // still sent (the hooks below); the status stays and the caller is told (agent W3).
+      if (!(e instanceof HdTicketError) || !isChecklistBlock(e.message)) throw e;
+      statusUnchanged = e.message;
+    }
   } else if (!held && !asRequester && input.kind === "public" && status === "new") {
     status = "open";
   }
@@ -145,7 +165,7 @@ export async function addMessage(ticketId: number, input: AddMessageInput, ctx: 
     const { notifyReviewRequested } = await import("./review");
     await notifyReviewRequested(ticketId, res.message.id).catch((e) => console.error("[helpdesk] review notice:", e));
   }
-  return { message: res.message, reopened, status, held };
+  return { message: res.message, reopened, status, held, ...(statusUnchanged ? { status_unchanged: statusUnchanged } : {}) };
 }
 
 /**

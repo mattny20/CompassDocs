@@ -501,6 +501,8 @@ export interface ImportScanAgent {
 }
 
 export interface ImportScan {
+  /** 1.19.2: the columns and files the scan was read with (lib/helpdesk/import scanBasis). */
+  basis?: string;
   files: { name: string; kind: ImportFileKind | "attachment" | "ignored"; rows: number }[];
   headers: { tickets: string[]; messages: string[]; comments: string[] };
   tickets: number;
@@ -560,7 +562,37 @@ export function emptyCounts(): ImportCounts {
   };
 }
 
-export type ImportJobStatus = "uploaded" | "ready" | "queued" | "running" | "cancelling" | "cancelled" | "completed" | "failed" | "discarded";
+// "checking": a dry run or a rescan runs in the background (1.19.2, lib/helpdesk/import-check).
+export type ImportJobStatus = "uploaded" | "ready" | "checking" | "queued" | "running" | "cancelling" | "cancelled" | "completed" | "failed" | "discarded";
+
+/** A background check of the export (1.19.2, agent W5, lib/helpdesk/import-check). */
+export type ImportCheckKind = "dry_run" | "rescan";
+
+export interface ImportCheckProgress {
+  kind?: ImportCheckKind;
+  /** reading: the first pass over the export; tickets, messages: the counting passes. */
+  phase?: "queued" | "reading" | "tickets" | "messages" | "done";
+  /** Rows checked so far, and how many there are (tickets, then conversations). */
+  done?: number;
+  total?: number;
+  tickets_done?: number;
+  tickets_total?: number;
+  /** The dry run's counts so far. */
+  counts?: { tickets_create: number; tickets_update: number; contacts_matched: number; skipped: number };
+  started_at?: string;
+  /** When counting began (after the first read of the export): the time left is worked out from here. */
+  counting_at?: string;
+  /** Rows already checked when counting began (0, or the tickets when the conversations began). */
+  counting_from?: number;
+  updated_at?: string;
+}
+
+export interface ImportCheckView {
+  kind: ImportCheckKind | null;
+  progress: ImportCheckProgress;
+  /** Why the last check stopped ("" when it didn't). */
+  error: string;
+}
 
 export interface ImportProgress {
   phase?: "teams" | "tickets" | "messages" | "finalize" | "done";
@@ -586,6 +618,8 @@ export interface ImportJobView {
   dry_run: Omit<ImportCounts, "skipped_rows"> | null;
   result: Omit<ImportCounts, "skipped_rows"> | null;
   progress: ImportProgress;
+  /** The background dry run or rescan (1.19.2): what it is, how far, or why it stopped. */
+  check: ImportCheckView;
   /** The next ticket number new tickets will take. */
   next_number: number | null;
 }
@@ -593,6 +627,7 @@ export interface ImportJobView {
 export const IMPORT_STATUS_LABEL: Record<ImportJobStatus, string> = {
   uploaded: "Uploaded",
   ready: "Dry run done",
+  checking: "Checking",
   queued: "Starting",
   running: "Importing",
   cancelling: "Stopping",
@@ -601,3 +636,17 @@ export const IMPORT_STATUS_LABEL: Record<ImportJobStatus, string> = {
   failed: "Failed",
   discarded: "Discarded",
 };
+
+/** A background check's time left (1.19.2): "about 3 minutes left" from how long the rows so far took; null until there's enough to go on. */
+export function importTimeLeft(startedAt: string | undefined, done: number, total: number, now = Date.now(), from = 0): string | null {
+  const counted = done - from;
+  if (!startedAt || counted <= 0 || total <= done) return null;
+  const elapsed = now - Date.parse(startedAt);
+  if (!(elapsed > 3000)) return null;
+  const left = (elapsed * (total - done)) / counted;
+  const min = Math.round(left / 60_000);
+  if (left < 60_000) return "less than a minute left";
+  if (min < 60) return `about ${min} ${min === 1 ? "minute" : "minutes"} left`;
+  const h = Math.round(left / 3_600_000);
+  return `about ${h} ${h === 1 ? "hour" : "hours"} left`;
+}

@@ -230,6 +230,8 @@ export async function mergeTickets(user: MergeActor, input: MergeInput, ctx: { o
       // Time logged on the duplicate counts on the kept ticket; a running timer keeps running there.
       moved.time_entries += (await client.query("UPDATE hd_time_entries SET ticket_id = $2 WHERE ticket_id = $1", [m.id, k.id])).rowCount ?? 0;
       moved.timers += (await client.query("UPDATE hd_timers SET ticket_id = $2 WHERE ticket_id = $1", [m.id, k.id])).rowCount ?? 0;
+      // 1.19.2: its checklists carry on on the kept ticket (agent W3, lib/helpdesk/checklists moveChecklistsTx).
+      await (await import("./checklists")).moveChecklistsTx(client, m.id, k.id);
       moved.ccs += await moveCcs(m.id, k.id, client);
       moved.followers += await moveFollowers(m.id, k.id, client);
       // The merged ticket's requester follows the conversation as a CC
@@ -268,6 +270,8 @@ export async function mergeTickets(user: MergeActor, input: MergeInput, ctx: { o
       attachment_ids: [],
     };
   }
+  // 1.19.2: a major incident's own ticket merged away ends the incident (agent W1, lib/helpdesk/incidents).
+  for (const m of res.merged) await (await import("./incidents")).onIncidentTicketEnded(m.id, who);
   if (input.notify) {
     const { addSystemMessage } = await import("./messages");
     const { notifyMerged } = await import("./notify");

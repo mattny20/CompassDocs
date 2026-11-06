@@ -55,7 +55,8 @@ export type HdCapSection = (typeof HD_CAP_SECTIONS)[number];
 export const HD_CAP_SECTION_LABEL: Record<HdCapSection, string> = {
   tickets: "Tickets",
   replies: "Replies",
-  macros: "Macros",
+  // 1.19.2 (agent W4): canned responses share the macro capabilities.
+  macros: "Macros and canned responses",
   reports: "Reports",
   people: "People and teams",
   configuration: "Configuration",
@@ -82,6 +83,10 @@ export const HD_CAPABILITIES = {
   // (HD_CAPS_SINCE, resolveMatrix).
   "tickets.merge": { section: "tickets", label: "Merge tickets", hint: "Combine duplicates into one ticket; the others close with a link to it" },
   "tickets.bulk": { section: "tickets", label: "Bulk edit", hint: "Change many tickets at once from the queue; each change still needs its own capability" },
+  // 1.19.2 (agent W1, lib/helpdesk/incidents): major incidents. Linking is
+  // checked on each linked ticket's team; running one on the incident's.
+  "incidents.link": { section: "tickets", label: "Link tickets to a major incident", hint: "Link and unlink their teams' tickets to an open major incident" },
+  "incidents.manage": { section: "tickets", label: "Run major incidents", hint: "Declare one, post updates to everyone affected, set its Get help banner and solve it with its linked tickets" },
   "tickets.sla_override": { section: "tickets", label: "Override a ticket's SLA", hint: "Change the due times of one ticket" },
   "tickets.export": { section: "tickets", label: "Export tickets", hint: "Download tickets and reports as CSV" },
   "tickets.delete": { section: "tickets", label: "Delete tickets", hint: "Remove a ticket and its conversation for good" },
@@ -89,10 +94,10 @@ export const HD_CAPABILITIES = {
   "tickets.reply_needs_review": { section: "replies", label: "Reply after review", hint: "Public replies wait for a team lead to approve them" },
   "tickets.internal_note": { section: "replies", label: "Add internal notes", hint: "Notes only agents see" },
   "replies.review": { section: "replies", label: "Review newbies' replies", hint: "Approve, edit or return replies held for review" },
-  "macros.use": { section: "macros", label: "Use macros", hint: "Apply canned replies" },
-  "macros.manage_personal": { section: "macros", label: "Personal macros", hint: "Create and edit their own macros" },
-  "macros.manage_team": { section: "macros", label: "Team macros", hint: "Create and edit macros for their teams" },
-  "macros.manage_all": { section: "macros", label: "Everyone's macros", hint: "Create and edit macros for every team" },
+  "macros.use": { section: "macros", label: "Use macros", hint: "Apply macros, which can also change the ticket. Canned responses (text only) need no capability" },
+  "macros.manage_personal": { section: "macros", label: "Personal macros and canned responses", hint: "Create and edit their own, which only they see" },
+  "macros.manage_team": { section: "macros", label: "Team macros and canned responses", hint: "Create and edit those shared with their teams" },
+  "macros.manage_all": { section: "macros", label: "Everyone's macros and canned responses", hint: "Create and edit those for every team and the whole workspace" },
   "reports.own": { section: "reports", label: "Their own stats", hint: "Their tickets, replies and satisfaction" },
   "reports.team": { section: "reports", label: "Team reports", hint: "Reports for the teams they belong to" },
   "reports.all": { section: "reports", label: "All reports", hint: "Reports across every team" },
@@ -131,6 +136,8 @@ export const HD_CAP_SCOPE: Partial<Record<HdCap, HdCap>> = {
   "tickets.transfer_team": "tickets.view_all",
   "tickets.merge": "tickets.view_all",
   "tickets.bulk": "tickets.view_all",
+  "incidents.link": "tickets.view_all",
+  "incidents.manage": "tickets.view_all",
   "tickets.sla_override": "tickets.view_all",
   "tickets.reply_public": "tickets.view_all",
   "tickets.reply_needs_review": "tickets.view_all",
@@ -166,6 +173,7 @@ const AGENT: HdCap[] = [
   "tickets.transfer_team",
   "tickets.merge",
   "tickets.bulk",
+  "incidents.link",
   "macros.manage_personal",
 ];
 const TEAM_LEAD: HdCap[] = [
@@ -176,6 +184,7 @@ const TEAM_LEAD: HdCap[] = [
   "reports.team",
   "agents.manage_team",
   "tickets.sla_override",
+  "incidents.manage",
 ];
 const MANAGER: HdCap[] = [
   ...TEAM_LEAD,
@@ -228,8 +237,8 @@ export type HdRoleOverrides = Partial<Record<Exclude<HdRole, "admin">, HdCap[]>>
  * The lift is worked out on every read from the stored lists, so it never
  * comes back once an admin has saved the matrix (v 2).
  */
-export const HD_MATRIX_VERSION = 2;
-export const HD_CAPS_SINCE: Partial<Record<HdCap, number>> = { "tickets.merge": 2, "tickets.bulk": 2 };
+export const HD_MATRIX_VERSION = 3;
+export const HD_CAPS_SINCE: Partial<Record<HdCap, number>> = { "tickets.merge": 2, "tickets.bulk": 2, "incidents.link": 3, "incidents.manage": 3 };
 
 /** What a role customised before a capability existed must hold for it to be lifted on: every one of `all`, at least one of `any`. */
 export const HD_CAPS_SINCE_NEEDS: Partial<Record<HdCap, { all?: readonly HdCap[]; any?: readonly HdCap[] }>> = {
@@ -238,6 +247,9 @@ export const HD_CAPS_SINCE_NEEDS: Partial<Record<HdCap, { all?: readonly HdCap[]
   "tickets.bulk": {
     any: ["tickets.change_status", "tickets.change_priority", "tickets.transfer_team", "tickets.assign_self", "tickets.assign_team", "tickets.assign_any"],
   },
+  // 1.19.2: an incident's updates are public replies, and solving it solves tickets.
+  "incidents.link": { all: ["tickets.change_status"] },
+  "incidents.manage": { all: ["tickets.change_status", "tickets.reply_public"] },
 };
 
 function liftable(cap: HdCap, held: readonly HdCap[]): boolean {

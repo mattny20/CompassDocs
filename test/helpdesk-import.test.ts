@@ -221,6 +221,25 @@ after(async () => {
   await pool().end();
 });
 
+/**
+ * 1.19.2 (lib/helpdesk/import-check): the dry run and a rescan answer at
+ * once with the job "checking" and run in the background of this process.
+ * Call a route and, when it queued a check, wait for it and answer the
+ * settled job (with `queued` saying it was queued).
+ */
+async function settledCall(handler: unknown, req: Request, params: Record<string, string> = {}) {
+  const r = await call(handler, req, params);
+  if (r.body?.job?.status !== "checking") return { ...r, queuedStatus: r.status, queued: r.body?.job?.status as string | undefined };
+  const imp = await lib();
+  for (let i = 0; i < 1200; i++) {
+    const j = await imp.getImportJob(r.body.job.id);
+    // The settled answer reads as the 1.19.1 in-request one did (200); `queuedStatus` keeps the route's own.
+    if (j && j.status !== "checking") return { ...r, status: 200, queuedStatus: r.status, queued: "checking", body: { job: await imp.jobView(j) } };
+    await new Promise((res) => setTimeout(res, 25));
+  }
+  throw new Error(`the check of import ${r.body.job.id} did not finish`);
+}
+
 const routes = {
   root: () => import("../src/app/api/helpdesk/admin/import/route"),
   job: () => import("../src/app/api/helpdesk/admin/import/[id]/route"),
@@ -413,15 +432,18 @@ describe("Zoho Desk export", () => {
     // The scan counts every row's requester (skipped rows too); the dry run counts only imported tickets'.
     assert.equal(job.scan.contacts_kept, 4);
     // The times in the fixture are UTC.
-    const saved = await call((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${job.id}`, s("admin"), { timezone: "UTC" }, "PUT"), { id: String(job.id) });
+    const saved = await settledCall((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${job.id}`, s("admin"), { timezone: "UTC" }, "PUT"), { id: String(job.id) });
     assert.equal(saved.status, 200, saved.text);
     assert.equal(saved.body.job.mapping.timezone, "UTC");
-    const bad = await call((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${job.id}`, s("admin"), { statuses: { Open: { status: "nope" } } }, "PUT"), { id: String(job.id) });
+    const bad = await settledCall((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${job.id}`, s("admin"), { statuses: { Open: { status: "nope" } } }, "PUT"), { id: String(job.id) });
     assert.equal(bad.status, 400);
   });
 
   test("the dry run counts everything and writes no ticket", async () => {
-    const r = await call((await routes.dryRun()).POST, jsonReq(`/api/helpdesk/admin/import/${job.id}/dry-run`, s("admin"), {}), { id: String(job.id) });
+    const r = await settledCall((await routes.dryRun()).POST, jsonReq(`/api/helpdesk/admin/import/${job.id}/dry-run`, s("admin"), {}), { id: String(job.id) });
+    // 1.19.2: queued in the background (202, "checking"); settledCall waits for it.
+    assert.equal(r.queuedStatus, 202, r.text);
+    assert.equal(r.queued, "checking");
     assert.equal(r.status, 200, r.text);
     dryRun = r.body.job.dry_run;
     assert.equal(r.body.job.status, "ready");
@@ -551,8 +573,8 @@ describe("Zoho Desk export", () => {
 
   test("a re-run updates instead of duplicating", async () => {
     const again = await upload("zoho", zip, "zoho-desk-export-2026-11.zip");
-    await call((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${again.id}`, s("admin"), { timezone: "UTC" }, "PUT"), { id: String(again.id) });
-    const dr = await call((await routes.dryRun()).POST, jsonReq(`/api/helpdesk/admin/import/${again.id}/dry-run`, s("admin"), {}), { id: String(again.id) });
+    await settledCall((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${again.id}`, s("admin"), { timezone: "UTC" }, "PUT"), { id: String(again.id) });
+    const dr = await settledCall((await routes.dryRun()).POST, jsonReq(`/api/helpdesk/admin/import/${again.id}/dry-run`, s("admin"), {}), { id: String(again.id) });
     assert.equal(dr.body.job.dry_run.tickets_create, 0);
     assert.equal(dr.body.job.dry_run.tickets_update, 5);
     assert.equal(dr.body.job.dry_run.teams_create, 0, "the team made last time is reused");
@@ -584,13 +606,13 @@ describe("Generic CSV", () => {
     const messages = Buffer.from(stampText(await readFile(path.join(FIX, "messages.csv"), "utf8")));
     let job = await upload("csv", tickets, "tickets.csv");
     assert.ok(job.scan.warnings.some((w: string) => /created date/.test(w)), "an unrecognised date column is flagged");
-    const withMessages = await call((await routes.messages()).POST, fileReq(`/api/helpdesk/admin/import/${job.id}/messages`, s("admin"), messages, "messages.csv"), { id: String(job.id) });
+    const withMessages = await settledCall((await routes.messages()).POST, fileReq(`/api/helpdesk/admin/import/${job.id}/messages`, s("admin"), messages, "messages.csv"), { id: String(job.id) });
     assert.equal(withMessages.status, 200, withMessages.text);
     job = withMessages.body.job;
     assert.equal(job.scan.messages, 3);
     assert.equal(job.mapping.columns.messages.ticket_ref, "Ticket");
     assert.equal(job.mapping.columns.messages.visibility, "Kind");
-    const mapped = await call(
+    const mapped = await settledCall(
       (await routes.job()).PUT,
       jsonReq(
         `/api/helpdesk/admin/import/${job.id}`,
@@ -607,7 +629,7 @@ describe("Generic CSV", () => {
     );
     assert.equal(mapped.status, 200, mapped.text);
     assert.deepEqual(mapped.body.job.scan.warnings, []);
-    const dr = await call((await routes.dryRun()).POST, jsonReq(`/api/helpdesk/admin/import/${job.id}/dry-run`, s("admin"), {}), { id: String(job.id) });
+    const dr = await settledCall((await routes.dryRun()).POST, jsonReq(`/api/helpdesk/admin/import/${job.id}/dry-run`, s("admin"), {}), { id: String(job.id) });
     const d = dr.body.job.dry_run;
     assert.equal(d.tickets_create, 2);
     assert.equal(d.skipped, 1);
@@ -644,8 +666,8 @@ describe("Generic CSV", () => {
     let csv = "Ticket Id,Subject,Description,Status,Created Time\r\n";
     for (let i = 1; i <= n; i++) csv += `${STAMP}-c${i},Cancel test ${i},Body ${i},Open,2026-10-0${i} 10:00:00\r\n`;
     const job = await upload("csv", Buffer.from(csv), "cancel.csv");
-    await call((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${job.id}`, s("admin"), { timezone: "UTC" }, "PUT"), { id: String(job.id) });
-    const dr = await call((await routes.dryRun()).POST, jsonReq(`/api/helpdesk/admin/import/${job.id}/dry-run`, s("admin"), {}), { id: String(job.id) });
+    await settledCall((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${job.id}`, s("admin"), { timezone: "UTC" }, "PUT"), { id: String(job.id) });
+    const dr = await settledCall((await routes.dryRun()).POST, jsonReq(`/api/helpdesk/admin/import/${job.id}/dry-run`, s("admin"), {}), { id: String(job.id) });
     assert.equal(dr.body.job.dry_run.tickets_create, n);
     const imp = await lib();
     const batch = imp.IMPORT_BATCH as { tickets: number };
@@ -723,9 +745,9 @@ describe("review fixes", () => {
     const job = await upload("csv", Buffer.from(csv), filename);
     const body: Record<string, unknown> = { timezone: "UTC" };
     if (sourceName !== undefined) body.source_name = sourceName;
-    const saved = await call((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${job.id}`, s("admin"), body, "PUT"), { id: String(job.id) });
+    const saved = await settledCall((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${job.id}`, s("admin"), body, "PUT"), { id: String(job.id) });
     assert.equal(saved.status, 200, saved.text);
-    const dr = await call((await routes.dryRun()).POST, jsonReq(`/api/helpdesk/admin/import/${job.id}/dry-run`, s("admin"), {}), { id: String(job.id) });
+    const dr = await settledCall((await routes.dryRun()).POST, jsonReq(`/api/helpdesk/admin/import/${job.id}/dry-run`, s("admin"), {}), { id: String(job.id) });
     assert.equal(dr.status, 200, dr.text);
     return { job: dr.body.job, dry: dr.body.job.dry_run };
   }
@@ -752,8 +774,8 @@ describe("review fixes", () => {
     zip.file(`export/Attachments/${DIGITS}77/image001.png`, PNG); // another ticket's
     zip.file(`export/Attachments/${X}/report.png`, PNG); // this ticket's own
     const job = await upload("zoho", await zip.generateAsync({ type: "nodebuffer" }), "scoped.zip");
-    await call((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${job.id}`, s("admin"), { timezone: "UTC" }, "PUT"), { id: String(job.id) });
-    const dr = await call((await routes.dryRun()).POST, jsonReq(`/api/helpdesk/admin/import/${job.id}/dry-run`, s("admin"), {}), { id: String(job.id) });
+    await settledCall((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${job.id}`, s("admin"), { timezone: "UTC" }, "PUT"), { id: String(job.id) });
+    const dr = await settledCall((await routes.dryRun()).POST, jsonReq(`/api/helpdesk/admin/import/${job.id}/dry-run`, s("admin"), {}), { id: String(job.id) });
     assert.equal(dr.body.job.dry_run.attachments_import, 1, dr.text);
     assert.equal(dr.body.job.dry_run.attachments_missing, 1, "image001.png is not this ticket's: missing, not borrowed");
     const done = await runToEnd(job.id);
@@ -789,7 +811,7 @@ describe("review fixes", () => {
     assert.equal(defaultSourceName("Freshdesk tickets.csv"), "Freshdesk tickets");
     const named = await upload("csv", Buffer.from(csvA), "Helpscout export.csv");
     assert.equal(named.mapping.source_name, "Helpscout export", "the file's name is the default");
-    const blank = await call((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${named.id}`, s("admin"), { source_name: "  " }, "PUT"), { id: String(named.id) });
+    const blank = await settledCall((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${named.id}`, s("admin"), { source_name: "  " }, "PUT"), { id: String(named.id) });
     assert.equal(blank.status, 400);
   });
 
@@ -802,10 +824,10 @@ describe("review fixes", () => {
     await pool().query("UPDATE hd_tickets SET subject = 'Anonymised', requester_name = 'Anonymised', requester_email = '', anonymised_at = now() WHERE id = $1", [t.id]);
     await pool().query("UPDATE hd_messages SET body = '_(removed)_', author_name = 'Anonymised', author_email = '' WHERE ticket_id = $1", [t.id]);
     const job = await upload("csv", Buffer.from(csv), "anon.csv");
-    const withMsgs = await call((await routes.messages()).POST, fileReq(`/api/helpdesk/admin/import/${job.id}/messages`, s("admin"), Buffer.from(msgs), "messages.csv"), { id: String(job.id) });
+    const withMsgs = await settledCall((await routes.messages()).POST, fileReq(`/api/helpdesk/admin/import/${job.id}/messages`, s("admin"), Buffer.from(msgs), "messages.csv"), { id: String(job.id) });
     assert.equal(withMsgs.status, 200, withMsgs.text);
-    await call((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${job.id}`, s("admin"), { timezone: "UTC", source_name: `${STAMP} anon` }, "PUT"), { id: String(job.id) });
-    const dr = await call((await routes.dryRun()).POST, jsonReq(`/api/helpdesk/admin/import/${job.id}/dry-run`, s("admin"), {}), { id: String(job.id) });
+    await settledCall((await routes.job()).PUT, jsonReq(`/api/helpdesk/admin/import/${job.id}`, s("admin"), { timezone: "UTC", source_name: `${STAMP} anon` }, "PUT"), { id: String(job.id) });
+    const dr = await settledCall((await routes.dryRun()).POST, jsonReq(`/api/helpdesk/admin/import/${job.id}/dry-run`, s("admin"), {}), { id: String(job.id) });
     const d = dr.body.job.dry_run;
     assert.equal(d.tickets_update, 0);
     assert.equal(d.tickets_create, 0);
