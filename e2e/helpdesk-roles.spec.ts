@@ -62,6 +62,10 @@ test.describe("desk roles", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Roles" })).toBeVisible();
     await expect(page.getByRole("checkbox", { name: "Admin: Delete tickets" })).toBeDisabled();
     await expect(page.getByRole("checkbox", { name: "Admin: Delete tickets" })).toBeChecked();
+    // The copy matches the matrix: Admin has everything except Reply after review.
+    await expect(page.getByText("Admin has every capability except Reply after review.", { exact: false }).first()).toBeVisible();
+    await expect(page.getByText("Admin always has everything")).toHaveCount(0);
+    await expect(page.getByRole("checkbox", { name: "Admin: Reply after review" })).not.toBeChecked();
     await expect(page.getByRole("checkbox", { name: "Team lead: Assign desk roles" })).toBeDisabled();
 
     const pub = page.getByRole("checkbox", { name: "Newbie: Reply to the requester" });

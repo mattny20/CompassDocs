@@ -11,12 +11,13 @@ export const metadata = settingsMetadata("/admin/users");
 
 export default async function UsersPage() {
   const admin = await requireSettingsSection("/admin/users");
-  const [users, extraRoles, attestations, canAnonymise, recordLinks] = await Promise.all([
+  const [users, extraRoles, attestations, canAnonymise, recordLinks, canExportPersonalData] = await Promise.all([
     listUsers(),
     extraRolesByUser(),
     attestationCountsByUser(),
     canAnonymiseCompliance(admin.id),
     canOpenRecords(admin),
+    canExportPersonal(admin),
   ]);
   return (
     <SettingsPage href="/admin/users">
@@ -27,6 +28,7 @@ export default async function UsersPage() {
         attestations={Object.fromEntries(attestations)}
         canAnonymise={canAnonymise}
         recordLinks={recordLinks}
+        canExportPersonalData={canExportPersonalData}
       />
     </SettingsPage>
   );
@@ -49,4 +51,16 @@ async function canAnonymiseCompliance(userId: number): Promise<boolean> {
   if (legacyAuthzEnforcement()) return true;
   const grants = await grantsFor(userId);
   return admits(grants, "user.delete") && admits(grants, "compliance.program_manage");
+}
+
+/**
+ * "Download personal data" (1.19.1): the right GET
+ * /api/admin/users/[id]/personal-data checks, user.delete (the right that
+ * handles a person's erasure).
+ */
+async function canExportPersonal(admin: { id: number; role: string }): Promise<boolean> {
+  const { grantsFor, admits, legacyAuthzEnforcement } = await import("@/lib/authz");
+  // The legacy ladder: the route's apiGuard("admin", …) admits admins only.
+  if (legacyAuthzEnforcement()) return admin.role === "admin";
+  return admits(await grantsFor(admin.id), "user.delete");
 }

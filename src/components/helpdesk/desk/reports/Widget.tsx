@@ -6,9 +6,11 @@
 // shape), the server's error with Try again, "nothing yet" (no tickets in
 // the period) or "nothing matches" (filters exclude everything, with
 // Clear filters), then the chart. The ⋯ menu: Show as table / chart,
-// Download CSV (tickets.export), Open in Explore. In edit mode the card
-// also carries Move earlier / later (the keyboard path for reordering; a
-// pointer drags the card), Narrower / Wider, Configure and Remove.
+// Download CSV (tickets.export), Open in Explore. A Time logged widget also
+// has Export (1.19.1): its time entries as CSV, one row per entry. In edit
+// mode the card also carries Move earlier / later (the keyboard path for
+// reordering; a pointer drags the card), Narrower / Wider, Configure and
+// Remove.
 
 import { useMemo, useRef, useState } from "react";
 import {
@@ -27,7 +29,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { CARD_CLASS } from "@/components/Card";
-import { iconButtonClass } from "@/components/Button";
+import { Button, iconButtonClass } from "@/components/Button";
 import { MenuItem, MenuSeparator, Popover } from "@/components/Popover";
 import { SectionEmpty } from "@/components/form";
 import { Skeleton } from "@/components/Skeleton";
@@ -44,7 +46,7 @@ import {
 } from "@/lib/helpdesk/analytics/shared";
 import type { ReportViewState } from "@/lib/helpdesk/analytics/url-state";
 import { ChartFor, DataTable } from "./charts";
-import { downloadQueryCsv, useReportQuery } from "./data";
+import { downloadQueryCsv, downloadTimeCsv, timeExportUrl, useReportQuery } from "./data";
 
 // The grid is two columns on a phone (numbers pair up), four from @5xl.
 export const SPAN: Record<HdWidget["size"], string> = {
@@ -208,6 +210,21 @@ export function WidgetCard({
         {!preview && (
           <div className="-mr-1 -mt-1 flex shrink-0 items-center print:hidden">
             {loading && result && <RefreshCw className="mr-1 h-3.5 w-3.5 animate-spin text-slate-400" aria-hidden />}
+            {/* Time tracking (1.19.1): the entries behind a Time logged widget, one row each (tickets.export). */}
+            {!edit && canExport && widget.measure === "time_logged" && result && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Download />}
+                className="mr-0.5"
+                data-tt="Download the time entries for this period as CSV. The team, person, request type and category filters apply."
+                data-tt-wrap=""
+                aria-label={`Export time entries for ${widget.title}`}
+                onClick={() => downloadTimeCsv(timeExportUrl(result.range, q.filters ?? {})).catch((e: Error) => toast("error", e.message))}
+              >
+                Export
+              </Button>
+            )}
             {!edit && (
               <div className="relative">
                 <button ref={menuBtn} type="button" className={iconButtonClass("quiet", "sm")} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)} data-tt="More" aria-label={`More for ${widget.title}`}>

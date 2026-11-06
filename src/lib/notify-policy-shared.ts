@@ -170,6 +170,7 @@ export const HD_REQUESTER_EVENTS = [
   "hd_waiting_on_you",
   "hd_solved",
   "hd_workflow_message",
+  "hd_merged",
 ] as const;
 
 /** The catalog id of one of the desk's agent events (agent F's names). */
@@ -208,6 +209,7 @@ const DESK_TEMPLATES: Record<string, string[]> = {
   assigned_to_me: ["hd_assigned"],
   requester_replied: ["hd_reply"],
   reopened: ["hd_reply"],
+  followed_update: ["hd_reply", "hd_internal_note"],
   mention_or_note: ["hd_internal_note", "hd_workflow_notify"],
   task_assigned: ["hd_task_assigned"],
   sla_warning: ["hd_sla_warning"],
@@ -257,7 +259,9 @@ export const NOTIFY_EVENTS: readonly NotifyEventDef[] = [
   { id: "hd_desk_replied", section: "helpdesk", label: "Reply from the desk", hint: "An agent answers on your request", channels: BWE, digest: true, templates: ["hd_reply"] },
   { id: "hd_waiting_on_you", section: "helpdesk", label: "Waiting on you", hint: "The desk needs something from you to carry on", channels: BWE, digest: true, templates: ["hd_reply"] },
   { id: "hd_solved", section: "helpdesk", label: "Solved and satisfaction", hint: "Your request is solved, with the one-question survey", channels: BWE, digest: true, templates: ["hd_solved_csat"] },
+  { id: "hd_cc_added", section: "helpdesk", label: "Copied on a request", hint: "Someone adds you as CC on a request", channels: BW, digest: false },
   { id: "hd_workflow_message", section: "helpdesk", label: "Workflow messages", hint: "A step in your request's workflow sends you a message", channels: BWE, digest: true, templates: ["hd_workflow_notify"] },
+  { id: "hd_merged", section: "helpdesk", label: "Requests joined", hint: "The desk joins your request with another one about the same thing", channels: BWE, digest: true, templates: ["hd_merged"] },
   // Approvals
   { id: "hd_approval_needed", section: "approvals", label: "Approval needed", hint: "A request waits for your approval, and its reminders", channels: { ...BWE, push: true }, digest: true, audience: "Approvers", templates: ["hd_approval_needed"] },
   { id: "hd_approval_decided", section: "approvals", label: "Approval decided", hint: "Your request is approved or declined", channels: BWE, digest: true, templates: ["hd_approval_decided"] },

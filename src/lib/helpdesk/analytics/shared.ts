@@ -39,7 +39,7 @@ export interface HdMeasureDef {
   /** About people asking for help: automated tickets (alerts, API) never count (CSAT, replies, first reply). */
   peopleOnly?: boolean;
   /** What one counted thing is: a ticket, a workflow task step, a run, an approval, a reviewed reply. */
-  subject?: "ticket" | "step" | "run" | "approval" | "review";
+  subject?: "ticket" | "step" | "run" | "approval" | "review" | "time";
   group: "Volume" | "Speed" | "Service levels" | "Satisfaction" | "Quality" | "Workflows" | "Workload" | "Review";
 }
 
@@ -373,6 +373,27 @@ export const HD_MEASURES = {
     group: "Review",
     description: "Replies held for review that a team lead sent back with a note in the period.",
   },
+  // Time tracking (1.19.1, agent V8, lib/helpdesk/time): what agents logged on tickets.
+  time_logged: {
+    label: "Time logged",
+    short: "Time logged",
+    unit: "minutes",
+    good: "neutral",
+    basis: "event",
+    subject: "time",
+    group: "Workload",
+    description: "Time agents logged on tickets in the period, by hand or with the timer. Split by assignee to see who logged it.",
+  },
+  time_per_ticket: {
+    label: "Time per ticket",
+    short: "Time per ticket",
+    unit: "minutes",
+    good: "neutral",
+    basis: "event",
+    group: "Workload",
+    drillDate: "solved",
+    description: "Average time logged on a ticket, for tickets solved in the period that have time logged.",
+  },
 } as const satisfies Record<string, HdMeasureDef>;
 
 export type HdMeasureKey = keyof typeof HD_MEASURES;
@@ -447,7 +468,7 @@ export function dimensionsFor(measure: HdMeasureKey): HdDimension[] {
 }
 
 /** Channels as reports group them: the CompassDocs triggers are one channel. */
-export const HD_CHANNELS = ["portal", "desk", "email", "workflow", "trigger", "alert", "api"] as const;
+export const HD_CHANNELS = ["portal", "desk", "email", "workflow", "trigger", "alert", "api", "recurring", "portal_external"] as const;
 export type HdChannel = (typeof HD_CHANNELS)[number];
 export const HD_CHANNEL_LABEL: Record<HdChannel, string> = {
   portal: "Get help",
@@ -457,6 +478,9 @@ export const HD_CHANNEL_LABEL: Record<HdChannel, string> = {
   trigger: "From a page",
   alert: "Alert",
   api: "API",
+  recurring: "Recurring schedule",
+  // 1.19.1 (agent V9): outside customers' requests from the customer portal.
+  portal_external: "Customer portal",
 };
 /** The ticket sources each channel covers (hd_tickets.source). */
 export const HD_CHANNEL_SOURCES: Record<HdChannel, string[]> = {
@@ -467,6 +491,8 @@ export const HD_CHANNEL_SOURCES: Record<HdChannel, string[]> = {
   trigger: ["doc", "handbook", "space_access", "link"],
   alert: ["alert"],
   api: ["api"],
+  recurring: ["recurring"],
+  portal_external: ["portal_external"],
 };
 
 /** Who raised it: a person, or a machine (an alert or an API call; hd_tickets.automated). */

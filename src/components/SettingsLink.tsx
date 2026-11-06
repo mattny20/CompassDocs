@@ -8,7 +8,7 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 import Link from "next/link";
-import { SETTINGS_SECTIONS, settingsSection } from "@/lib/settings-sections";
+import { SETTINGS_SECTIONS, canOpenPage, settingsSection } from "@/lib/settings-sections";
 
 const ReachableContext = createContext<string[] | null>(null);
 
@@ -23,12 +23,20 @@ function sectionOf(href: string): string | undefined {
     .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 }
 
-/** True when the viewer may open the section that `href` lives in. */
+/** True when the viewer may open the section that `href` lives in (or, for a page with its own permission, that page). */
 export function useCanOpenSettings(href: string): boolean {
   const reachable = useContext(ReachableContext);
   const section = sectionOf(href);
-  if (!section) return false;
-  return reachable ? reachable.includes(section) : false;
+  if (!section || !reachable) return false;
+  const path = href.split(/[#?]/)[0];
+  const s = settingsSection(section)!;
+  const page = s.pages?.filter((p) => p.href !== s.href && (path === p.href || path.startsWith(`${p.href}/`))).sort((a, b) => b.href.length - a.href.length)[0];
+  return page ? canOpenPage(reachable, s, page) : reachable.includes(section);
+}
+
+/** The reachability the app layout provided (null outside it). */
+export function useReachableSettings(): string[] | null {
+  return useContext(ReachableContext);
 }
 
 export function SettingsLink({

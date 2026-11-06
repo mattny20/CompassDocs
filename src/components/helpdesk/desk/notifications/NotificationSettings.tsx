@@ -46,6 +46,7 @@ type Patch = {
   preview?: HdNotifyPrefs["preview"];
   sound?: boolean;
   pause?: HdPauseRequest;
+  auto_follow?: boolean;
 };
 
 const DAY_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -110,6 +111,9 @@ export function NotificationSettings({ initial, devices: initialDevices }: { ini
             v.teams = v.teams.map((t) => (t.id === id ? { ...t, on } : t));
             return v;
           })
+        } />
+        <FollowingCard prefs={prefs} onChange={(on) =>
+          save({ auto_follow: on }, (v) => ({ ...v, prefs: { ...v.prefs, auto_follow: on } }))
         } />
         <QuietHoursCard prefs={prefs} timezone={view.timezone} onChange={(q) =>
           save({ quiet: q }, (v) => {
@@ -389,6 +393,21 @@ function QuietHoursCard({
           />
         </fieldset>
       </div>
+    </Card>
+  );
+}
+
+// --- Following (1.19.1, agent V3) ------------------------------------------------
+
+function FollowingCard({ prefs, onChange }: { prefs: HdNotifyPrefs; onChange: (on: boolean) => void }) {
+  return (
+    <Card id="following" className="scroll-mt-6" title="Following" icon={<Eye />} description="Tickets you follow tell you about new replies, notes and status changes (Tickets I follow, above).">
+      <Toggle
+        label="Follow tickets I reply to"
+        help="Replying or adding a note follows the ticket. Unfollow from the ticket's header at any time; that ticket won't follow you again."
+        checked={prefs.auto_follow !== false}
+        onChange={onChange}
+      />
     </Card>
   );
 }

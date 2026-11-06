@@ -10,7 +10,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
-import { settingsPages } from "@/lib/settings-sections";
+import { canOpenPage, settingsPages, settingsSection } from "@/lib/settings-sections";
+import { useReachableSettings } from "./SettingsLink";
 
 export interface SubNavItem {
   href: string;
@@ -36,7 +37,11 @@ export function SubNav({
   className?: string;
 }) {
   const path = usePathname();
-  const items = given ?? (section ? settingsPages(section) : []);
+  // A section's tabs show only the pages the viewer may open (1.19.1: a page
+  // may carry its own permission). Outside the app layout, all of them.
+  const reachable = useReachableSettings();
+  const sec = section ? settingsSection(section) : undefined;
+  const items = given ?? (sec ? settingsPages(sec.href).filter((p) => !reachable || canOpenPage(reachable, sec, p)) : []);
   const base = root ?? items[0]?.href;
   return (
     <nav aria-label={label} className={`mb-5 flex gap-1 overflow-x-auto border-b border-slate-200 ${className}`.trim()}>

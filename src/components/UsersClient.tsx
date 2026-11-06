@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PASSWORD_HELP, passwordProblem } from "@/lib/password-policy";
-import { buttonClass } from "@/components/Button";
+import { buttonClass, iconButtonClass } from "@/components/Button";
 import { Chip, labelCase } from "@/components/Chip";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
-import { Plus } from "lucide-react";
+import { Download, FileCheck, MoreHorizontal, Plus, ShieldOff, Trash2, UserX } from "lucide-react";
+import { MenuItem, MenuSeparator, Popover } from "@/components/Popover";
 import { useRouter } from "next/navigation";
 import { ROLE_ORDER, ROLE_LABEL, ROLE_BLURB } from "@/lib/types";
 import type { User, Role } from "@/lib/types";
@@ -23,6 +24,7 @@ export function UsersClient({
   attestations,
   canAnonymise = false,
   recordLinks = false,
+  canExportPersonalData = false,
 }: {
   users: User[];
   currentUserId: number;
@@ -39,6 +41,8 @@ export function UsersClient({
   canAnonymise?: boolean;
   /** Each row links to the person's compliance record (F3, 1.14.0): policy_ack licensed and the viewer opens the Compliance section. */
   recordLinks?: boolean;
+  /** "Download personal data" on each row (1.19.1): the viewer holds user.delete, as the export route requires. */
+  canExportPersonalData?: boolean;
 }) {
   // The filter state sits here so the ListFilter's count and the table rows
   // always agree.
@@ -82,6 +86,7 @@ export function UsersClient({
         attestations={attestations}
         canAnonymise={canAnonymise}
         recordLinks={recordLinks}
+        canExportPersonalData={canExportPersonalData}
         users={visible}
         currentUserId={currentUserId}
         filtered={needle.length > 0}
@@ -95,6 +100,7 @@ function UserTable({
   attestations,
   canAnonymise,
   recordLinks,
+  canExportPersonalData,
   users,
   currentUserId,
   filtered,
@@ -103,6 +109,7 @@ function UserTable({
   attestations?: Record<number, number>;
   canAnonymise: boolean;
   recordLinks: boolean;
+  canExportPersonalData: boolean;
   users: User[];
   currentUserId: number;
   filtered: boolean;
@@ -211,6 +218,37 @@ function UserTable({
     });
   }
 
+  // A person's data export (1.19.1, GET /api/admin/users/[id]/personal-data):
+  // a JSON file of what CompassDocs holds that is theirs to receive (their
+  // helpdesk requests and the public conversation). Fetched rather than
+  // linked so a refusal shows as a toast, not as a downloaded error file.
+  const [exporting, setExporting] = useState<number | null>(null);
+  async function downloadPersonalData(u: User) {
+    setExporting(u.id);
+    try {
+      const res = await fetch(`/api/admin/users/${u.id}/personal-data`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast("error", body?.error || "Couldn't export this person's data.");
+        return;
+      }
+      const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? `personal-data-${u.username}.json`;
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast("ok", `Personal data for ${u.name || u.username} downloaded.`);
+    } catch {
+      toast("error", "Couldn't export this person's data.");
+    } finally {
+      setExporting(null);
+    }
+  }
+
   // The erasure path for attestation records (C5): irreversible, so it asks
   // with the username typed. The records themselves stay (counts, dates,
   // versions, hashes); only who they name is replaced. The copy names
@@ -232,8 +270,9 @@ function UserTable({
   }
 
   return (
-    /* Scrolls rather than clips: below ~1180px the Status and Actions columns
-       (Reset password / Disable / Delete) used to be unreachable entirely. */
+    /* Scrolls rather than clips on a narrow screen (below ~45rem). From
+       1.19.1 a row keeps three actions inline and folds the rest into a ⋯
+       menu, so at 1440 the table fits its column and names never clip. */
     <div className="rounded-xl border border-slate-200 bg-surface shadow-xs">
       <Table scroll minWidth="45rem" aria-busy={busy}>
         <thead className={TABLE_HEAD_ROW}>
@@ -252,7 +291,7 @@ function UserTable({
               </td>
             </tr>
           )}
-          {users.map((u) => (
+          {users.map((u, row) => (
             <tr key={u.id} className={`${TR} ${isBusy(u.id) ? "opacity-50" : ""}`.trim()}>
               {/* w-full max-w-0: the column takes the spare width and its
                   lines truncate inside it, so one long email never pushes
@@ -318,7 +357,7 @@ function UserTable({
                 <Chip tone={u.status === "active" ? "ok" : "neutral"}>{labelCase(u.status)}</Chip>
               </Td>
               <Td fit>
-                <div className="flex justify-end gap-1.5 text-xs">
+                <div className="flex items-center justify-end gap-1.5 text-xs">
                   <button
                     onClick={() => editEmail(u)}
                     disabled={isBusy(u.id)}
@@ -333,30 +372,6 @@ function UserTable({
                   >
                     Reset password
                   </button>
-                  {u.totp_enabled === 1 && (
-                    <button
-                      onClick={async () => {
-                        if (
-                          !(await confirmDialog({
-                            title: `Reset two-factor auth for ${u.username}?`,
-                            body: "They'll sign in with just their password and can re-enroll.",
-                            confirmLabel: "Reset two-factor",
-                            danger: true,
-                          }))
-                        )
-                          return;
-                        await patch(u.id, { reset2fa: true }, {
-                          fallback: "Couldn't reset two-factor auth.",
-                          ok: "Two-factor auth cleared.",
-                        });
-                      }}
-                      disabled={isBusy(u.id)}
-                      data-tt="Clear this user's authenticator (lost-device recovery)"
-                      className={buttonClass("secondary", "sm")}
-                    >
-                      Reset 2FA
-                    </button>
-                  )}
                   <button
                     onClick={() => toggleStatus(u)}
                     disabled={isBusy(u.id)}
@@ -364,37 +379,151 @@ function UserTable({
                   >
                     {u.status === "active" ? "Disable" : "Enable"}
                   </button>
-                  {recordLinks && (
-                    <Link href={`/compliance/person/${u.id}`} className={buttonClass("secondary", "sm")}>
-                      Compliance record
-                    </Link>
-                  )}
-                  {canAnonymise && u.id !== currentUserId && (attestations?.[u.id] ?? 0) > 0 && (
-                    <button
-                      onClick={() => anonymise(u)}
-                      disabled={isBusy(u.id)}
-                      data-tt="Replace their name, email and IP on every attestation record; counts, dates, versions and hashes stay"
-                      data-tt-wrap=""
-                      className={buttonClass("danger", "sm")}
-                    >
-                      Anonymise compliance record…
-                    </button>
-                  )}
-                  {u.id !== currentUserId && (
-                    <button
-                      onClick={() => remove(u)}
-                      disabled={isBusy(u.id)}
-                      className={buttonClass("danger", "sm")}
-                    >
-                      Delete
-                    </button>
-                  )}
+                  {/* The rest folds into one ⋯ menu so the row fits at 1440 and on a
+                      phone (STYLEGUIDE §Row actions): Reset 2FA, Compliance
+                      record, Anonymise, Personal data, then Delete. */}
+                  <RowMenu
+                    label={u.name || u.username}
+                    up={users.length > 3 && row >= users.length - 2}
+                    disabled={isBusy(u.id)}
+                    items={[
+                      u.totp_enabled === 1 && {
+                        key: "2fa",
+                        label: "Reset 2FA…",
+                        icon: <ShieldOff />,
+                        tt: "Clear this user's authenticator (lost-device recovery)",
+                        onClick: async () => {
+                          if (
+                            !(await confirmDialog({
+                              title: `Reset two-factor auth for ${u.username}?`,
+                              body: "They'll sign in with just their password and can re-enroll.",
+                              confirmLabel: "Reset two-factor",
+                              danger: true,
+                            }))
+                          )
+                            return;
+                          await patch(u.id, { reset2fa: true }, {
+                            fallback: "Couldn't reset two-factor auth.",
+                            ok: "Two-factor auth cleared.",
+                          });
+                        },
+                      },
+                      recordLinks && { key: "record", label: "Compliance record", icon: <FileCheck />, href: `/compliance/person/${u.id}` },
+                      canAnonymise &&
+                        u.id !== currentUserId &&
+                        (attestations?.[u.id] ?? 0) > 0 && {
+                          key: "anon",
+                          label: "Anonymise compliance record…",
+                          icon: <UserX />,
+                          danger: true,
+                          tt: "Replace their name, email and IP on every attestation record; counts, dates, versions and hashes stay",
+                          onClick: () => anonymise(u),
+                        },
+                      canExportPersonalData && {
+                        key: "export",
+                        label: exporting === u.id ? "Downloading personal data…" : "Download personal data",
+                        icon: <Download />,
+                        tt: "A JSON file of what CompassDocs holds about this person: their helpdesk requests with the public conversation, and their own messages on requests they were copied on",
+                        disabled: exporting === u.id,
+                        onClick: () => void downloadPersonalData(u),
+                      },
+                      u.id !== currentUserId && { key: "delete", label: "Delete…", icon: <Trash2 />, danger: true, separated: true, onClick: () => remove(u) },
+                    ]}
+                  />
                 </div>
               </Td>
             </tr>
           ))}
         </tbody>
       </Table>
+    </div>
+  );
+}
+
+interface RowMenuItem {
+  key: string;
+  label: string;
+  icon: React.ReactNode;
+  /** A tooltip (data-tt) saying what the action does. */
+  tt?: string;
+  danger?: boolean;
+  disabled?: boolean;
+  /** A hairline above it (Delete comes last, on its own). */
+  separated?: boolean;
+  href?: string;
+  onClick?: () => void | Promise<void>;
+}
+
+/**
+ * A user row's less frequent actions behind one quiet ⋯ button (STYLEGUIDE
+ * §Row actions): Email…, Reset password and Disable stay inline. Renders
+ * nothing when the row has none of these.
+ */
+function RowMenu({
+  label,
+  disabled,
+  up = false,
+  items,
+}: {
+  label: string;
+  disabled: boolean;
+  /** The last rows open upwards, so the menu stays inside the table's scroll box. */
+  up?: boolean;
+  items: (RowMenuItem | false | null | undefined)[];
+}) {
+  const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const list = items.filter((i): i is RowMenuItem => Boolean(i));
+  if (!list.length) return null;
+  return (
+    <div className="relative">
+      <button
+        ref={btn}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`More actions for ${label}`}
+        data-tt="More"
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        className={iconButtonClass("quiet", "sm")}
+      >
+        <MoreHorizontal aria-hidden />
+      </button>
+      <Popover open={open} onClose={() => setOpen(false)} triggerRef={btn} role="menu" label={`More actions for ${label}`} align="end" side={up ? "top" : "bottom"} width="w-64">
+        {list.map((i, n) => (
+          <div key={i.key}>
+            {i.separated && n > 0 && <MenuSeparator />}
+            {i.href ? (
+              <Link
+                role="menuitem"
+                href={i.href}
+                onClick={() => setOpen(false)}
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <span className="shrink-0 text-slate-400 [&>svg]:h-4 [&>svg]:w-4" aria-hidden>
+                  {i.icon}
+                </span>
+                {i.label}
+              </Link>
+            ) : (
+              <MenuItem
+                icon={i.icon}
+                danger={i.danger}
+                disabled={i.disabled}
+                data-tt={i.tt}
+                data-tt-wrap={i.tt ? "" : undefined}
+                onClick={() => {
+                  setOpen(false);
+                  void i.onClick?.();
+                }}
+              >
+                {i.label}
+              </MenuItem>
+            )}
+          </div>
+        ))}
+      </Popover>
     </div>
   );
 }

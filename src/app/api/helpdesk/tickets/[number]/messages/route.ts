@@ -1,4 +1,8 @@
-// POST /api/helpdesk/tickets/[number]/messages  { kind: 'public'|'internal', body, attachments?, then_status? }
+// POST /api/helpdesk/tickets/[number]/messages  { kind: 'public'|'internal', body, attachments?, then_status?,
+//        expect_last_message_id?, force? }
+//   expect_last_message_id (1.19.1): the newest message the composer knew of
+//   when typing started; a newer one by someone else answers 409 { newer }
+//   and nothing is posted (force: true sends anyway).
 //   An agent's reply (public: the requester sees it, by email too) or
 //   internal note, optionally changing the status in the same step ("Send and
 //   mark solved"). → 201 { message, status, held }. A Newbie's public reply
@@ -8,10 +12,12 @@
 import { NextResponse } from "next/server";
 import { helpdeskGate, messagePostLimited, readJson, tooMany } from "@/lib/helpdesk/access";
 import { addMessage, MESSAGE_LIMITS } from "@/lib/helpdesk/messages";
-import { isStatus } from "@/lib/helpdesk/tickets";
+import { HdTicketError, isStatus } from "@/lib/helpdesk/tickets";
 import { attachToMessage, pendingAttachments } from "@/lib/helpdesk/attachments";
 import { badRequest, loadTicketFor, notFound, originOf, textField } from "@/lib/helpdesk/routes";
 import { hdCan, HD_FORBIDDEN } from "@/lib/helpdesk/roles";
+import { collisionRefusal } from "@/lib/helpdesk/presence";
+import { mergedLock } from "@/lib/helpdesk/merge";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +28,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ number:
   const found = await loadTicketFor(gate, (await params).number, "work");
   if (found instanceof NextResponse) return found;
   const t = found.ticket;
+  // 1.19.1: a merged ticket's conversation is read-only (lib/helpdesk/merge mergedLock).
+  const locked = await mergedLock(t);
+  if (locked) return NextResponse.json({ error: locked }, { status: 409 });
   const b = await readJson(req, 128 * 1024);
   if (!b) return badRequest("Send the message as JSON.");
   if (b.kind !== "public" && b.kind !== "internal") return badRequest("A message is public or internal.");
@@ -44,22 +53,33 @@ export async function POST(req: Request, { params }: { params: Promise<{ number:
     const missing = await validateTaskSolve(t.id);
     if (missing) return NextResponse.json(missing, { status: 409 });
   }
+  // 1.19.1 collision warning (lib/helpdesk/presence): someone else's newer
+  // message since expect_last_message_id → 409 { newer }, unless force.
+  const collided = await collisionRefusal(t.id, gate.id, b);
+  if (collided) return collided;
   const attachments = await pendingAttachments(b.attachments, { userId: gate.id, ticketId: t.id });
   if (!attachments) return badRequest("One of the files is not available. Upload it again.");
   if (!body && !attachments.length) return badRequest("Write a message.");
-  const res = await addMessage(
-    t.id,
-    {
-      kind: b.kind,
-      body,
-      author: { id: gate.id, name: gate.name || gate.username, email: gate.email },
-      via: "desk",
-      asRequester: false,
-      attachments,
-      then_status: b.then_status as never,
-    },
-    { origin: originOf(req) }
-  );
+  let res: Awaited<ReturnType<typeof addMessage>>;
+  try {
+    res = await addMessage(
+      t.id,
+      {
+        kind: b.kind,
+        body,
+        author: { id: gate.id, name: gate.name || gate.username, email: gate.email },
+        via: "desk",
+        asRequester: false,
+        attachments,
+        then_status: b.then_status as never,
+      },
+      { origin: originOf(req) }
+    );
+  } catch (e) {
+    // A merge committed meanwhile (re-checked under its lock): 409 naming the kept ticket.
+    if (e instanceof HdTicketError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
+  }
   if (!res) return notFound();
   if (attachments.length) await attachToMessage(attachments.map((a) => a.id), t.id, res.message.id, { userId: gate.id });
   return NextResponse.json({ message: res.message, status: res.status, held: res.held }, { status: 201 });

@@ -393,7 +393,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     key: "hd_reply",
     label: "Helpdesk: new reply",
     description:
-      "Sent to the requester when an agent replies, and to the assignee (or the team) when the requester replies. Replying to the email adds to the ticket.",
+      "Sent to the requester when an agent replies (with the people copied on the request on Cc), and to the assignee (or the team) when the requester or a CC replies. Replying to the email adds to the ticket.",
     tags: [
       T("ticket_number", "Ticket number"),
       T("subject", "Ticket subject"),
@@ -635,6 +635,48 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       "{{message}}\n\n" +
       "[Open #{{ticket_number}} in the desk]({{ticket_url}}) to answer. Don't reply to this email: notes are not sent by email.",
   },
+  {
+    key: "hd_merged",
+    label: "Helpdesk: requests joined",
+    description:
+      "Sent to the requester when an agent merges their request into another ticket about the same thing, if the agent chose to tell them. Replies go to the ticket it was joined with.",
+    tags: [
+      T("ticket_number", "The requester's request number (now closed)"),
+      T("subject", "Request subject"),
+      T("target_number", "The ticket it was joined with"),
+      T("ticket_url", "Link to the request"),
+      T("thread_ref", "Thread reference for email replies"),
+      T("org_name", "Workspace name"),
+    ],
+    text: ["subject"],
+    subject: "[{{org_name}}] Your request #{{ticket_number}} was joined with #{{target_number}} {{thread_ref}}",
+    body:
+      "Your request **#{{ticket_number}}** has been joined with **#{{target_number}}** so one person can help with both:\n\n" +
+      "> {{subject}}\n\n" +
+      "Nothing is lost: your messages are now part of #{{target_number}}. Reply to this email to add to it, or [open your request]({{ticket_url}}).",
+  },
+  // 1.19.1 (agent V6, lib/helpdesk/portal): the customer portal's one-time
+  // sign-in link. Its recipients have no account, so no "Manage your
+  // notifications" link; it is sign-in mail, never held by preferences.
+  {
+    key: "hd_portal_link",
+    label: "Helpdesk: customer portal sign-in link",
+    description:
+      "Sent to someone outside your organisation who asks to sign in to the customer portal. The link works once and for 15 minutes.",
+    tags: [
+      T("portal_name", "The portal's name (Desk settings, Customer portal)"),
+      T("signin_url", "The one-time sign-in link"),
+      T("minutes", "How long the link works, in minutes"),
+      T("org_name", "The portal's name"),
+    ],
+    text: ["portal_name"],
+    manageLink: false,
+    subject: "Your sign-in link for {{portal_name}}",
+    body:
+      "Here's your link to sign in to **{{portal_name}}** and raise or follow your requests:\n\n" +
+      "[Sign in to {{portal_name}}]({{signin_url}})\n\n" +
+      "The link works once and for {{minutes}} minutes. If you didn't ask for it, you can ignore this email: nobody can sign in without it.",
+  },
 ];
 
 /**
@@ -868,6 +910,18 @@ export const SAMPLE_VARS: Record<string, Record<string, string>> = {
     message: "Legal is reviewing the contract. Don't promise a date to the requester yet.",
     ticket_url: "/desk/tickets/1047",
   },
+  hd_merged: {
+    ticket_number: "1051",
+    subject: "VPN disconnects on hotel wifi",
+    target_number: "1049",
+    ticket_url: "/help/requests/1051",
+    thread_ref: "[#1051 ref:m2r8kq4v7xqa1b2c]",
+  },
+  hd_portal_link: {
+    portal_name: "Acme Support",
+    signin_url: "/support/signin?token=sample",
+    minutes: "15",
+  },
 };
 
 export function templateDef(key: string): EmailTemplateDef | undefined {
@@ -1063,6 +1117,8 @@ export interface RenderEmailOptions {
    */
   recipientUserId?: number | null;
   recipientEmail?: string | null;
+  /** false: no "Manage your notifications" link (a mail to several people, some maybe outside the workspace). */
+  manageLink?: false;
 }
 
 /** The four texts an email is built from (header/signature/footer may be empty). */
@@ -1296,7 +1352,7 @@ export async function renderEmail(
   const def = templateDef(key);
   if (!def) throw new Error(`Unknown email template: ${key}`);
   const parts: ComposedTemplate = { header: "", subject: def.subject, body: def.body, signature: "", footer: "" };
-  let manageLink = true;
+  let manageLink = opts?.manageLink !== false;
   try {
     const { resolveComposition, senderDetails, recipientDetails } = await import("./email-parts");
     const c = await resolveComposition(key, opts?.scope);

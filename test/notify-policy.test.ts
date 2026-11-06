@@ -115,13 +115,18 @@ describe("the catalog", () => {
     }
   });
 
-  test("every personal email template belongs to an event (workspace reports and channels excepted)", () => {
+  test("every personal email template belongs to an event (workspace reports, channels and sign-in mail excepted)", () => {
     const src = read("src/lib/email-templates.ts");
     const keys = [...src.matchAll(/^\s{4}key: "([a-z_]+)"/gm)].map((m) => m[1]);
     const workspaceOnly = new Set(["workflow_event", "ack_program_report", "training_report"]);
+    // 1.19.1: transactional sign-in mail the recipient asked for this
+    // minute (the customer portal's one-time link). Like a password reset
+    // it is never governed by preferences, so it has no event to turn off.
+    const signIn = new Set(["hd_portal_link"]);
     const covered = new Set(NOTIFY_EVENTS.flatMap((e) => e.templates ?? []));
     for (const k of keys) {
-      if (workspaceOnly.has(k) || k.startsWith("hd_part") || !/^[a-z_]+$/.test(k)) continue;
+      assert.ok(!(signIn.has(k) && covered.has(k)), `sign-in template ${k} must not be an event people can turn off`);
+      if (workspaceOnly.has(k) || signIn.has(k) || k.startsWith("hd_part") || !/^[a-z_]+$/.test(k)) continue;
       assert.ok(covered.has(k), `template ${k} has no event in the catalog`);
     }
   });

@@ -51,6 +51,7 @@ import { toSessionUser } from "@/lib/auth";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { audit, auditAckDecision, actorFrom, ipFrom } from "@/lib/audit";
+import { callHelpdeskTool, helpdeskToolsFor, isHelpdeskTool } from "@/lib/mcp/helpdesk-tools";
 import {
   intakeFromBase64,
   intakeFromUrl,
@@ -567,6 +568,8 @@ const TOOLS = [
 // decision taken through a token has the same audit echo (actor and address)
 // as the same decision taken through PUT, v1 or the drop link.
 async function callTool(user: User, name: string, args: any, origin: string, ip: string | null) {
+  // Helpdesk tools (1.19.1): lib/mcp/helpdesk-tools decides and audits them.
+  if (isHelpdeskTool(name)) return callHelpdeskTool(user, name, args, { origin, ip });
   // Drafts across spaces. Per-document and per-space reads below narrow this
   // to the space in hand; the writes re-check with canEditSpace either way.
   const seeDrafts = await canSeeDrafts(user);
@@ -1880,13 +1883,13 @@ async function handleRpc(user: User, msg: any, origin: string, ip: string | null
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "CompassDocs", version: currentVersion() },
         instructions:
-          "CompassDocs is this team's knowledge base. Use search_docs/read_doc to look things up, create_doc to save a drafted article as markdown, and update_doc to revise, retitle, retag, move, or publish an existing one. Call list_spaces first when creating, to pick the right space. When drafting a document of a standard kind (runbook, SOP, policy, postmortem, meeting notes, decision record), call list_templates and follow the matching template's structure, passing template to create_doc. To put an image into a document, call add_image with insert:\"append\" — pass source_url if the image has a public address, or from_attachment_id to reuse one already in the workspace; base64 data works only for small files. For a screenshot that exists only as a picture in the conversation there are no bytes you can send, so call request_upload and give the person the link it returns. Policy handbooks: list_handbooks and read_handbook to read them, handbook_status for where the person stands, create_handbook (always a draft, published by a person in the app) and update_handbook_contents (live at once on a published handbook) to build them; no tool confirms a handbook or a policy, so send the person to the confirm link instead. IMPORTANT: before writing or restructuring a document, call writing_guide — CompassDocs documents support rich interactive blocks well beyond plain markdown (callouts, tabs, accordions, checklists, Mermaid/PlantUML diagrams, decision trees, video/website embeds, auto-filterable tables), and good documents use them.",
+          "CompassDocs is this team's knowledge base. Use search_docs/read_doc to look things up, create_doc to save a drafted article as markdown, and update_doc to revise, retitle, retag, move, or publish an existing one. Call list_spaces first when creating, to pick the right space. When drafting a document of a standard kind (runbook, SOP, policy, postmortem, meeting notes, decision record), call list_templates and follow the matching template's structure, passing template to create_doc. To put an image into a document, call add_image with insert:\"append\" — pass source_url if the image has a public address, or from_attachment_id to reuse one already in the workspace; base64 data works only for small files. For a screenshot that exists only as a picture in the conversation there are no bytes you can send, so call request_upload and give the person the link it returns. Policy handbooks: list_handbooks and read_handbook to read them, handbook_status for where the person stands, create_handbook (always a draft, published by a person in the app) and update_handbook_contents (live at once on a published handbook) to build them; no tool confirms a handbook or a policy, so send the person to the confirm link instead. Helpdesk (when licensed, hd_* tools, within the person's desk role): hd_suggest_articles before hd_create_request; agents read with hd_queue / hd_read_ticket / hd_ticket_summary. Replies are drafts only: hd_draft_reply saves a draft an agent sends from the desk, and no tool sends a reply to a requester, approves or declines (hd_my_approvals gives approve_url), or publishes a workflow, request type or macro (the hd_draft_* tools save drafts). IMPORTANT: before writing or restructuring a document, call writing_guide — CompassDocs documents support rich interactive blocks well beyond plain markdown (callouts, tabs, accordions, checklists, Mermaid/PlantUML diagrams, decision trees, video/website embeds, auto-filterable tables), and good documents use them.",
       });
     }
     case "ping":
       return rpcResult(id, {});
     case "tools/list":
-      return rpcResult(id, { tools: TOOLS });
+      return rpcResult(id, { tools: [...TOOLS, ...(await helpdeskToolsFor(user))] });
     case "tools/call": {
       try {
         const result = await callTool(user, String(params?.name ?? ""), params?.arguments ?? {}, origin, ip);

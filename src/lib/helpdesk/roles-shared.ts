@@ -77,9 +77,11 @@ export const HD_CAPABILITIES = {
   "tickets.change_status": { section: "tickets", label: "Change status", hint: "Mark tickets waiting, on hold, solved or closed" },
   "tickets.change_priority": { section: "tickets", label: "Change priority", hint: "Raise or lower a ticket's priority" },
   "tickets.transfer_team": { section: "tickets", label: "Transfer to another team", hint: "Move a ticket to a different team's queue" },
-  // "tickets.merge" and "tickets.bulk" arrive with merging and bulk actions
-  // (1.19.1). Until then they are not capabilities: a stored override that
-  // names them is dropped on read (resolveMatrix keeps only known keys).
+  // 1.19.1 (agent V2): merging duplicates and bulk edits in the queue. A
+  // role customised before they existed gets its default for them on read
+  // (HD_CAPS_SINCE, resolveMatrix).
+  "tickets.merge": { section: "tickets", label: "Merge tickets", hint: "Combine duplicates into one ticket; the others close with a link to it" },
+  "tickets.bulk": { section: "tickets", label: "Bulk edit", hint: "Change many tickets at once from the queue; each change still needs its own capability" },
   "tickets.sla_override": { section: "tickets", label: "Override a ticket's SLA", hint: "Change the due times of one ticket" },
   "tickets.export": { section: "tickets", label: "Export tickets", hint: "Download tickets and reports as CSV" },
   "tickets.delete": { section: "tickets", label: "Delete tickets", hint: "Remove a ticket and its conversation for good" },
@@ -127,6 +129,8 @@ export const HD_CAP_SCOPE: Partial<Record<HdCap, HdCap>> = {
   "tickets.change_status": "tickets.view_all",
   "tickets.change_priority": "tickets.view_all",
   "tickets.transfer_team": "tickets.view_all",
+  "tickets.merge": "tickets.view_all",
+  "tickets.bulk": "tickets.view_all",
   "tickets.sla_override": "tickets.view_all",
   "tickets.reply_public": "tickets.view_all",
   "tickets.reply_needs_review": "tickets.view_all",
@@ -160,6 +164,8 @@ const AGENT: HdCap[] = [
   "tickets.change_status",
   "tickets.change_priority",
   "tickets.transfer_team",
+  "tickets.merge",
+  "tickets.bulk",
   "macros.manage_personal",
 ];
 const TEAM_LEAD: HdCap[] = [
@@ -187,6 +193,11 @@ const MANAGER: HdCap[] = [
   "agents.assign_roles",
 ];
 
+// Admin holds every capability except "Reply after review": that one makes
+// a role's public replies wait for approval, and it excludes "Reply
+// publicly", so an Admin holding both had every reply held (1.19.0 bug).
+const ADMIN: HdCap[] = HD_CAP_KEYS.filter((c) => c !== "tickets.reply_needs_review");
+
 export type HdRoleMatrix = Record<HdRole, HdCap[]>;
 
 function ordered(caps: Iterable<HdCap>): HdCap[] {
@@ -199,27 +210,62 @@ export const HD_DEFAULT_MATRIX: HdRoleMatrix = {
   agent: ordered(AGENT),
   team_lead: ordered(TEAM_LEAD),
   manager: ordered(MANAGER),
-  admin: [...HD_CAP_KEYS],
+  admin: [...ADMIN],
 };
 
 /** Overrides as stored: a full capability list per customised role (never admin). */
 export type HdRoleOverrides = Partial<Record<Exclude<HdRole, "admin">, HdCap[]>>;
 
+/**
+ * The stored matrix's version (`v` beside the overrides, written by
+ * roles.saveRoleMatrix). 1 (or none) = 1.19.0. A role's stored list is
+ * complete for the version it was saved under, so a capability added since
+ * (HD_CAPS_SINCE) is read with the role's default for it: an Agent column
+ * customised in 1.19.0 gets Merge and Bulk edit like an uncustomised one,
+ * until an admin next saves the matrix. Only when the role still holds what
+ * the new capability builds on (HD_CAPS_SINCE_NEEDS): merging closes a
+ * ticket, so a role whose admin removed Change status never gains Merge.
+ * The lift is worked out on every read from the stored lists, so it never
+ * comes back once an admin has saved the matrix (v 2).
+ */
+export const HD_MATRIX_VERSION = 2;
+export const HD_CAPS_SINCE: Partial<Record<HdCap, number>> = { "tickets.merge": 2, "tickets.bulk": 2 };
+
+/** What a role customised before a capability existed must hold for it to be lifted on: every one of `all`, at least one of `any`. */
+export const HD_CAPS_SINCE_NEEDS: Partial<Record<HdCap, { all?: readonly HdCap[]; any?: readonly HdCap[] }>> = {
+  "tickets.merge": { all: ["tickets.change_status"] },
+  // Bulk changes fields one capability at a time; with none of them it would only add tags.
+  "tickets.bulk": {
+    any: ["tickets.change_status", "tickets.change_priority", "tickets.transfer_team", "tickets.assign_self", "tickets.assign_team", "tickets.assign_any"],
+  },
+};
+
+function liftable(cap: HdCap, held: readonly HdCap[]): boolean {
+  const need = HD_CAPS_SINCE_NEEDS[cap];
+  if (!need) return true;
+  if (need.all && !need.all.every((c) => held.includes(c))) return false;
+  if (need.any && !need.any.some((c) => held.includes(c))) return false;
+  return true;
+}
+
 /** Lay stored overrides over the defaults. Unknown keys are dropped; Admin is always everything. Never throws. */
 export function resolveMatrix(raw: unknown): HdRoleMatrix {
   const v = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const out = { ...HD_DEFAULT_MATRIX };
+  const savedUnder = typeof v.v === "number" && Number.isInteger(v.v) ? v.v : 1;
   for (const r of HD_ROLES) {
     if (r === "admin") continue;
     const list = v[r];
     if (!Array.isArray(list)) continue;
-    let caps = ordered(list.filter(isHdCap));
+    const stored = list.filter(isHdCap);
+    const newer = HD_DEFAULT_MATRIX[r].filter((c) => (HD_CAPS_SINCE[c] ?? 0) > savedUnder && liftable(c, stored));
+    let caps = ordered([...stored, ...newer]);
     // Invariants hold on read too, whatever was stored.
     if (r !== "manager") caps = caps.filter((c) => !HD_MANAGER_ONLY_CAPS.includes(c));
     for (const [a, b] of HD_EXCLUSIVE_CAPS) if (caps.includes(a) && caps.includes(b)) caps = caps.filter((c) => c !== b);
     out[r] = caps;
   }
-  out.admin = [...HD_CAP_KEYS];
+  out.admin = [...ADMIN];
   return out;
 }
 
@@ -240,7 +286,8 @@ export function toOverrides(m: HdRoleMatrix): HdRoleOverrides {
  * Roles page shows the reason on the disabled checkbox.
  */
 export function capForbiddenReason(role: HdRole, cap: HdCap): string | null {
-  if (role === "admin") return "Admin always has every capability.";
+  if (role === "admin" && cap === "tickets.reply_needs_review") return "Admin's replies always go out directly; they are never held for review.";
+  if (role === "admin") return "Admin always has this capability.";
   if (HD_MANAGER_ONLY_CAPS.includes(cap) && HD_ROLE_RANK[role] < HD_ROLE_RANK.manager) return "Only Managers and Admins can hold this.";
   return null;
 }
@@ -252,17 +299,28 @@ export function capForbiddenReason(role: HdRole, cap: HdCap): string | null {
  * hold themselves.
  */
 export function columnLockedReason(role: HdRole, editorRole: HdRole | null): string | null {
-  if (role === "admin") return "Admin always has every capability.";
+  if (role === "admin") return "Admin has every capability except Reply after review; its column can't change.";
   if (!editorRole) return "You can't change desk roles.";
   if (editorRole !== "admin" && HD_ROLE_RANK[role] >= HD_ROLE_RANK[editorRole]) return "You can only change roles below your own.";
   return null;
+}
+
+/**
+ * Whether the editor may grant or remove `cap`: one they hold, or (1.19.1)
+ * the other half of an exclusive pair they hold ("Reply after review" is
+ * the held form of "Reply to the requester", which Admin no longer holds
+ * itself). Admins may grant every capability.
+ */
+export function editorMayGrant(cap: HdCap, editorRole: HdRole | null, editorCaps: readonly HdCap[]): boolean {
+  if (editorRole === "admin" || editorCaps.includes(cap)) return true;
+  return HD_EXCLUSIVE_CAPS.some(([a, b]) => (cap === a && editorCaps.includes(b)) || (cap === b && editorCaps.includes(a)));
 }
 
 export function cellLockedReason(role: HdRole, cap: HdCap, editorRole: HdRole | null, editorCaps: readonly HdCap[]): string | null {
   return (
     capForbiddenReason(role, cap) ??
     columnLockedReason(role, editorRole) ??
-    (editorCaps.includes(cap) ? null : "You can't grant a capability you don't have.")
+    (editorMayGrant(cap, editorRole, editorCaps) ? null : "You can't grant a capability you don't have.")
   );
 }
 
@@ -277,7 +335,7 @@ export function checkMatrix(
 ): { ok: true; matrix: HdRoleMatrix; changed: HdRole[] } | { ok: false; error: string } {
   if (!proposed || typeof proposed !== "object" || Array.isArray(proposed)) return { ok: false, error: "Send the matrix as an object of role → capabilities." };
   const p = proposed as Record<string, unknown>;
-  const next: HdRoleMatrix = { ...current, admin: [...HD_CAP_KEYS] };
+  const next: HdRoleMatrix = { ...current, admin: [...ADMIN] };
   const changed: HdRole[] = [];
   for (const key of Object.keys(p)) {
     if (!isHdRole(key)) return { ok: false, error: `Unknown role "${key.slice(0, 40)}".` };
@@ -300,7 +358,7 @@ export function checkMatrix(
         const why = capForbiddenReason(r, c);
         if (why) return { ok: false, error: `${HD_ROLE_LABEL[r]} → ${HD_CAPABILITIES[c].label}: ${why}` };
       }
-      if (!editor.caps.includes(c)) {
+      if (!editorMayGrant(c, editor.role, editor.caps)) {
         return { ok: false, error: `${HD_ROLE_LABEL[r]} → ${HD_CAPABILITIES[c].label}: you can't grant or remove a capability you don't have.` };
       }
     }

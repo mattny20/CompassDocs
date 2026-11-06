@@ -13,9 +13,15 @@ import "server-only";
 // Each falls back to the type's category from the starter set, then to no
 // type at all: a general request, routed by the desk's automations. Only a
 // type the person may use is ever picked.
+//
+// 1.19.1: Desk settings → Shortcuts (lib/helpdesk/shortcuts) comes first: the
+// type an admin chose for the shortcut, when this person may use it (and,
+// for Request access, while it is still an access type); otherwise the
+// rule above. "Hidden" is trigger-server's: the trigger does not render.
 
 import { hq } from "@/lib/helpdesk/db-core";
 import { listRequestTypesForUser } from "@/lib/helpdesk/request-types";
+import { configuredShortcut } from "@/lib/helpdesk/shortcuts";
 import type { HdRequestType, HdSource } from "@/lib/helpdesk/types";
 
 export type TriggerSource = Extract<HdSource, "doc" | "link" | "handbook" | "space_access">;
@@ -30,6 +36,14 @@ const PREFERRED: Record<TriggerSource, { slugs: string[]; categories: string[] }
 /** The request type a trigger starts for this person, or null for a general request. */
 export async function triggerRequestType(user: { id: number }, source: TriggerSource): Promise<HdRequestType | null> {
   const types = await listRequestTypesForUser(user);
+  if (types.length === 0) return null;
+  const chosen = await configuredShortcut(source, types);
+  if (typeof chosen === "number") return types.find((t) => t.id === chosen) ?? null;
+  return automaticTriggerType(source, types);
+}
+
+/** 1.19.0's rule over `types` (the person's, or every active one for the settings page's "Automatic"). */
+export async function automaticTriggerType<T extends Pick<HdRequestType, "id" | "slug" | "category">>(source: TriggerSource, types: T[]): Promise<T | null> {
   if (types.length === 0) return null;
   const pref = PREFERRED[source];
   if (source === "space_access") {

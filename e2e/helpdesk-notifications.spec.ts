@@ -65,9 +65,15 @@ test.describe("desk notifications", () => {
     // Quiet hours and preview persist too.
     const quiet = page.getByRole("switch", { name: "Use quiet hours" });
     const quietWas = (await quiet.getAttribute("aria-checked")) === "true";
+    // Each change is its own PUT: wait for both before reloading (a reload cancels one still in flight).
+    const put = (part: string) =>
+      page.waitForResponse((r) => r.url().includes("/api/helpdesk/me/notification-prefs") && r.request().method() === "PUT" && (r.request().postData() ?? "").includes(part));
+    const quietSaved = put('"quiet"');
     await quiet.click();
+    await quietSaved;
+    const previewSaved = put('"preview"');
     await page.getByRole("radio", { name: "Private" }).click();
-    await page.waitForResponse((r) => r.url().includes("/api/helpdesk/me/notification-prefs") && r.request().method() === "PUT");
+    await previewSaved;
     await page.reload();
     await expect(page.getByRole("switch", { name: "Use quiet hours" })).toHaveAttribute("aria-checked", String(!quietWas));
     await expect(page.getByRole("radio", { name: "Private" })).toHaveAttribute("aria-checked", "true");

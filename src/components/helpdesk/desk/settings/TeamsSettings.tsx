@@ -28,6 +28,7 @@ import { personOption, usePeople } from "../people";
 import { TEAM_ICON_NAMES, TeamIcon } from "../TeamIcon";
 import { TeamCalendarSelect } from "../calendars/TeamCalendarSelect";
 import { TeamSlaTargets } from "../calendars/TeamSlaTargets";
+import { TeamTimeToggle } from "../time/TeamTimeToggle";
 
 const ICON_HELP = `A lucide icon name: ${TEAM_ICON_NAMES.slice(0, 8).join(", ")}…`;
 
@@ -187,6 +188,8 @@ function TeamCard({ team, people, onChanged }: { team: HdTeamWithMembers; people
             <TeamSlaTargets teamId={team.id} framed={false} />
           </div>
         </details>
+        {/* Time tracking: ask for time on solve (1.19.1, agent V8). */}
+        <TeamTimeToggle teamId={team.id} teamName={team.name} />
       </div>
       {team.members.length === 0 ? (
         <SectionEmpty className="mb-3">Nobody yet. Add the people who answer for {team.name}.</SectionEmpty>

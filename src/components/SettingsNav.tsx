@@ -15,7 +15,15 @@ import { useId, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronRight, Search } from "lucide-react";
-import { SETTINGS_GROUPS, SETTINGS_INDEX, SETTINGS_SECTIONS, type SettingsIndexEntry } from "@/lib/settings-sections";
+import {
+  SETTINGS_GROUPS,
+  SETTINGS_INDEX,
+  SETTINGS_SECTIONS,
+  canOpenPage,
+  canOpenSection,
+  sectionLanding,
+  type SettingsIndexEntry,
+} from "@/lib/settings-sections";
 import { RailGroupLabel, RailLink, railRowClass } from "./RailLink";
 import { controlClass, SectionEmpty } from "@/components/form";
 
@@ -36,16 +44,28 @@ export function SettingsNav({ reachable }: { reachable: string[] }) {
   // The rail lists only what this user may open — the layout resolves that from
   // each section's permission, so a delegated role sees its one section rather
   // than twenty links that redirect home. Pages and topics inherit their
-  // section's reachability.
+  // section's reachability, except a page with its own permission (1.19.1):
+  // it shows for its holders, and a section reached only through such a
+  // page is listed and lands on it.
   const allowed = new Set(reachable);
-  const sections = SETTINGS_SECTIONS.filter((s) => allowed.has(s.href));
+  const sections = SETTINGS_SECTIONS.filter((s) => canOpenSection(allowed, s));
   const groups = SETTINGS_GROUPS.map((g) => ({
     ...g,
-    sections: g.sections.filter((s) => allowed.has(s.href)),
+    sections: g.sections.filter((s) => canOpenSection(allowed, s)),
   })).filter((g) => g.sections.length > 0);
   const needle = query.trim().toLowerCase();
+  const reachableEntry = (e: SettingsIndexEntry) => {
+    if (e.kind === "section") return canOpenSection(allowed, e.section);
+    if (e.kind === "page") {
+      const page = e.section.pages?.find((p) => p.href === e.href);
+      return page ? canOpenPage(allowed, e.section, page) : allowed.has(e.section.href);
+    }
+    return allowed.has(e.section.href);
+  };
   const matches: SettingsIndexEntry[] | null = needle
-    ? SETTINGS_INDEX.filter((e) => allowed.has(e.section.href) && e.haystack.includes(needle)).slice(0, MAX_RESULTS)
+    ? SETTINGS_INDEX.filter((e) => reachableEntry(e) && e.haystack.includes(needle))
+        .map((e) => (e.kind === "section" ? { ...e, href: sectionLanding(allowed, e.section) } : e))
+        .slice(0, MAX_RESULTS)
     : null;
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -92,7 +112,7 @@ export function SettingsNav({ reachable }: { reachable: string[] }) {
         <nav ref={listRef} aria-label="Settings sections" className="flex gap-1 overflow-x-auto sm:flex-col">
           {matches.map((m) =>
             m.kind === "section" ? (
-              <RailLink key={m.href} href={m.href} icon={m.section.icon} label={m.label} active={path === m.href} />
+              <RailLink key={m.href} href={m.href} icon={m.section.icon} label={m.label} active={path === m.section.href} />
             ) : (
               <Link
                 key={m.href}
@@ -122,7 +142,7 @@ export function SettingsNav({ reachable }: { reachable: string[] }) {
           <nav aria-label="Settings sections" className="flex gap-1 overflow-x-auto sm:hidden">
             {sections.map((s) => (
               <span key={s.href} className="shrink-0 whitespace-nowrap">
-                <RailLink href={s.href} icon={s.icon} label={s.label} active={path === s.href} />
+                <RailLink href={sectionLanding(allowed, s)} icon={s.icon} label={s.label} active={path === s.href} />
               </span>
             ))}
           </nav>
@@ -132,7 +152,7 @@ export function SettingsNav({ reachable }: { reachable: string[] }) {
               <div key={g.label} className="flex flex-col gap-0.5">
                 <RailGroupLabel>{g.label}</RailGroupLabel>
                 {g.sections.map((s) => (
-                  <RailLink key={s.href} href={s.href} icon={s.icon} label={s.label} active={path === s.href} />
+                  <RailLink key={s.href} href={sectionLanding(allowed, s)} icon={s.icon} label={s.label} active={path === s.href} />
                 ))}
               </div>
             ))}

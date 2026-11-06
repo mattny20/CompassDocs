@@ -329,6 +329,32 @@ export async function addTeamBusinessMinutes(teamId: number | null, from: Date |
   return addBusinessMinutes(from, minutes, await hoursForTeam(teamId));
 }
 
+/**
+ * A pause is ending (call inside the caller's transaction, before its
+ * UPDATE clears sla_paused_at): add the business time it lasted, in the
+ * ticket's team calendar, to hd_tickets.sla_paused_business_ms. A ticket
+ * whose earlier pauses were never tracked (NULL with wall time on record)
+ * stays NULL, so a re-time from creation estimates rather than undercounts
+ * (lib/helpdesk/sla-pause-schema). No-op when the ticket is not paused.
+ */
+export async function bankPausedBusiness(client: HdQueryable, ticketId: number, now: Date | number = Date.now()): Promise<void> {
+  const r = await hqOne<{ team_id: number | null; sla_paused_at: string | null }>(
+    "SELECT team_id, sla_paused_at FROM hd_tickets WHERE id = $1",
+    [ticketId],
+    client
+  );
+  if (!r?.sla_paused_at) return;
+  const end = typeof now === "number" ? now : now.getTime();
+  const minutes = businessMinutesBetween(Date.parse(r.sla_paused_at), end, await hoursForTeam(r.team_id, client));
+  await client.query(
+    `UPDATE hd_tickets
+        SET sla_paused_business_ms = CASE WHEN sla_paused_business_ms IS NULL AND sla_paused_ms > 0 THEN NULL
+                                          ELSE coalesce(sla_paused_business_ms, 0) + $2::bigint END
+      WHERE id = $1`,
+    [ticketId, Math.round(minutes * 60_000)]
+  );
+}
+
 /** Business minutes between two instants in the ticket's team calendar (reports, analytics). */
 export async function businessMinutesForTicket(ticket: Pick<HdTicketRow, "team_id">, a: Date | number, b: Date | number): Promise<number> {
   return businessMinutesBetween(a, b, await hoursForTeam(ticket.team_id ?? null));
@@ -390,7 +416,29 @@ export async function teamOpenState(teamId: number | null, now: Date | number = 
 type RetimeTicket = Pick<
   HdTicketRow,
   "id" | "team_id" | "priority" | "status" | "created_at" | "first_reply_due" | "resolve_due" | "first_replied_at" | "sla_paused_at" | "sla_paused_ms" | "sla_policy_id"
->;
+> & {
+  /** Business time spent paused (lib/helpdesk/sla-pause-schema); NULL or absent = not tracked. */
+  sla_paused_business_ms?: number | string | null;
+};
+
+/**
+ * The time a ticket's clocks spent paused, before `anchor`, in each kind of
+ * target: wall minutes (24/7 targets) and business minutes (business-hours
+ * targets). Business time is what bankPausedBusiness summed as each pause
+ * ended; a ticket paused before that was tracked (NULL with wall time on
+ * record) is estimated from its wall time at the share of business time
+ * in its life so far, never added as whole nights and weekends.
+ */
+function pausedMinutes(t: RetimeTicket, anchor: number, hours: HdBusinessHours): { wall: number; business: number } {
+  const wall = Math.max(0, Number(t.sla_paused_ms ?? 0)) / 60_000;
+  const banked = t.sla_paused_business_ms;
+  if (banked !== null && banked !== undefined && banked !== "") return { wall, business: Math.max(0, Number(banked)) / 60_000 };
+  if (wall <= 0) return { wall: 0, business: 0 };
+  const created = Date.parse(t.created_at);
+  const lifeWall = Math.max(1, (anchor - created) / 60_000);
+  const share = Math.min(1, businessMinutesBetween(created, anchor, hours) / lifeWall);
+  return { wall, business: wall * share };
+}
 
 interface ClockSide {
   hours: HdBusinessHours;
@@ -409,7 +457,8 @@ function retimeClock(
   due: string | null,
   which: "first_reply" | "resolve",
   anchor: number,
-  createdFrom: number,
+  created: number,
+  paused: { wall: number; business: number },
   old: ClockSide,
   neu: ClockSide
 ): { due: string | null; breached: boolean } {
@@ -421,7 +470,11 @@ function retimeClock(
     const left = policyMinutesBetween(anchor, Date.parse(due), old.policy, old.hours);
     used = Math.max(0, target(old.policy) - left);
   } else {
-    used = policyMinutesBetween(createdFrom, anchor, neu.policy, old.hours);
+    // From creation: the policy time since creation less the time paused,
+    // both in the target's own kind of time (1.19.1: the paused share was
+    // wall-clock before, which added whole nights to a business target).
+    const pausedPolicy = neu.policy.business_hours ? paused.business : paused.wall;
+    used = Math.max(0, policyMinutesBetween(created, anchor, neu.policy, old.hours) - pausedPolicy);
   }
   const remaining = target(neu.policy) - used;
   if (remaining <= 0) return { due: new Date(anchor).toISOString(), breached: true };
@@ -432,10 +485,11 @@ function retimeTicket(t: RetimeTicket, now: number, old: ClockSide, neu: ClockSi
   const paused = !!t.sla_paused_at && HD_PAUSED_STATUSES.includes(t.status);
   // A paused clock is measured to where it stopped; resume continues from there.
   const anchor = paused ? Date.parse(t.sla_paused_at!) : now;
-  const createdFrom = Date.parse(t.created_at) + Number(t.sla_paused_ms ?? 0);
+  const created = Date.parse(t.created_at);
+  const pausedTime = pausedMinutes(t, anchor, old.hours);
   const open = HD_OPEN_STATUSES.includes(t.status);
-  const fr = !t.first_replied_at && open ? retimeClock(t.first_reply_due, "first_reply", anchor, createdFrom, old, neu) : { due: t.first_reply_due, breached: false };
-  const rs = open ? retimeClock(t.resolve_due, "resolve", anchor, createdFrom, old, neu) : { due: t.resolve_due, breached: false };
+  const fr = !t.first_replied_at && open ? retimeClock(t.first_reply_due, "first_reply", anchor, created, pausedTime, old, neu) : { due: t.first_reply_due, breached: false };
+  const rs = open ? retimeClock(t.resolve_due, "resolve", anchor, created, pausedTime, old, neu) : { due: t.resolve_due, breached: false };
   return {
     first_reply_due: fr.due,
     resolve_due: rs.due,
@@ -596,7 +650,7 @@ async function recompute(scope: Scope, before: CalendarSnapshot | null, now = Da
       await client.query("SELECT pg_advisory_xact_lock($1)", [CALENDAR_RECOMPUTE_LOCK]);
       const rows = (
         await client.query<RetimeTicket>(
-          `SELECT id, team_id, priority, status, created_at, first_reply_due, resolve_due, first_replied_at, sla_paused_at, sla_paused_ms, sla_policy_id
+          `SELECT id, team_id, priority, status, created_at, first_reply_due, resolve_due, first_replied_at, sla_paused_at, sla_paused_ms, sla_paused_business_ms, sla_policy_id
              FROM hd_tickets
             WHERE id > $1 AND status IN ('new', 'open', 'pending', 'on_hold') AND sla_paused_at IS NULL
               AND (team_id = ANY($2::int[]) ${scope.noTeam ? "OR team_id IS NULL" : ""})

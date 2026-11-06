@@ -13,8 +13,10 @@ import { SectionEmpty } from "@/components/form";
 import type { HdTicketListRow } from "@/lib/helpdesk/types";
 import { VipChip } from "@/components/helpdesk/contacts/VipChip";
 import { AutomatedChip } from "../intake/AutomatedChip";
+import { OutsideCustomerChip } from "../OutsideCustomerChip";
 import { ContactHoverCard } from "@/components/helpdesk/contacts/ContactHoverCard";
 import { PRIORITY_DOT, compactDue, priorityLabel, slaInk, statusChip, ticketHref } from "../ui";
+import type { RowSelection } from "../merge/selection";
 
 export function TicketList({
   rows,
@@ -23,6 +25,7 @@ export function TicketList({
   qs,
   onRetry,
   title,
+  selection,
 }: {
   rows: HdTicketListRow[] | null;
   error: string;
@@ -30,6 +33,8 @@ export function TicketList({
   qs: string;
   onRetry: () => void;
   title: string;
+  /** Row checkboxes for the bulk bar (1.19.1, merge/selection); omitted without tickets.bulk or tickets.merge. */
+  selection?: RowSelection;
 }) {
   if (error && !rows) {
     return (
@@ -61,13 +66,18 @@ export function TicketList({
         // Agent O's contact cards: the requester is on the VIP list.
         const vip = t;
         return (
-          <li key={t.id} className="border-b border-slate-100">
+          <li key={t.id} className="relative border-b border-slate-100" data-number={t.number}>
+            {selection && <RowCheck t={t} selection={selection} />}
             <Link
               data-row
               href={ticketHref(t.number, qs)}
               aria-current={on ? "page" : undefined}
-              className={`relative block px-4 py-3 transition outline-offset-[-2px] ${
-                on ? "bg-compass-50 before:absolute before:inset-y-0 before:left-0 before:w-0.75 before:bg-compass-600" : "hover:bg-slate-50"
+              className={`relative block px-4 py-3 transition outline-offset-[-2px] ${selection ? "pl-11" : ""} ${
+                on
+                  ? "bg-compass-50 before:absolute before:inset-y-0 before:left-0 before:w-0.75 before:bg-compass-600"
+                  : selection?.has(t.number)
+                    ? "bg-compass-50/60 hover:bg-compass-50"
+                    : "hover:bg-slate-50"
               }`}
             >
               <span className="flex items-center gap-2">
@@ -82,6 +92,7 @@ export function TicketList({
                 <span className="flex min-w-0 items-center gap-1.5 truncate text-slate-500">
                   {vip.requester_vip && <VipChip inLink reason={vip.requester_vip_reason} />}
                   <AutomatedChip inLink ticket={t} />
+                  <OutsideCustomerChip inLink ticket={t} />
                   <ContactHoverCard ticket={t.number} userId={t.requester_id} name={t.requester_name} inLink className="truncate">
                     {t.requester_name}
                   </ContactHoverCard>
@@ -105,5 +116,19 @@ export function TicketList({
         );
       })}
     </ul>
+  );
+}
+
+/** A row's checkbox, beside (not inside) its link: a click selects, shift-click selects the range. */
+function RowCheck({ t, selection }: { t: HdTicketListRow; selection: RowSelection }) {
+  return (
+    <input
+      type="checkbox"
+      checked={selection.has(t.number)}
+      onChange={() => {}}
+      onClick={(e) => selection.toggle(t.number, e.shiftKey)}
+      aria-label={`Select #${t.number} ${t.subject}`}
+      className="absolute left-4 top-[2.15rem] z-10 h-4 w-4 cursor-pointer accent-compass-600 print:hidden"
+    />
   );
 }

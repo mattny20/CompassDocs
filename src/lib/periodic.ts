@@ -139,6 +139,16 @@ export const HELPDESK_SWEEPS: HelpdeskSweep[] = [
   { name: "hd_assignment", run: async (now) => (await import("./helpdesk/assignment/engine")).assignmentSweep(now) },
   // K (reports): scheduled report emails that are due.
   { name: "hd_report_schedules", run: async (now) => (await import("./helpdesk/analytics/schedules")).sendDueReportSchedules(now) },
+  // V4 (1.19.1 collision warnings): presence rows nobody refreshed for five minutes.
+  { name: "hd_presence", run: async (now) => (await import("./helpdesk/presence")).sweepPresence(now) },
+  // V8 (1.19.1 recurring tickets): open the schedules' due occurrences.
+  { name: "hd_recurring", run: async (now) => (await import("./helpdesk/recurring")).recurringSweep(now) },
+  // V6 (1.19.1 customer portal): spent links, expired sessions, contacts who never signed in.
+  { name: "hd_portal", run: async () => (await import("./helpdesk/portal")).sweepPortal() },
+  // V7 (1.19.1 import): run queued or stalled imports, delete finished or week-old upload files.
+  { name: "hd_import", run: async () => (await import("./helpdesk/import")).importSweep() },
+  // V5 (1.19.1 retention and privacy): once a night, close solved tickets, then anonymise or delete old closed ones.
+  { name: "hd_retention", run: async (now) => (await import("./helpdesk/retention")).retentionSweep(now) },
 ];
 
 export interface HelpdeskSweepResult {

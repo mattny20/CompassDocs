@@ -153,6 +153,8 @@ export const hdLinks = {
 
 export interface HelpdeskOutgoingMail {
   to: string;
+  /** Comma-separated: the people copied on the request (1.19.1, lib/helpdesk/ccs). */
+  cc?: string;
   from: string;
   replyTo?: string;
   subject: string;
@@ -192,6 +194,7 @@ async function smtpTransport(): Promise<{ send: HelpdeskTransport; from: string 
       await transport.sendMail({
         from: m.from,
         to: m.to,
+        cc: m.cc,
         replyTo: m.replyTo,
         subject: m.subject,
         text: m.text,
@@ -228,15 +231,17 @@ export interface HelpdeskThread {
 
 /**
  * Render one hd_* template and send it to one address, threaded on the
- * ticket when `thread` is given. Answers whether it was handed to SMTP;
- * never throws (a failure is logged).
+ * ticket when `thread` is given. `opts.cc` puts the people copied on the
+ * request on Cc (public replies only; never an internal-note notice).
+ * Answers whether it was handed to SMTP; never throws (a failure is logged).
  */
 export async function sendHelpdeskTemplate(
   to: string,
   templateKey: string,
   vars: Record<string, string>,
   thread?: HelpdeskThread | null,
-  origin?: string
+  origin?: string,
+  opts: { cc?: string[] } = {}
 ): Promise<boolean> {
   const address = to.trim();
   if (!address || !/^[^\s@<>]+@[^\s@<>]+$/.test(address)) return false;
@@ -256,13 +261,18 @@ export async function sendHelpdeskTemplate(
     v.thread_ref ??= "";
     // Links in vars are paths; the mail needs them absolute.
     for (const k of Object.keys(v)) if (/_url$/.test(k) && v[k].startsWith("/")) v[k] = `${base}${v[k]}`;
+    const cc = note
+      ? []
+      : [...new Set((opts.cc ?? []).map((a) => a.trim().toLowerCase()))].filter((a) => a !== address.toLowerCase() && /^[^\s@<>,;"]+@[^\s@<>,;"]+$/.test(a));
     // The team's own template variant (lib/email-parts), and the recipient:
     // a workspace user's name fills {{recipient_name}}; an outside address
-    // gets no "Manage your notifications" link (agent H2).
-    const rendered = await renderEmail(templateKey, v, base, {
-      scope: thread?.teamId ? `hd_team:${thread.teamId}` : null,
-      recipientEmail: address,
-    });
+    // gets no "Manage your notifications" link (agent H2). A mail with people
+    // on Cc is everyone's copy: no one's name in the greeting and no
+    // manage link (1.19.1).
+    const scope = thread?.teamId ? `hd_team:${thread.teamId}` : null;
+    const rendered = cc.length
+      ? await renderEmail(templateKey, v, base, { scope, manageLink: false })
+      : await renderEmail(templateKey, v, base, { scope, recipientEmail: address });
     let subject = rendered.subject.replace(/[\r\n]+/g, " ").replace(/\s{2,}/g, " ").trim();
     if (thread && token && !note && !subject.includes(`ref:${token}`)) subject = `${subject} ${threadRef(thread.number, token)}`;
     const mail: HelpdeskOutgoingMail = {
@@ -274,6 +284,7 @@ export async function sendHelpdeskTemplate(
       // Our own mail must never open a ticket when it bounces back in.
       headers: { "Auto-Submitted": "auto-generated", "X-CompassDocs-Helpdesk": "1" },
     };
+    if (cc.length) mail.cc = cc.slice(0, 50).join(", ");
     if (thread && token && note) {
       // An internal-note notice: grouped under the ticket's root, but no
       // Reply-To and an id of its own, so a reply to it is recognised and

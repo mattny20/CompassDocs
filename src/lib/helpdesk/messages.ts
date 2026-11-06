@@ -17,7 +17,7 @@ import "server-only";
 import { hq, hqOne, withTx } from "./db-core";
 import { afterMessageAdded } from "./events";
 import type { HdHookContext } from "./events";
-import { getTicketRow, TICKET_LIMITS, updateTicket } from "./tickets";
+import { assertNotMergedTx, getTicketRow, TICKET_LIMITS, updateTicket } from "./tickets";
 import type { HdAttachment, HdMessage, HdMessageKind, HdMessageVia, HdReviewState, HdStatus } from "./types";
 
 export const MESSAGE_LIMITS = { body: TICKET_LIMITS.body, page: 1000 } as const;
@@ -90,6 +90,8 @@ export async function addMessage(ticketId: number, input: AddMessageInput, ctx: 
   const res = await withTx(async (client) => {
     const t = await getTicketRow(ticketId, client, true);
     if (!t) return undefined;
+    // 1.19.1: re-checked under the lock a merge takes (HdTicketError 409, messageUnsent).
+    await assertNotMergedTx(client, t, { messageUnsent: true });
     const ins = await hq<HdMessage>(
       `INSERT INTO hd_messages (ticket_id, author_id, author_name, author_email, kind, body, via, attachments, email_message_id, review_state)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING ${MSG_COLS}`,

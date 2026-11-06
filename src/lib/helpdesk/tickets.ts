@@ -17,7 +17,7 @@ import type { HdQueryable } from "./db-core";
 import { afterTicketCreated, afterTicketUpdated } from "./events";
 import type { HdHookContext } from "./events";
 import { computeDues, dueLabel, nextDue, pausesSla, resumedDues, resumesSla, slaState } from "./sla";
-import { clockNotes, hoursForTeam, reprioritisedDues, slaPolicyForTeam, transferDues } from "./calendars";
+import { bankPausedBusiness, clockNotes, hoursForTeam, reprioritisedDues, slaPolicyForTeam, transferDues } from "./calendars";
 import { agentTeamIds, hasAgentAll } from "./access";
 import {
   HD_ACTIVE_RUN_STATES,
@@ -382,9 +382,28 @@ export async function createTicket(input: CreateTicketInput, ctx: HdHookContext 
 // --- Update ----------------------------------------------------------------------
 
 export class HdTicketError extends Error {
+  /** 1.19.1: set by assertNotMergedTx when addMessage refused a message before writing anything (lib/helpdesk/inbound retries it once). */
+  messageUnsent?: boolean;
   constructor(message: string, public status = 400) {
     super(message);
   }
+}
+
+/**
+ * 1.19.1: a merged ticket's conversation and status are read-only (as
+ * lib/helpdesk/merge mergedLock). Asked on the row locked inside
+ * addMessage's and updateTicket's transactions, so a reply or status change
+ * racing a merge is refused under the lock the merge takes. Throws
+ * HdTicketError(409) naming the kept ticket; `messageUnsent` (addMessage)
+ * marks it as thrown before the message was written.
+ */
+export async function assertNotMergedTx(client: HdQueryable, row: HdTicketRow, opts: { messageUnsent?: boolean } = {}): Promise<void> {
+  if (!row.merged_into) return;
+  const into = await hqOne<{ number: number }>("SELECT number FROM hd_tickets WHERE id = $1", [row.merged_into], client);
+  const n = into?.number;
+  const e = new HdTicketError(n ? `#${row.number} was merged into #${n}. Reply and change its status on #${n}.` : `#${row.number} was merged into another ticket.`, 409);
+  if (opts.messageUnsent) e.messageUnsent = true;
+  throw e;
 }
 
 /** Validate a PATCH body. Throws HdTicketError on bad input. */
@@ -428,6 +447,8 @@ export interface UpdateActor {
   id: number | null;
   name: string;
   role?: Role;
+  /** "mcp": the change came through the Claude connector; each timeline line ends "via Claude" (1.19.1). */
+  via?: "mcp";
 }
 
 /** May `userId` be assigned a ticket of `teamId`: active, and a member of that team (any team when none) or an agent_all holder. */
@@ -469,6 +490,7 @@ export async function updateTicket(
   const tx = await withTx(async (client) => {
     const before = await getTicketRow(ticketId, client, true);
     if (!before) return undefined;
+    if (patch.status !== undefined && patch.status !== before.status) await assertNotMergedTx(client, before);
     const sets: string[] = [];
     const params: unknown[] = [ticketId];
     const set = (col: string, v: unknown) => {
@@ -586,6 +608,8 @@ export async function updateTicket(
         const pausedAt = Date.parse(before.sla_paused_at);
         set("sla_paused_at", null);
         set("sla_paused_ms", Number(before.sla_paused_ms ?? 0) + Math.max(0, now.getTime() - pausedAt));
+        // 1.19.1: the pause in business time too (lib/helpdesk/calendars bankPausedBusiness).
+        await bankPausedBusiness(client, ticketId, now);
         if (HD_OPEN_STATUSES.includes(to)) {
           const policy = await slaPolicyForTeam(priority, teamId, client);
           if (policy) {
@@ -616,7 +640,7 @@ export async function updateTicket(
       await client.query(
         `INSERT INTO hd_messages (ticket_id, author_id, author_name, kind, body, via, created_at)
          VALUES ($1, $2, $3, $4, $5, 'system', $6)`,
-        [ticketId, actor.id, actor.name, l.kind, l.body, now]
+        [ticketId, actor.id, actor.name, l.kind, actor.via === "mcp" ? `${l.body} via Claude` : l.body, now]
       );
     }
     return { before, changed, assigneeChangedTo, solved };
@@ -642,7 +666,8 @@ export async function updateTicket(
 
 /** Delete a ticket (admin). Its messages, runs and approvals go with it. */
 export async function deleteTicket(ticketId: number): Promise<HdTicketRow | undefined> {
-  return hqOne<HdTicketRow>("DELETE FROM hd_tickets WHERE id = $1 RETURNING *", [ticketId]);
+  // Never a ticket on legal hold (1.19.1, lib/helpdesk/retention; the route answers 409 first).
+  return hqOne<HdTicketRow>("DELETE FROM hd_tickets WHERE id = $1 AND legal_hold = 0 RETURNING *", [ticketId]);
 }
 
 // --- The desk's queues -----------------------------------------------------------
@@ -691,6 +716,8 @@ export interface TicketListFilters {
   sort?: HdTicketSort;
   limit?: number;
   offset?: number;
+  /** Only the total, no rows (saved views' counts, 1.19.1). */
+  countOnly?: boolean;
 }
 
 const OPEN_SQL = "t.status IN ('new', 'open', 'pending', 'on_hold')";
@@ -726,7 +753,8 @@ function viewSql(view: HdView, userId: number, params: unknown[], tz: string): s
       return "t.status IN ('pending', 'on_hold')";
     case "solved_week":
       params.push(tz);
-      return `(t.status IN ('solved', 'closed') AND t.solved_at >= (date_trunc('week', now() AT TIME ZONE $${params.length}) AT TIME ZONE $${params.length}))`;
+      // 1.19.1: a ticket merged into another was closed, not solved.
+      return `(t.status IN ('solved', 'closed') AND t.merged_into IS NULL AND t.solved_at >= (date_trunc('week', now() AT TIME ZONE $${params.length}) AT TIME ZONE $${params.length}))`;
   }
 }
 
@@ -795,6 +823,8 @@ export async function listTickets(
   day("t.created_at", f.created_to, true);
   day("t.solved_at", f.solved_from, false);
   day("t.solved_at", f.solved_to, true);
+  // 1.19.1: a merged ticket was closed, not solved (the reports leave it out, so their drill-downs do too).
+  if (f.solved_from || f.solved_to) where.push("t.merged_into IS NULL");
   if (f.breached === "ever") where.push("(t.first_reply_breached_at IS NOT NULL OR t.resolve_breached_at IS NOT NULL)");
   if (f.breached === "now") where.push(OVERDUE_SQL);
   if (f.integration_id === "none") where.push("t.integration_id IS NULL");
@@ -846,6 +876,7 @@ export async function listTickets(
   const offset = Math.max(0, f.offset ?? 0);
   const whereSql = where.join(" AND ");
   const total = (await hqOne<{ n: number }>(`SELECT count(*)::int AS n FROM hd_tickets t WHERE ${whereSql}`, params))?.n ?? 0;
+  if (f.countOnly) return { rows: [], total }; // saved views' counts (1.19.1, lib/helpdesk/saved-views)
   params.push(limit, offset);
   const rows = await hq<JoinedRow>(
     `${TICKET_SELECT} WHERE ${whereSql} ORDER BY ${SORT_SQL[f.sort ?? "updated"]} LIMIT $${params.length - 1} OFFSET $${params.length}`,
@@ -934,9 +965,13 @@ export async function countViews(user: { id: number; role: Role }): Promise<HdCo
 /** A requester's own requests (not workflow task tickets), newest activity first. */
 export async function listMyRequests(
   userId: number,
-  opts: { status?: "open" | "solved"; limit?: number } = {}
+  opts: { status?: "open" | "solved"; limit?: number; includeCopied?: boolean } = {}
 ): Promise<HdRequestSummary[]> {
-  const where = ["t.requester_id = $1", "t.parent_ticket_id IS NULL"];
+  const where = [
+    // includeCopied (1.19.1, agent V3): requests the person is a CC of too.
+    opts.includeCopied ? "(t.requester_id = $1 OR t.id IN (SELECT c.ticket_id FROM hd_ticket_ccs c WHERE c.user_id = $1))" : "t.requester_id = $1",
+    "t.parent_ticket_id IS NULL",
+  ];
   if (opts.status === "open") where.push(OPEN_SQL);
   if (opts.status === "solved") where.push("t.status IN ('solved', 'closed')");
   const limit = Math.min(Math.max(1, opts.limit ?? 50), 200);

@@ -273,13 +273,42 @@ describe("default matrix", () => {
     for (const c of ["tickets.reply_needs_review", "tickets.assign_team", "tickets.delete", "tickets.export", "replies.review"] as HdCap[]) assert.ok(!has("agent", c), c);
   });
 
-  test("merge and bulk are not capabilities in 1.19.0; a stored override naming them is harmless", () => {
-    assert.equal(shared.isHdCap("tickets.merge"), false);
-    assert.equal(shared.isHdCap("tickets.bulk"), false);
-    assert.ok(!shared.HD_CAP_KEYS.some((k) => /merge|bulk/.test(k)), "not in the catalog the Roles page shows");
-    const m = shared.resolveMatrix({ agent: [...shared.HD_DEFAULT_MATRIX.agent, "tickets.merge", "tickets.bulk"] });
-    assert.deepEqual(m.agent, shared.HD_DEFAULT_MATRIX.agent, "dropped on read");
-    assert.ok(!m.admin.some((k) => /merge|bulk/.test(k)));
+  test("1.19.1: merge and bulk are team-scoped capabilities for Agent and up, not Newbie", () => {
+    assert.equal(shared.isHdCap("tickets.merge"), true);
+    assert.equal(shared.isHdCap("tickets.bulk"), true);
+    for (const r of ["agent", "team_lead", "manager", "admin"] as const) {
+      assert.ok(has(r, "tickets.merge") && has(r, "tickets.bulk"), r);
+    }
+    assert.ok(!has("newbie", "tickets.merge") && !has("newbie", "tickets.bulk"));
+    assert.equal(shared.HD_CAP_SCOPE["tickets.merge"], "tickets.view_all");
+    assert.equal(shared.HD_CAP_SCOPE["tickets.bulk"], "tickets.view_all");
+  });
+
+  test("1.19.1: a role customised in 1.19.0 gets the new capabilities' defaults; one saved since keeps its choice", () => {
+    const old = shared.HD_DEFAULT_MATRIX.agent.filter((c) => c !== "tickets.merge" && c !== "tickets.bulk" && c !== "macros.use");
+    const m = shared.resolveMatrix({ agent: old, newbie: shared.HD_DEFAULT_MATRIX.newbie });
+    assert.ok(m.agent.includes("tickets.merge") && m.agent.includes("tickets.bulk"), "added on read");
+    assert.ok(!m.agent.includes("macros.use"), "the 1.19.0 choice stands");
+    assert.ok(!m.newbie.includes("tickets.merge"), "only where the role's default holds it");
+    const since = shared.resolveMatrix({ agent: old, v: shared.HD_MATRIX_VERSION });
+    assert.ok(!since.agent.includes("tickets.merge") && !since.agent.includes("tickets.bulk"), "removed on purpose since");
+  });
+
+  test("1.19.1 review: the upgrade lifts Merge and Bulk edit only onto roles that still hold what they build on", () => {
+    // Agent customised in 1.19.0 without Change status: merging closes a ticket, so no Merge.
+    const noStatus = shared.HD_DEFAULT_MATRIX.agent.filter((c) => c !== "tickets.merge" && c !== "tickets.bulk" && c !== "tickets.change_status");
+    const m = shared.resolveMatrix({ agent: noStatus });
+    assert.ok(!m.agent.includes("tickets.merge"), "no Merge without Change status");
+    assert.ok(m.agent.includes("tickets.bulk"), "Bulk edit: it still changes priority and team, each checked on its own");
+    // A role that changes no field at all gets neither.
+    const readOnly = shared.HD_DEFAULT_MATRIX.newbie.filter((c) => c !== "tickets.assign_self");
+    const t = shared.resolveMatrix({ team_lead: readOnly });
+    assert.ok(!t.team_lead.includes("tickets.merge") && !t.team_lead.includes("tickets.bulk"));
+    // Every later read (a reboot, another instance) answers the same, and a save keeps it off for good.
+    assert.deepEqual(shared.resolveMatrix({ agent: noStatus }).agent, m.agent);
+    const saved = shared.resolveMatrix({ ...shared.toOverrides(m), v: shared.HD_MATRIX_VERSION });
+    assert.deepEqual(saved.agent, m.agent);
+    assert.ok(!saved.agent.includes("tickets.merge"));
   });
 
   test("Team lead: agent + assign in team, review, team macros and reports, people in team, SLA override", () => {
@@ -312,7 +341,7 @@ describe("default matrix", () => {
   });
 
   test("Admin: every capability; assigns any role", () => {
-    assert.deepEqual(shared.HD_DEFAULT_MATRIX.admin, shared.HD_CAP_KEYS);
+    assert.deepEqual(shared.HD_DEFAULT_MATRIX.admin, shared.HD_CAP_KEYS.filter((c) => c !== "tickets.reply_needs_review"));
     assert.deepEqual(shared.assignableRolesFor("admin", shared.HD_DEFAULT_MATRIX.admin), [...shared.HD_ROLES]);
     assert.deepEqual(shared.assignableRolesFor("team_lead", shared.HD_DEFAULT_MATRIX.team_lead), ["newbie", "agent"]);
     assert.deepEqual(shared.assignableRolesFor("agent", shared.HD_DEFAULT_MATRIX.agent), []);
@@ -321,7 +350,7 @@ describe("default matrix", () => {
   test("every default holds the invariants", () => {
     for (const r of shared.HD_ROLES) {
       const caps = shared.HD_DEFAULT_MATRIX[r];
-      assert.ok(!(caps.includes("tickets.reply_public") && caps.includes("tickets.reply_needs_review")) || r === "admin", r);
+      assert.ok(!(caps.includes("tickets.reply_public") && caps.includes("tickets.reply_needs_review")), r);
       if (shared.HD_ROLE_RANK[r] < shared.HD_ROLE_RANK.manager) {
         for (const c of shared.HD_MANAGER_ONLY_CAPS) assert.ok(!caps.includes(c), `${r} ${c}`);
       }
@@ -338,7 +367,7 @@ describe("matrix invariants (checkMatrix, resolveMatrix)", () => {
     const r = shared.checkMatrix({ admin: [] }, D, adminEd);
     assert.ok(r.ok);
     assert.deepEqual(r.ok && r.changed, []);
-    assert.deepEqual(shared.resolveMatrix({ admin: ["tickets.view_team"] }).admin, shared.HD_CAP_KEYS);
+    assert.deepEqual(shared.resolveMatrix({ admin: ["tickets.view_team"] }).admin, shared.HD_CAP_KEYS.filter((c) => c !== "tickets.reply_needs_review"));
   });
 
   test("roles.manage and agents.assign_roles stay with Managers", () => {
@@ -352,6 +381,25 @@ describe("matrix invariants (checkMatrix, resolveMatrix)", () => {
     const r = shared.checkMatrix({ newbie: [...D.newbie, "tickets.reply_public"] }, D, adminEd);
     assert.equal(r.ok, false);
     assert.match(!r.ok ? r.error : "", /can't both be on/);
+  });
+
+  // 1.19.1 integration: Admin no longer holds "Reply after review" itself, yet must still be able to give it.
+  test("an Admin (as the matrix really has it) and a Manager can switch a role between direct replies and replies after review", () => {
+    const realAdmin = { role: "admin" as HdRole, caps: D.admin };
+    assert.ok(!D.admin.includes("tickets.reply_needs_review"));
+    assert.equal(shared.cellLockedReason("newbie", "tickets.reply_needs_review", "admin", D.admin), null);
+    assert.equal(shared.cellLockedReason("newbie", "tickets.reply_public", "admin", D.admin), null);
+    assert.match(shared.cellLockedReason("admin", "tickets.reply_needs_review", "admin", D.admin) ?? "", /never held for review/);
+    const toPublic = shared.checkMatrix({ newbie: [...D.newbie.filter((c) => c !== "tickets.reply_needs_review"), "tickets.reply_public"] }, D, realAdmin);
+    assert.ok(toPublic.ok, !toPublic.ok ? toPublic.error : "");
+    const agentHeld = shared.checkMatrix({ agent: [...D.agent.filter((c) => c !== "tickets.reply_public"), "tickets.reply_needs_review"] }, D, realAdmin);
+    assert.ok(agentHeld.ok, !agentHeld.ok ? agentHeld.error : "");
+    // A Manager holds direct replies, so may hand out the held form too.
+    assert.equal(shared.cellLockedReason("newbie", "tickets.reply_needs_review", "manager", managerEd.caps), null);
+    assert.ok(shared.checkMatrix({ agent: [...D.agent.filter((c) => c !== "tickets.reply_public"), "tickets.reply_needs_review"] }, D, managerEd).ok);
+    // Holding neither half grants neither.
+    const noReplies = D.team_lead.filter((c) => c !== "tickets.reply_public" && c !== "tickets.reply_needs_review");
+    assert.notEqual(shared.cellLockedReason("newbie", "tickets.reply_needs_review", "team_lead", noReplies), null);
   });
 
   test("nobody grants or removes a capability they don't hold, or changes a role at or above their own", () => {
@@ -685,7 +733,10 @@ describe("editing the matrix", () => {
     const r = await call(rolesRoute.GET, req("/admin/roles", P.admin.session));
     assert.equal(r.status, 200);
     assert.deepEqual(r.body.matrix, D);
-    assert.equal(r.body.locks.admin["tickets.view_team"], "Admin always has every capability.");
+    assert.equal(r.body.locks.admin["tickets.view_team"], "Admin always has this capability.");
+    assert.equal(r.body.locks.admin["tickets.reply_needs_review"], "Admin's replies always go out directly; they are never held for review.");
+    assert.ok(!r.body.matrix.admin.includes("tickets.reply_needs_review"), "the copy is true: Admin lacks Reply after review");
+    assert.match(shared.columnLockedReason("admin", "admin") ?? "", /every capability except Reply after review/);
     assert.equal(r.body.locks.team_lead["roles.manage"], "Only Managers and Admins can hold this.");
     assert.equal(r.body.locks.agent["tickets.export"], null);
   });
@@ -700,7 +751,7 @@ describe("editing the matrix", () => {
     assert.equal((await put(P.admin, { newbie: [...D.newbie, "tickets.reply_public"] })).status, 400);
     const adminCol = await put(P.admin, { admin: [] });
     assert.equal(adminCol.status, 200);
-    assert.deepEqual(adminCol.body.matrix.admin, shared.HD_CAP_KEYS);
+    assert.deepEqual(adminCol.body.matrix.admin, shared.HD_CAP_KEYS.filter((c) => c !== "tickets.reply_needs_review"));
   });
 
   test("a manager given roles.manage edits roles below them, only with capabilities they hold", async () => {

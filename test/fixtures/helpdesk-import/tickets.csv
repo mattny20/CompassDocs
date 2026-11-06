@@ -1,0 +1,4 @@
+﻿"ID","Title","Body","State","Urgency","Team","Assignee Email","Requester","Requester Email","Raised On","Resolved","Labels"
+"GEN-1","Laptop will not boot","<p>Black screen.</p><script>steal()</script>","Waiting on customer","Critical","Desktop Support","alex.agent@acme-example.com","Priya Shah","priya.shah@acme-example.com","04/11/2026 09:00","","hardware"
+"GEN-2","New starter account","Please create an account for Jo.","Resolved","Normal","Desktop Support","","Sam Outside","sam@outside-example.org","05/11/2026 13:30","06/11/2026 10:00",""
+"GEN-3","","","Open","Low","Desktop Support","","","","05/11/2026 14:00","",""

@@ -353,7 +353,7 @@ export function WorkflowBuilder({ slug }: { slug: string }) {
                           kind={`Task · ${names.team(t.team_id)}`}
                           title={t.title}
                           sub={stepSummary(t, names, form).replace(/^.*?(Due|$)/, "$1") || "No due date"}
-                          badges={<StepBadges step={t} form={form} def={def} teams={teamOptions} className="mt-1.5" />}
+                          badges={<StepBadges step={t} form={form} def={def} teams={teamOptions} rtTeamId={trigger?.team_id ?? null} className="mt-1.5" />}
                           menu={
                             <StepMenu
                               label={t.title}
@@ -381,8 +381,8 @@ export function WorkflowBuilder({ slug }: { slug: string }) {
                   tile={<span className={s.kind === "finish" ? TILE_FINISH : TILE_ACCENT}>{KIND_ICON[s.kind]}</span>}
                   kind={s.kind === "task" ? `Task · ${names.team(s.team_id)}` : KIND_LABEL[s.kind]}
                   title={s.title || KIND_LABEL[s.kind]}
-                  sub={stepSummary(s, names, form)}
-                  badges={<StepBadges step={s} form={form} def={def} teams={teamOptions} className="mt-1.5" />}
+                  sub={stepSummary(s, names, form, { rtTeamId: trigger?.team_id ?? null })}
+                  badges={<StepBadges step={s} form={form} def={def} teams={teamOptions} rtTeamId={trigger?.team_id ?? null} className="mt-1.5" />}
                   menu={
                     <StepMenu
                       label={s.title || KIND_LABEL[s.kind]}

@@ -16,6 +16,8 @@
 //   CSAT                  ratings given in the range: % good (4 or 5),
 //                         average, responses
 //   series                one point per day, per ISO week past 92 days
+//   merged (1.19.1)       a ticket merged into another counts as created,
+//                         never as solved, and has no resolution target
 //   by team / agent /     the same counts split; an agent is the ticket's
 //   category              assignee
 //
@@ -118,6 +120,8 @@ export interface Row {
   sla_paused_ms: number;
   csat_score: number | null;
   csat_at: string | null;
+  /** 1.19.1: set on a ticket merged into another; it closed, it was never solved. */
+  merged_into?: number | null;
 }
 
 /** Business minutes from created to solved, less the paused share (pauses are stored as wall-clock ms). */
@@ -149,7 +153,8 @@ function slaOutcome(r: Row, lo: number, hi: number, now: number): boolean | null
     }
   };
   check(r.first_reply_due, r.first_replied_at);
-  check(r.resolve_due, r.solved_at);
+  // A merged ticket's resolution target is not met or missed by the merge (its work goes on in the other ticket).
+  if (r.merged_into == null) check(r.resolve_due, r.solved_at);
   return any ? met : null;
 }
 
@@ -205,7 +210,7 @@ export async function reportSummary(range: ReportRange, opts: { hours?: HdBusine
   const rows = await hq<Row>(
     `SELECT t.id, t.team_id, tm.name AS team_name, t.assignee_id, COALESCE(NULLIF(u.name, ''), u.username) AS assignee_name,
             t.category, t.created_at, t.first_replied_at, t.solved_at, t.first_reply_due, t.resolve_due,
-            t.sla_paused_ms, t.csat_score, t.csat_at
+            t.sla_paused_ms, t.csat_score, t.csat_at, t.merged_into
        FROM hd_tickets t
        LEFT JOIN hd_teams tm ON tm.id = t.team_id
        LEFT JOIN users u ON u.id = t.assignee_id
@@ -229,7 +234,8 @@ export async function reportSummary(range: ReportRange, opts: { hours?: HdBusine
   for (const r of rows) rowHours.set(r.id, await hoursFor(r.team_id));
   const hoursOf = (r: Row) => rowHours.get(r.id) ?? hours;
   const created = rows.filter((r) => inRange(r.created_at));
-  const solved = rows.filter((r) => inRange(r.solved_at));
+  // 1.19.1: a ticket merged into another closed without being solved, so it never counts as solved.
+  const solved = rows.filter((r) => r.merged_into == null && inRange(r.solved_at));
   const firstReplyMins = (list: Row[]) =>
     list.filter((r) => r.first_replied_at).map((r) => businessMinutesBetween(Date.parse(r.created_at), Date.parse(r.first_replied_at!), hoursOf(r)));
   const slaList = rows.map((r) => ({ r, met: slaOutcome(r, lo, hi, now) })).filter((x) => x.met !== null);

@@ -19,6 +19,11 @@ import {
   UsersRound,
   Zap,
   Bot,
+  Repeat,
+  Upload,
+  Globe,
+  Link,
+  Shield,
   type LucideIcon,
 } from "lucide-react";
 
@@ -38,6 +43,7 @@ const NEED: Record<string, string[]> = {
   "/desk/settings/email": ["channels.manage"],
   "/desk/settings/email-templates": ["templates.manage"],
   "/desk/settings/automations": ["automations.manage"],
+  "/desk/settings/recurring": ["settings.manage", "agents.manage_team"],
   "/desk/settings/macros": ["macros.manage_all", "macros.manage_team", "macros.manage_personal"],
   "/desk/settings/csat": ["csat.manage"],
   "/desk/settings/assignment": ["agents.manage_team", "automations.manage"],
@@ -45,6 +51,12 @@ const NEED: Record<string, string[]> = {
   "/desk/settings/integrations": ["settings.manage", "channels.manage"],
   "/desk/settings/agents": ["agents.manage_team", "agents.assign_roles"],
   "/desk/settings/roles": ["roles.manage"],
+  "/desk/settings/claude": ["settings.manage"],
+  "/desk/settings/portal": ["settings.manage"],
+  "/desk/settings/import": ["settings.manage"],
+  // Shortcut defaults and retention (1.19.1, agent V5).
+  "/desk/settings/shortcuts": ["settings.manage"],
+  "/desk/settings/retention": ["settings.manage"],
 };
 
 const HELPDESK: SettingsNavItem[] = [
@@ -59,8 +71,14 @@ const HELPDESK: SettingsNavItem[] = [
   { href: "/desk/settings/assignment", label: "Assignment", icon: Shuffle },
   { href: "/desk/settings/contact-cards", label: "Contact cards", icon: Contact },
   { href: "/desk/settings/automations", label: "Automations", icon: Bot },
+  { href: "/desk/settings/recurring", label: "Recurring tickets", icon: Repeat },
+  { href: "/desk/settings/shortcuts", label: "Shortcuts", icon: Link },
+  { href: "/desk/settings/portal", label: "Customer portal", icon: Globe },
   { href: "/desk/settings/macros", label: "Macros", icon: Zap },
   { href: "/desk/settings/csat", label: "Satisfaction", icon: Star },
+  { href: "/desk/settings/import", label: "Import", icon: Upload },
+  { href: "/desk/settings/retention", label: "Retention and privacy", icon: Shield },
+  { href: "/desk/settings/claude", label: "Claude connector", icon: Bot },
 ];
 const PEOPLE: SettingsNavItem[] = [
   { href: "/desk/settings/agents", label: "Agents", icon: UsersRound },

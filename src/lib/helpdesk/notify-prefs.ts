@@ -71,6 +71,7 @@ export async function saveNotifyPrefs(userId: number, patch: unknown, now = new 
     preview?: HdNotifyPrefs["preview"];
     sound?: boolean;
     pause?: HdPauseRequest;
+    auto_follow?: boolean;
   };
   const raw = await storedPrefs(userId);
   const next: HdNotifyPrefs = resolvePrefs(raw);
@@ -94,6 +95,7 @@ export async function saveNotifyPrefs(userId: number, patch: unknown, now = new 
   if (p.quiet) Object.assign(next.quiet, p.quiet);
   if (p.preview) next.preview = p.preview;
   if (p.sound !== undefined) next.sound = p.sound;
+  if (p.auto_follow !== undefined) next.auto_follow = p.auto_follow;
   if (p.pause) next.pause = pauseFor(p.pause, now, await userTimeZone(userId));
   const resolved = resolvePrefs(next);
   const toStore = { ...resolved, matrix: sparse };
@@ -250,6 +252,7 @@ const PRIVATE_TITLE: Record<HdNotifyEvent, (n: string) => string> = {
   task_assigned: (n) => `New workflow task ${n}`,
   workflow_blocked: (n) => `Workflow stopped on ${n}`,
   reopened: (n) => `Ticket ${n} reopened`,
+  followed_update: (n) => `Update on ${n}, which you follow`,
   review_requested: (n) => `Reply on ${n} waits for review`,
   review_returned: (n) => `Your reply on ${n} was sent back`,
   sla_warning: (n) => `${n} is close to its SLA target`,

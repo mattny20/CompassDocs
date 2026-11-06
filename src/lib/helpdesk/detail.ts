@@ -143,6 +143,8 @@ export async function ticketDetail(user: { id: number; role: Role }, t: HdTicket
     can_work: canWork,
     clock_note,
     sla_target_note,
+    // Merged into / merged in, and "from #1051" on moved messages (1.19.1, lib/helpdesk/merge).
+    merge: await import("./merge").then((m) => m.mergeInfo(t.id)).catch(() => undefined),
   };
 }
 
@@ -153,7 +155,7 @@ export async function ticketDetail(user: { id: number; role: Role }, t: HdTicket
 export async function requestDetail(
   user: { id: number },
   t: HdTicket,
-  relation: "requester" | "approver" | "agent"
+  relation: "requester" | "approver" | "agent" | "cc"
 ): Promise<HdRequestDetail> {
   const [messages, form, workflow, settings] = await Promise.all([
     listMessages(t.id, { includeInternal: false }),
@@ -185,10 +187,19 @@ export async function requestDetail(
     answers,
     workflow,
     csat_comment: isRequester ? t.csat_comment : "",
-    can_reply: isRequester && t.status !== "closed",
+    // A CC (1.19.1, lib/helpdesk/ccs) replies in public as the requester does.
+    can_reply: (isRequester || (await isCcOfRequest(user.id, t.id, relation))) && t.status !== "closed",
     can_rate: isRequester && settings.csat_enabled && (t.status === "solved" || t.status === "closed") && t.csat_score === null,
     my_approval: myApproval,
   };
+}
+
+/** The caller is copied on the request (agent V3's CCs) and does not work it (they reply from the desk). */
+async function isCcOfRequest(userId: number, ticketId: number, relation: string): Promise<boolean> {
+  if (relation === "cc") return true;
+  if (relation === "agent") return false;
+  const { isCcOf } = await import("./ccs");
+  return isCcOf(userId, ticketId);
 }
 
 /** The ticket ids a requester's request maps to by number (helper for routes). */

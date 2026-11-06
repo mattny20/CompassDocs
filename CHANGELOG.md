@@ -4,6 +4,201 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.19.1] - 2026-11-06
+
+The helpdesk grows up. Claude can work in the helpdesk through the Claude
+connector, for requesters, agents and admins, but only ever drafts: a person
+sends every reply and decides every approval. Agents merge duplicates and
+edit tickets in bulk, copy people in, follow tickets, see who else is on a
+ticket, and save their own views. Outside customers get a portal of their
+own. Tickets come in from Zoho Desk or CSV, open themselves on a schedule,
+and carry the time spent on them. Workflows count business days, and the
+helpdesk gains retention, legal hold and a personal data export.
+
+### Added
+- **Claude connector: helpdesk tools.** For requesters: what you can ask
+  for, articles that may answer you first, raise and follow your requests,
+  reply on your own, and approvals waiting for you. For agents: the queue,
+  the full ticket, internal notes, reply drafts, ticket updates, summaries
+  and report numbers. For admins: drafts of workflows, request types and
+  macros. Claude acts as the person, with exactly their roles and team
+  scope.
+- **Claude never sends a reply, decides an approval or publishes.** Replies
+  are drafts an agent sends from the desk, approvals return a link to decide
+  in the app, and workflows, request types and macros are saved as drafts.
+- **Desk: Draft from Claude** above the composer. **Use as reply** moves it
+  into the reply box, where the agent edits and sends it under the usual
+  rules (a newbie's reply still waits for review); **Discard** removes it.
+  Requesters never see drafts.
+- **Desk settings → Claude connector:** read only, notes and drafts (the
+  default), or also update tickets, with the recent activity made through
+  Claude. Notes, drafts and ticket changes made through Claude say "via
+  Claude" on the timeline, and each write is in the audit log.
+- **Merge tickets.** Select two or more in the queue, or use a ticket's
+  menu, and pick the ticket to keep: it keeps its number, reply targets and
+  owner. The others close as "Merged into #1049", and their messages (with
+  their times, marked "from #1051"), attachments, CCs, followers and tags
+  move across. Their requesters become CCs and can be told by email, and
+  time entries and running timers move across too. Tickets in a running
+  workflow are refused with the reason. An email reply on a merged ticket's
+  thread lands on the ticket it was merged into, even one that arrives while
+  the merge is happening.
+- **Bulk edits.** Tick rows (shift-click for a range, `x` for the focused
+  row) to change the status, priority, team, owner or tags of up to 200
+  tickets at once. Each ticket is checked on its own with the same rules as
+  editing it, and any skipped are listed with the reason.
+- **CCs.** Requesters copy people from the directory onto a request (and
+  outside addresses when outside senders are on); agents add them from the
+  desk. CCs read the public conversation, reply, and get the public replies
+  by bell and email, never internal notes. Outside CCs are mailed only while
+  outside senders are on, and blocked portal customers are never copied.
+  Requests you are copied on show in **My requests**. Up to 20 per request.
+- **CCs by email.** Colleagues on the Cc line of a new request become CCs,
+  and a CC's reply joins the ticket instead of opening a new one (verified
+  senders only). Desk replies go to the requester with the CCs on Cc, as one
+  shared copy with no personal greeting. An agent who is also a CC, or a CC
+  who follows, gets one notice per reply. The reply tab reads "Reply to
+  Daniel + 2 CC", and contact cards list CCs.
+- **Follow a ticket** to hear of new replies, notes and status changes
+  ("Tickets I follow" in Desk settings → Notifications). Agents follow the
+  tickets they reply to unless they turn off **Follow tickets I reply to**;
+  an unfollow sticks until you press Follow again. Followers hear of a
+  newbie's reply once a lead approves it.
+- **See who else is on a ticket.** "Sam Lee is viewing" or "is replying", or
+  "Sam and 2 others", under the ticket's subject. If someone replies while
+  you type, **Send** warns you first and shows their message: keep editing,
+  discard yours or send anyway. Macros that send a reply warn too.
+- **Saved views.** Filter any list (the new **Filter** dialog: contains,
+  status, priority, team, owner, tag and how recently a ticket was created)
+  and save it for yourself or for a team. Each view sits under **Views**
+  with its own count. Team leads create, change and delete their team's
+  views.
+- **Business days in workflows.** Wait steps, task due dates and approval
+  reminders can count business days or hours in a team's calendar, skipping
+  weekends and holidays. Calendar time stays the default, so existing
+  workflows and runs on their way are unchanged. A Wait step can also end a
+  number of days before or after a date in the form. The builder shows a
+  worked example from the team's calendar, and **Test run** lists the
+  holidays it skipped.
+- **Desk settings → Shortcuts** picks the request type each shortcut opens
+  (report a problem with a page, ask about a policy, request access, report
+  a broken link), or hides it.
+- **Desk settings → Retention and privacy** can close solved tickets after a
+  set number of days, then anonymise or delete closed tickets after a
+  retention period. Each rule has its own switch and both are off until an
+  admin turns them on, so nothing changes on upgrade. **Preview the next
+  run** lists every ticket it would change, and switching anonymising on
+  asks first when tickets are due.
+- **Legal hold** keeps a ticket from being closed, anonymised, deleted, or
+  merged into a ticket that isn't on hold. Removing an account anonymises
+  that person's tickets, except those on hold, in the same step as the
+  removal, so a removal that fails changes nothing. A removed person's CC
+  record kept on a held ticket is never mailed or treated as a CC.
+- **Settings → Users: Personal data** downloads a person's helpdesk
+  requests, answers and public conversation as a JSON file, for people who
+  may delete users. The download is audited.
+- **Customer portal** for people outside your organisation, at `/support`.
+  They sign in with a one-time link sent to their email (it works once, for
+  15 minutes); no account needed. A customer sees only their own requests
+  and the public conversation, with agents by first name and team: never
+  internal notes, replies waiting for review, your directory or CompassDocs.
+- **Desk settings → Customer portal:** turn it on, choose the request types
+  customers can raise and the team each goes to, anyone with an email or
+  approved domains only, the portal's name and logo, limits per address,
+  blocked words and domains, and block or unblock customers. Request types
+  that need your directory (a person field, a manager approval, a space
+  grant, a directory condition or route) can't be offered. Customers hear
+  about their request, replies and solving by email, with a link back, and
+  can reply by email. Portal tickets carry an **Outside customer** chip, and
+  Reports show Customer portal as a channel of its own.
+- **Import from Zoho Desk or CSV** (Desk settings → Import): upload a Zoho
+  Desk export (.zip) or a CSV file, map departments, statuses, priorities
+  and agents, check a dry run that counts what will be created, updated,
+  matched and skipped (with every skipped row and its reason), then import
+  in the background. Stop and resume at any time.
+- **Imports are safe to run again.** Tickets keep their source id and are
+  updated, not duplicated, and each shows its "Zoho #" number. Original
+  created and solved times and message authors are kept. No email, notice,
+  assignment, rule or workflow runs. Open tickets start their reply targets
+  at import time; closed tickets get none. HTML is made safe, images become
+  links, and attachments follow the usual type and size limits.
+- **Import: name where a CSV comes from.** Tickets are kept apart per
+  source, so two systems' ids never overwrite each other; import again under
+  the same name to update.
+- **Recurring tickets** (Desk settings → Recurring tickets). Schedules per
+  team open a ticket daily, weekly, on the nth weekday or a day of the
+  month, in chosen months, or every N days or weeks, at a set time in the
+  team's time zone. Runs open on time in every time zone. Holidays move a
+  run to the next working day, skip it, or are ignored, and the editor
+  previews the next three dates. Recurring tickets go through the team's
+  assignment rules and automations like any new ticket; **Open one now**
+  creates one at once.
+- **A merged ticket is read-only,** with a link to the ticket it joined:
+  replies, notes and status changes go on the kept ticket, and reports no
+  longer count it as solved.
+- **Time tracking.** A Time card on each ticket with a timer (one per agent)
+  and **Log time**. Agents edit their own entries, team leads their team's,
+  and requesters never see time. A team can ask for time when a ticket is
+  solved, from Solve, the `e` key or **Send and set Solved**. Reports gain
+  **Time logged** and **Time per ticket** by agent, team, request type and
+  category, and the Time logged widget exports its entries as CSV.
+
+### Changed
+- **Desk roles:** Merge tickets and Bulk edit are back on the Roles page, on
+  for Agent and above. A role customised in 1.19.0 gets Merge only if it can
+  change status, and Bulk edit only if it can change at least one field.
+- **Desk roles:** Admins can give a role **Reply after review** again, and
+  the Roles page says an Admin's replies are never held.
+- **Any Enterprise licence includes the helpdesk,** including keys issued
+  before 1.19, which don't list it. New keys list it explicitly.
+- **Settings → Users:** less frequent row actions sit in a **More** menu, so
+  the table fits without scrolling sideways.
+- **Settings → Notifications → Policies** shows its tab to people who may
+  read notification policies, even without the webhooks permission.
+- Re-timing a ticket from its creation counts paused time in business hours,
+  not whole nights and weekends.
+
+### Fixed
+- **Customer portal:** a request joined with another shows "Joined with #N",
+  opens the kept request, and the customer is told by email. Email replies
+  to a joined or closed request land on the kept request or on a new portal
+  request the customer can see.
+- **Customer portal:** limits and blocks count `name+tag@` as `name@`, and
+  email replies and notices stop when the portal is off or the address's
+  domain is blocked or not approved.
+- **Import:** an attachment is taken only from its own ticket's or message's
+  folder in the zip, never another ticket's file of the same name. Tickets
+  anonymised since an import are skipped when it runs again. A long import
+  never runs twice at once after a pause.
+- **A desk Admin's public replies were held for review** as if they were a
+  Newbie's. Admins now reply directly.
+- Switching a policy's read confirmations on, or a group or space change,
+  could fail if an account was removed at the same moment. The removed
+  account is now skipped.
+
+### Security
+- **Helpdesk email links never follow the address a visitor's browser
+  claims.** A customer portal sign-in request could change where later
+  helpdesk email links pointed; links now come from your domain or the app's
+  own address. Set your domain (Settings → Domain) so sign-in links do too.
+
+### Upgrading
+- **Additive schema, applied on start:** new tables for CCs and followers,
+  presence, saved views, recurring tickets and their runs, time entries,
+  import jobs and the customer portal (contacts, sign-in links, sessions),
+  plus new columns on `hd_tickets` (legal hold, anonymised, import source,
+  portal contact, paused business time), `hd_messages` (import id) and
+  `hd_teams` (ask for time when solving). No existing data changes.
+- **Nothing destructive runs on upgrade.** Auto-close and retention are off
+  until an admin turns them on.
+- **New sweeps** (presence, recurring tickets, imports, retention, portal
+  housekeeping) run with the other helpdesk sweeps and only with the
+  helpdesk licensed.
+- **The customer portal** lives at `/support` on your CompassDocs address.
+  Set the workspace domain (Settings → Domain) before turning it on, so
+  sign-in links always point to it. It stays off until an admin turns it on.
+- **Rolling back to 1.19.0 is safe:** it ignores the new tables and columns.
+
 ## [1.19.0] - 2026-11-06
 
 Helpdesk, a new Enterprise feature (`helpdesk`). Employees ask for help in

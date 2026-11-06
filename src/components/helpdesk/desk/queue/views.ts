@@ -52,6 +52,11 @@ export const DRILL_KEYS = [
   "status_group",
   "vip",
   "integration",
+  // 1.19.1 saved views (agent V4): the desk's own Filter dialog adds these.
+  // `view` (the list a filter starts from) never makes a drill-down alone.
+  "view",
+  "q",
+  "created_within",
 ] as const;
 
 export interface QueueSel {
@@ -60,6 +65,10 @@ export interface QueueSel {
   sort: HdTicketSort;
   /** The drill-down filters, when the list came from Reports. */
   drill: Record<string, string> | null;
+  /** 1.19.1: where the filters came from: Reports (default) or the desk's Filter dialog (from=filter). */
+  origin?: "reports" | "filter";
+  /** 1.19.1: a saved view's id (?saved=12); its filters are the view's (components/helpdesk/desk/views). */
+  saved?: number | null;
 }
 
 const VIEW_KEYS = new Set<string>(VIEWS.map((v) => v.key));
@@ -74,7 +83,15 @@ export function readSel(sp: URLSearchParams | null): QueueSel {
     const v = sp?.get(k);
     if (v) drill[k] = v.slice(0, k === "requester_email" ? 320 : 80);
   }
-  const isDrill = sp?.get("from") === "reports" || Object.keys(drill).some((k) => k !== "team");
+  const origin = sp?.get("from") === "filter" ? "filter" : "reports";
+  const saved = Number(sp?.get("saved"));
+  if (Number.isSafeInteger(saved) && saved > 0) {
+    return { drill: null, team: null, view: null, saved, sort: SORT_KEYS.has(sort) ? (sort as HdTicketSort) : "due" };
+  }
+  const isDrill = sp?.get("from") === "reports" || origin === "filter" || Object.keys(drill).some((k) => k !== "team" && k !== "view");
+  if (isDrill && origin === "filter") {
+    return { drill, origin, team: null, view: null, sort: SORT_KEYS.has(sort) ? (sort as HdTicketSort) : "due" };
+  }
   return {
     drill: isDrill ? drill : null,
     team: Number.isSafeInteger(team) && team > 0 ? team : null,
@@ -87,8 +104,14 @@ export function readSel(sp: URLSearchParams | null): QueueSel {
 export function selQs(sel: QueueSel): string {
   const p = new URLSearchParams();
   if (sel.drill) {
-    p.set("from", "reports");
+    p.set("from", sel.origin ?? "reports");
     for (const [k, v] of Object.entries(sel.drill)) p.set(k, v);
+    if (sel.sort !== "due") p.set("sort", sel.sort);
+    return `?${p.toString()}`;
+  }
+  // A saved view (1.19.1) unless a built-in view or a team was picked.
+  if (sel.saved && !sel.team && !sel.view) {
+    p.set("saved", String(sel.saved));
     if (sel.sort !== "due") p.set("sort", sel.sort);
     return `?${p.toString()}`;
   }

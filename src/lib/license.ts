@@ -117,11 +117,25 @@ export async function licenseState(): Promise<LicenseState> {
   return evaluate(await licenseKey());
 }
 
+// Features every Enterprise licence carries, whether or not the key lists
+// them. Keys issued before 1.19 predate the helpdesk, and Enterprise
+// includes it, so an upgrade must not find it locked.
+const ENTERPRISE_IMPLIES: EntitlementFeature[] = ["helpdesk"];
+
+/** The features a verified licence grants: the key's list, plus what its
+ *  plan always includes. */
+export function effectiveFeatures(license: Pick<License, "plan" | "features">): EntitlementFeature[] {
+  const listed = Array.isArray(license.features) ? license.features : [];
+  const plan = String(license.plan || "").trim().toLowerCase();
+  if (plan !== "enterprise") return listed;
+  return [...listed, ...ENTERPRISE_IMPLIES.filter((f) => !listed.includes(f))];
+}
+
 /** True when a valid (active or in-grace) license grants `feature`. */
 export async function licenseGrants(feature: EntitlementFeature): Promise<boolean> {
   const s = await licenseState();
   if (s.status !== "active" && s.status !== "grace") return false;
-  return s.license.features.includes(feature);
+  return effectiveFeatures(s.license).includes(feature);
 }
 
 /** Seat check. Returns { ok, limit } — limit 0 means unlimited. */

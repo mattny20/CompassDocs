@@ -10,6 +10,7 @@
 // nothing.
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { replyLabel } from "@/lib/helpdesk/ccs-shared";
 import { BookOpen, ChevronDown, Lock, Paperclip, Reply, X, Zap } from "lucide-react";
 import { buttonClass, iconButtonClass } from "@/components/Button";
 import { Popover, MenuItem } from "@/components/Popover";
@@ -22,6 +23,11 @@ import { itemOf, sendJson } from "../api";
 import { bytesLabel, firstName } from "../ui";
 import { MacroPicker, fillMacro } from "./MacroPicker";
 import { ArticlePicker } from "./ArticlePicker";
+import type { HdNewerMessage } from "@/lib/helpdesk/presence-shared";
+import { CollisionError, clearTyping, noteTyping, postGuarded } from "../presence/presence";
+import { CollisionDialog } from "../presence/CollisionDialog";
+import { useDeskMe } from "../me";
+import { askTimeOnSolve } from "../time/TimeCard";
 
 export type ComposerMode = "public" | "internal";
 
@@ -29,6 +35,8 @@ export interface ComposerHandle {
   focus: (mode?: ComposerMode) => void;
   /** Write a Markdown link to a document at the caret (the side column's Insert). */
   insertLink: (title: string, url: string) => void;
+  /** Put this text in the public reply box, after anything already written there ("Use as reply" on a Claude draft, 1.19.1). */
+  fill: (text: string) => void;
 }
 
 const THEN: { status: HdStatus; label: string }[] = [
@@ -78,8 +86,15 @@ export const Composer = forwardRef<
     defaultMode?: ComposerMode;
     /** Opened by an integration: the public tab reads "Reply", not "Reply to Monitoring". */
     automated?: boolean;
+    /** The newest message the pane shows: the send guard's starting point (1.19.1 collision warnings). */
+    latestMessageId?: number;
+    /** Someone replied while you were typing: reload the conversation (1.19.1). */
+    onNewer?: () => void;
+    /** People copied on the ticket: the public tab reads "Reply to Daniel + 2 CC" (1.19.1, agent V3). */
+    ccCount?: number;
   }
->(function Composer({ number, subject, requesterName, agentName, suggestions, onSent, disabled, forReview = false, allowNotes = true, defaultMode = "public", automated = false }, ref) {
+>(function Composer({ number, subject, requesterName, agentName, suggestions, onSent, disabled, forReview = false, allowNotes = true, defaultMode = "public", automated = false, latestMessageId, onNewer, ccCount = 0 }, ref) {
+  const me = useDeskMe();
   const [mode, setMode] = useState<ComposerMode>(defaultMode);
   useEffect(() => setMode(allowNotes ? defaultMode : "public"), [number, defaultMode, allowNotes]);
   const [text, setText] = useState("");
@@ -96,10 +111,27 @@ export const Composer = forwardRef<
   const macroBtn = useRef<HTMLButtonElement>(null);
   const articleBtn = useRef<HTMLButtonElement>(null);
   const thenBtn = useRef<HTMLButtonElement>(null);
+  /** Text handed over by fill() across a switch to the public box (1.19.1). */
+  const filled = useRef<string | null>(null);
+  // 1.19.1 send guard (lib/helpdesk/presence): the newest message id when
+  // this text was started; Send asks the server whether anyone else has
+  // written since. A collision opens the dialog instead of sending.
+  const baseline = useRef<number | null>(null);
+  const [collision, setCollision] = useState<{ newer: HdNewerMessage[]; then: HdStatus | null } | null>(null);
+  useEffect(() => {
+    baseline.current = null;
+  }, [number, mode]);
+  useEffect(() => {
+    if (!text.trim()) {
+      baseline.current = null;
+      clearTyping(number);
+    } else if (baseline.current === null) baseline.current = latestMessageId ?? 0;
+  }, [text, number, latestMessageId]);
 
   // A new ticket (or a mode switch) loads its own draft.
   useEffect(() => {
-    setText(readDraft(number, mode));
+    setText(filled.current ?? readDraft(number, mode));
+    filled.current = null;
     setFiles([]);
     setMacro(null);
     setUploadError("");
@@ -113,11 +145,24 @@ export const Composer = forwardRef<
     insertLink(title, url) {
       insertAtCursor(`[${title}](${absolute(url)})`);
     },
+    fill(draft) {
+      // What the agent already wrote in the reply box stays, above the draft.
+      const had = (mode === "public" ? text : readDraft(number, "public")).trim();
+      const next = had ? `${had}\n\n${draft}` : draft;
+      writeDraft(number, "public", next);
+      if (mode === "public") setText(next);
+      else {
+        filled.current = next;
+        setMode("public");
+      }
+      requestAnimationFrame(() => area.current?.focus());
+    },
   }));
 
   function change(v: string) {
     setText(v);
     writeDraft(number, mode, v);
+    if (v.trim()) noteTyping(number); // "is replying" for the others (1.19.1)
   }
 
   function insertAtCursor(snippet: string) {
@@ -182,21 +227,33 @@ export const Composer = forwardRef<
     if (fileInput.current) fileInput.current.value = "";
   }
 
-  async function send(then: HdStatus | null) {
+  async function send(then: HdStatus | null, force = false) {
     setThenOpen(false);
     if (!text.trim() || busy || uploading) {
       if (!text.trim()) area.current?.focus();
       return;
     }
+    const status = then ?? (mode === "public" && macro?.actions.status ? macro.actions.status : null);
+    // A team that records time asks for it before a solve, as Solve and `e`
+    // do (1.19.1, agent V8's askTimeOnSolve); cancelling sends nothing. A
+    // forced resend after a collision warning was already asked.
+    if (status === "solved" && !force && !(await askTimeOnSolve(number, me.id))) return;
     setBusy(true);
     try {
-      const status = then ?? (mode === "public" && macro?.actions.status ? macro.actions.status : null);
-      await sendJson(
+      // The send guard (1.19.1): postGuarded throws CollisionError on a 409 { newer }.
+      await postGuarded(
         `/api/helpdesk/tickets/${number}/messages`,
-        "POST",
-        { kind: mode, body: text.trim(), attachments: files.map((f) => f.id), then_status: status ?? undefined },
+        {
+          kind: mode,
+          body: text.trim(),
+          attachments: files.map((f) => f.id),
+          then_status: status ?? undefined,
+          ...(latestMessageId !== undefined ? { expect_last_message_id: baseline.current ?? latestMessageId } : {}),
+          ...(force ? { force: true } : {}),
+        },
         mode === "public" ? "Couldn't send the reply." : "Couldn't add the note."
       );
+      clearTyping(number);
       toast("ok", mode === "public" ? (forReview ? "Sent for review. A lead checks it before it goes out." : "Reply sent.") : "Note added.");
       writeDraft(number, mode, "");
       setText("");
@@ -205,7 +262,10 @@ export const Composer = forwardRef<
       setMacro(null);
       onSent({ macro: used, status });
     } catch (err) {
-      toast("error", (err as Error).message);
+      if (err instanceof CollisionError) {
+        setCollision({ newer: err.newer, then });
+        onNewer?.();
+      } else toast("error", (err as Error).message);
     } finally {
       setBusy(false);
     }
@@ -228,7 +288,7 @@ export const Composer = forwardRef<
           value={mode}
           onChange={setMode}
           options={[
-            { value: "public", label: requesterName && !automated ? `Reply to ${firstName(requesterName)}` : "Reply", icon: Reply },
+            { value: "public", label: replyLabel(requesterName && !automated ? firstName(requesterName) : "", ccCount), icon: Reply },
             ...(allowNotes ? [{ value: "internal" as const, label: "Internal note", icon: Lock }] : []),
           ]}
         />
@@ -391,6 +451,32 @@ export const Composer = forwardRef<
           </Popover>
         </div>
       </div>
+      {/* 1.19.1 collision warning (mock-up 5): nothing was sent. */}
+      <CollisionDialog
+        open={collision !== null}
+        newer={collision?.newer ?? []}
+        mode={mode}
+        requesterName={automated ? "" : requesterName}
+        busy={busy}
+        onKeep={() => {
+          // These messages have been seen now: Send warns only about newer ones.
+          baseline.current = Math.max(baseline.current ?? 0, ...(collision?.newer ?? []).map((m) => m.id));
+          setCollision(null);
+          requestAnimationFrame(() => area.current?.focus());
+        }}
+        onDiscard={() => {
+          setCollision(null);
+          change("");
+          setFiles([]);
+          setMacro(null);
+          clearTyping(number);
+        }}
+        onSendAnyway={() => {
+          const then = collision?.then ?? null;
+          setCollision(null);
+          void send(then, true);
+        }}
+      />
     </section>
   );
 });

@@ -337,10 +337,29 @@ export async function handleInbound(req: Request, secret: string, opts: { provid
   return processInboundEmail(email, { origin: opts.origin, ip: opts.ip ?? null, outsideSenders: settings.outside_senders });
 }
 
+/** Tests: run just before a reply is added to its ticket (to commit a merge in between). Null removes it. */
+let beforeAppendForTests: ((ticketId: number) => Promise<void>) | null = null;
+export function setInboundBeforeAppendForTests(fn: typeof beforeAppendForTests): void {
+  beforeAppendForTests = fn;
+}
+
+/** addMessage refused the reply because its ticket was merged meanwhile, before writing anything. */
+async function mergeRaced(e: unknown): Promise<boolean> {
+  const { HdTicketError } = await import("./tickets");
+  return e instanceof HdTicketError && e.status === 409 && e.messageUnsent === true;
+}
+
 /** Everything after parsing (tests call it with an InboundEmail of their own). */
 export async function processInboundEmail(
   email: InboundEmail,
-  opts: { origin?: string; ip?: string | null; outsideSenders?: boolean; trustUnverified?: boolean } = {}
+  opts: {
+    origin?: string;
+    ip?: string | null;
+    outsideSenders?: boolean;
+    trustUnverified?: boolean;
+    /** Internal: the one retry after a merge raced the reply (not counted against the sender again, never retried again). */
+    mergeRetry?: boolean;
+  } = {}
 ): Promise<InboundResult> {
   const outsideSenders = opts.outsideSenders ?? (await getHelpdeskSettings()).outside_senders;
   if (email.headers["x-compassdocs-helpdesk"]) return reply(200, { ok: true, outcome: "ignored_loop" });
@@ -357,7 +376,7 @@ export async function processInboundEmail(
     const seen = await hqOne("SELECT 1 FROM hd_messages WHERE email_message_id = $1 LIMIT 1", [email.messageId.slice(0, 500)]);
     if (seen) return reply(200, { ok: true, outcome: "duplicate" });
   }
-  if (limited(`inbound:from:${email.from.email}`, INBOUND_LIMITS.perSender, INBOUND_LIMITS.perSenderWindowMs)) {
+  if (!opts.mergeRetry && limited(`inbound:from:${email.from.email}`, INBOUND_LIMITS.perSender, INBOUND_LIMITS.perSenderWindowMs)) {
     return reply(429, { ok: false, error: "Too many messages from this sender. Try again later." });
   }
 
@@ -379,50 +398,113 @@ export async function processInboundEmail(
   // A reply to a ticket?
   const token = findReplyToken(email);
   let followUpOf: number | null = null;
+  // 1.19.1 review (lib/helpdesk/portal-hooks): the portal contact whose
+  // closed ticket this follows up; the follow-up opens as their portal ticket.
+  let portalFollowUp: { contactId: number; teamId: number | null } | null = null;
   if (token && !verified) {
     // Never into an existing ticket on an unverified From: the token is in
     // every copy of the thread, so anyone on it could write as anyone.
     logEvent("info", "helpdesk.inbound_unverified_reply", { from: email.from.email, state: verdict.state });
   } else if (token) {
-    const t = await hqOne<HdTicketRow>("SELECT * FROM hd_tickets WHERE reply_token = $1", [token]);
-    if (t) {
-      const isRequester =
-        (sender && t.requester_id === sender.id) ||
-        (!sender && t.requester_id === null && outsideSenders && t.requester_email.toLowerCase() === email.from.email);
+    const replied = await hqOne<HdTicketRow>("SELECT * FROM hd_tickets WHERE reply_token = $1", [token]);
+    // A merged ticket's thread replies into the ticket it was merged into,
+    // where its requester counts as one (1.19.1, lib/helpdesk/merge).
+    const t = replied ? await (await import("./merge")).mergedReplyTarget(replied) : undefined;
+    if (t && replied) {
+      const reqOf = (x: HdTicketRow) =>
+        (sender && x.requester_id === sender.id) ||
+        (!sender && x.requester_id === null && outsideSenders && x.requester_email.toLowerCase() === email.from.email);
+      // 1.19.1 (agent V6, lib/helpdesk/portal-hooks): on a customer-portal
+      // ticket only its own contact (verified above, no account, not
+      // blocked) is the requester, whatever Outside senders says; so is the
+      // contact of a portal ticket merged into this one. Only while the
+      // portal is open and admits the address (else null: the rules below).
+      // A blocked contact is refused as a CC too.
+      const portal = sender ? null : await (await import("./portal-hooks")).portalReplyAuthority(t, email.from.email);
+      const isRequester = portal ? portal.allowed : reqOf(t) || (replied !== t && reqOf(replied));
       const isAgent = !isRequester && sender ? await canWorkTicket(sender, t) : false;
-      if (isRequester || isAgent) {
+      // 1.19.1 (agent V3, lib/helpdesk/ccs): someone copied on the request
+      // (an account, or an outside address while outside senders are on)
+      // replies as the requester does. Verified senders only, as above.
+      const isCc =
+        !isRequester && !isAgent && !portal?.blocked && (sender || outsideSenders)
+          ? await import("./ccs").then((m) => m.isCcAuthor(t.id, sender?.id ?? null, email.from.email))
+          : false;
+      if (isRequester || isAgent || isCc) {
         if (t.status === "closed") {
           followUpOf = t.number;
+          if (portal?.allowed && portal.contactId) portalFollowUp = { contactId: portal.contactId, teamId: t.team_id };
         } else {
           const { addMessage } = await import("./messages");
           // An agent answering an internal-note notice (agent S3's
           // hd_internal_note mail) writes an internal note, never to the requester.
           const toNote = Boolean(isAgent) && [email.inReplyTo, ...email.references].some((id) => isNoteNoticeMessageId(id));
-          const r = await addMessage(
-            t.id,
-            {
-              kind: toNote ? "internal" : "public",
-              body: inboundBody(email, { reply: true }) || "_(empty reply)_",
-              author,
-              via: "email",
-              asRequester: Boolean(isRequester),
-              email_message_id: messageId,
-            },
-            { origin: opts.origin, actorId: author.id, actorName: author.name }
-          );
+          await beforeAppendForTests?.(t.id);
+          let r: Awaited<ReturnType<typeof addMessage>>;
+          try {
+            r = await addMessage(
+              t.id,
+              {
+                kind: toNote ? "internal" : "public",
+                body: inboundBody(email, { reply: true }) || "_(empty reply)_",
+                author,
+                via: "email",
+                asRequester: Boolean(isRequester || isCc),
+                email_message_id: messageId,
+              },
+              { origin: opts.origin, actorId: author.id, actorName: author.name }
+            );
+          } catch (e) {
+            // 1.19.1: a merge committed between the lookup above and the
+            // message (tickets assertNotMergedTx, before anything was
+            // written). Once: the whole decision again, so the thread now
+            // leads to the kept ticket under the checks any reply there
+            // meets (requester, agent, CC; closed: a follow-up). Anything
+            // else fails as before.
+            if (opts.mergeRetry || !(await mergeRaced(e))) throw e;
+            logEvent("info", "helpdesk.inbound_merge_retry", { ticket: t.number, from: email.from.email });
+            return processInboundEmail(email, { ...opts, outsideSenders, trustUnverified, mergeRetry: true });
+          }
           if (r) await storeAttachments(email, t.id, r.message.id, author.id);
           return reply(200, { ok: true, outcome: "appended", ticket: t.number });
         }
       } else {
-        // Somebody who is neither the requester nor an agent of it (a
-        // colleague on copy): their mail becomes a ticket of their own, never
-        // a message on somebody else's.
+        // Somebody who is neither the requester, a CC nor an agent of it:
+        // their mail becomes a ticket of their own, never a message on
+        // somebody else's.
         logEvent("info", "helpdesk.inbound_not_on_ticket", { ticket: t.number, from: email.from.email });
       }
     }
   }
 
   // A new ticket.
+  // 1.19.1 (agent V6): a blocked customer-portal contact opens nothing by email either.
+  if (!sender && outsideSenders && (await (await import("./portal-hooks")).portalContactBlocked(email.from.email))) {
+    logEvent("warn", "helpdesk.inbound_rejected", { reason: "portal_contact_blocked", from: email.from.email, provider: email.provider });
+    return reply(200, { ok: true, outcome: "rejected_outside_sender" });
+  }
+  if (portalFollowUp) {
+    const { createPortalFollowUp } = await import("./portal-hooks");
+    const body = `_Follow-up to #${followUpOf}, which was closed._\n\n${inboundBody(email, { reply: true })}`;
+    const teamId =
+      (await teamForRecipients([...email.to.map((a) => a.email), ...email.cc.map((a) => a.email), ...email.recipients])) ?? portalFollowUp.teamId;
+    const ticket = await createPortalFollowUp(
+      portalFollowUp.contactId,
+      {
+        subject: (cleanSubject(email.subject) || "(no subject)").slice(0, 300),
+        body,
+        name: author.name,
+        email: email.from.email,
+        teamId,
+        emailMessageId: messageId,
+        closedNumber: followUpOf!,
+      },
+      { origin: opts.origin }
+    );
+    const first = await hqOne<{ id: number }>("SELECT id FROM hd_messages WHERE ticket_id = $1 AND kind <> 'system' ORDER BY created_at, id LIMIT 1", [ticket.id]);
+    if (first) await storeAttachments(email, ticket.id, first.id, null);
+    return reply(200, { ok: true, outcome: "follow_up", ticket: ticket.number });
+  }
   if (!sender && !outsideSenders) {
     const reason = claimed ? "unverified_sender" : "outside_sender";
     logEvent("warn", "helpdesk.inbound_rejected", { reason, from: email.from.email, provider: email.provider });
@@ -477,6 +559,14 @@ export async function processInboundEmail(
     [ticket.id]
   );
   if (first) await storeAttachments(email, ticket.id, first.id, author.id);
+  // The mail's Cc become the request's CCs (1.19.1, agent V3), only when the
+  // sender is verified; outside addresses only while outside senders are on.
+  if (verified) {
+    const { ccsFromInbound } = await import("./ccs");
+    await ccsFromInbound(ticket.id, email, { userId: sender?.id ?? null, name: author.name }, { outsideSenders }).catch((e) =>
+      logEvent("error", "helpdesk.inbound_cc_failed", { ticket: ticket.number, error: e instanceof Error ? e.message : String(e) })
+    );
+  }
   if (claimed && !sender) {
     const { addSystemMessage } = await import("./messages");
     await addSystemMessage(

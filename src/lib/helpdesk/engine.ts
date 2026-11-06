@@ -62,6 +62,8 @@ import { hq, hqOne, withTx } from "./db-core";
 import { resolveManager, spaceOwner, teamLeadIds } from "./approvals";
 import { answerText } from "./request-types";
 import { insertTicketTx, updateTicket } from "./tickets";
+import { bankPausedBusiness, hoursForTeam } from "./calendars";
+import { countedTaskDue, countedWaitUntil, countMode } from "./business-waits-shared";
 import {
   evaluateWhen,
   outputDefsOf,
@@ -69,9 +71,7 @@ import {
   pickRouteTeam,
   renderTemplate,
   requesterFacts,
-  taskDueAt,
   validateOutputs,
-  waitUntil,
 } from "./workflows";
 import type { FactSource } from "./workflows";
 import { afterGrant, grantReadInTx, requestedSpaceId, runMayGrantSpace, SPACE_APPROVER_PUBLIC_LABEL } from "./space-access";
@@ -271,6 +271,8 @@ async function solveRequest(c: Ctx): Promise<boolean> {
   // A request paused (waiting on the requester, on hold) resumes its SLA
   // clock as it is solved, as the core's updateTicket does: the paused time
   // is banked and sla_paused_at cleared, so a later reopen counts again.
+  // 1.19.1: banked in business time too (lib/helpdesk/calendars).
+  await bankPausedBusiness(c.client, c.ticket.id, c.now);
   const r = await c.client.query(
     `UPDATE hd_tickets SET status = 'solved', solved_at = coalesce(solved_at, $2), updated_at = now(),
             sla_paused_ms = sla_paused_ms + CASE WHEN sla_paused_at IS NULL THEN 0
@@ -442,6 +444,10 @@ async function evalApproval(c: Ctx, s: HdApprovalStepDef): Promise<"advance" | "
       title: s.title,
       on_decline: s.on_decline,
       remind_after_hours: s.remind_after_hours ?? null,
+      // Business-hours reminder (1.19.1): the sweep counts it in this team's calendar (null = the default calendar).
+      ...(s.remind_after_hours && countMode(s) === "business"
+        ? { remind_count: "business", remind_team_id: s.count_team_id ?? c.ticket.rt_team_id ?? c.ticket.team_id ?? null }
+        : {}),
       approver_label: target.label,
       ...(target.public_label ? { approver_public_label: target.public_label } : {}),
       ...(target.space_id ? { space_id: target.space_id } : {}),
@@ -542,7 +548,7 @@ async function startTask(c: Ctx, t: HdTaskStepDefB, retryRow?: Row): Promise<voi
   const routed = keepTeam ? { team_id: keepTeam, reason: "", routed: false } : pickRouteTeam(t.route, facts, t.team_id);
   const name = await teamName(c.client, routed.team_id);
   const teamId = name ? routed.team_id : null;
-  const due = taskDueAt(t.due, c.ticket.form_answers ?? {}, c.now);
+  const due = await countedTime(c, t, teamId, (mode, hours) => countedTaskDue(t.due, c.ticket.form_answers ?? {}, c.now, mode, hours));
   const subject = `${t.title}: ${c.ticket.subject}`.slice(0, 300);
   // The core's own insert (number, SLA policy, reply token), inside this
   // transaction; no hooks run for a task ticket (no acknowledgement to a
@@ -731,10 +737,27 @@ async function notifyBlocked(number: number, teamId: number | null, title: strin
 
 // --- Wait, notify, finish --------------------------------------------------------------
 
+/**
+ * A step's time counted as it says (1.19.1, lib/helpdesk/business-waits-shared):
+ * calendar time, or business time in the calendar of the step's
+ * count_team_id, else `teamId` (a task's own team), else the request
+ * type's team, else the request's. Read on the run's client (the pool has five).
+ */
+async function countedTime<T>(
+  c: Ctx,
+  s: { count?: "business"; count_team_id?: number },
+  teamId: number | null,
+  fn: (mode: "calendar" | "business", hours: Awaited<ReturnType<typeof hoursForTeam>> | null) => T
+): Promise<T> {
+  if (countMode(s) !== "business") return fn("calendar", null);
+  const team = s.count_team_id ?? teamId ?? c.ticket.rt_team_id ?? c.ticket.team_id ?? null;
+  return fn("business", await hoursForTeam(team, c.client));
+}
+
 async function evalWait(c: Ctx, s: HdWaitStepDef): Promise<"advance" | "waiting"> {
   let row = c.rows.get(s.key);
   if (!row) {
-    const until = waitUntil(s.until, c.ticket.form_answers ?? {}, c.now);
+    const until = await countedTime(c, s, null, (mode, hours) => countedWaitUntil(s.until, c.ticket.form_answers ?? {}, c.now, mode, hours));
     row = await insertStep(c, s.key, "wait", "active", { title: s.title }, { wait_until: until });
     if (until > c.now) await sysMsg(c.client, c.ticket.id, `Waiting until ${dayText(until)}: ${s.title}.`);
   }
@@ -1502,16 +1525,71 @@ export async function sweepWorkflows(opts: { now?: Date; claim?: boolean; runIds
         AND a.decision = 'pending' AND a.reminded_at IS NULL AND r.state IN ('running', 'waiting')
         AND ($2::int[] IS NULL OR a.run_id = ANY($2::int[]))
         AND jsonb_typeof(s.result->'remind_after_hours') = 'number'
+        AND coalesce(s.result->>'remind_count', '') <> 'business'
         AND a.created_at + make_interval(hours => (s.result->>'remind_after_hours')::int) <= $1
       RETURNING a.id`,
     [now, only]
   );
+  reminders.push(...(await claimBusinessReminders(now, only)));
   const mod = reminders.length ? await notifyMod() : null;
   for (const r of reminders) {
     await mod!.notifyApprovalNeeded(r.id, { reminder: true });
     result.reminded++;
   }
   return result;
+}
+
+/**
+ * Business-hours reminders (1.19.1): pending approvals whose step counts
+ * its reminder in a team's calendar, due when that many business hours
+ * have passed since the approval was asked (a reassigned approval counts
+ * from its own creation). Each is claimed by the same conditional UPDATE
+ * as the calendar ones, so overlapping sweeps remind once.
+ *
+ * The candidates (past due in calendar hours) are paged by id, so a pile of
+ * ones not yet due in business hours (Friday's 8-hour reminders over the
+ * weekend) never hides a due one behind them.
+ */
+let businessReminderPage = 500;
+const BUSINESS_REMINDER_MAX_PAGES = 40;
+
+/** Tests: a small page, to show the sweep pages past not-yet-due candidates. Null restores 500. */
+export function setBusinessReminderPageForTests(n: number | null): void {
+  businessReminderPage = n ?? 500;
+}
+
+async function claimBusinessReminders(now: Date, only: number[] | null): Promise<{ id: number }[]> {
+  const { countedReminderAt } = await import("./business-waits-shared");
+  const out: { id: number }[] = [];
+  let afterId = 0;
+  for (let page = 0; page < BUSINESS_REMINDER_MAX_PAGES; page++) {
+    const rows = await hq<{ id: number; created_at: string; hours: number; team_id: number | null }>(
+      `SELECT a.id, a.created_at, (s.result->>'remind_after_hours')::int AS hours,
+              CASE WHEN jsonb_typeof(s.result->'remind_team_id') = 'number' THEN (s.result->>'remind_team_id')::int END AS team_id
+         FROM hd_approvals a
+         JOIN hd_workflow_steps s ON s.id = a.step_id
+         JOIN hd_workflow_runs r ON r.id = a.run_id
+        WHERE a.decision = 'pending' AND a.reminded_at IS NULL AND r.state IN ('running', 'waiting')
+          AND ($2::int[] IS NULL OR a.run_id = ANY($2::int[]))
+          AND jsonb_typeof(s.result->'remind_after_hours') = 'number'
+          AND s.result->>'remind_count' = 'business'
+          -- Business hours are never fewer than calendar hours: nothing younger can be due.
+          AND a.created_at + make_interval(hours => (s.result->>'remind_after_hours')::int) <= $1
+          AND a.id > $3
+        ORDER BY a.id
+        LIMIT $4`,
+      [now, only, afterId, businessReminderPage]
+    );
+    for (const r of rows) {
+      const at = countedReminderAt(new Date(r.created_at), r.hours, "business", await hoursForTeam(r.team_id));
+      if (!at || at > now) continue;
+      const claimed = await hq<{ id: number }>("UPDATE hd_approvals SET reminded_at = $2 WHERE id = $1 AND reminded_at IS NULL AND decision = 'pending' RETURNING id", [r.id, now]);
+      out.push(...claimed);
+    }
+    if (rows.length < businessReminderPage) break;
+    afterId = rows[rows.length - 1].id;
+  }
+  return out;
 }
 
 // --- Progress (the request page's tracker, the desk's side panel) ---------------------

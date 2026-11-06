@@ -129,20 +129,29 @@ export async function isApproverOf(userId: number, ticketId: number): Promise<bo
   return isApproverFor(userId, ticketId);
 }
 
-export type TicketRelation = "agent" | "requester" | "approver";
+export type TicketRelation = "agent" | "requester" | "approver" | "cc";
 
 /**
  * How this person reaches the ticket, strongest first: agent (works it),
- * requester (their own), approver (decides a step of it); null = not at all.
+ * requester (their own), approver (decides a step of it), cc (copied on it,
+ * 1.19.1 lib/helpdesk/ccs: reads it as the requester does, public
+ * conversation only); null = not at all.
  */
 export async function ticketRelation(user: U, ticket: TicketRef): Promise<TicketRelation | null> {
   if (await canWorkTicket(user, ticket)) return "agent";
   if (ticket.requester_id !== null && ticket.requester_id === user.id) return "requester";
   if (await isApproverOf(user.id, ticket.id)) return "approver";
+  if (await isCcOfTicket(user.id, ticket.id)) return "cc";
   return null;
 }
 
-/** May this person see the ticket in any form (agent, requester or approver)? */
+/** Copied on the ticket (lib/helpdesk/ccs, agent V3). */
+async function isCcOfTicket(userId: number, ticketId: number): Promise<boolean> {
+  const { isCcOf } = await import("./ccs");
+  return isCcOf(userId, ticketId);
+}
+
+/** May this person see the ticket in any form (agent, requester, approver or CC)? */
 export async function canSeeTicket(user: U, ticket: TicketRef): Promise<boolean> {
   return (await ticketRelation(user, ticket)) !== null;
 }
