@@ -213,6 +213,12 @@ before(async () => {
   }
   // The Status page's own permission (status.read) comes with the built-in Viewer
   // role every account gets; Nat stands for a workspace role without it.
+  // Deleting Nat's Viewer assignment is not enough: every process's schema
+  // bootstrap re-adds a ladder rung's missing assignment (db.ts
+  // migrateLadderToAssignments), so any test file starting in parallel would
+  // hand status.read back. Nat's rung names no built-in role instead: the
+  // ladder trigger drops the Viewer row and the backfill has nothing to restore.
+  await pool().query("UPDATE users SET role = $2 WHERE id = $1", [P.nostatus.id, `${STAMP}-norung`]);
   await pool().query("DELETE FROM role_assignments WHERE user_id = $1", [P.nostatus.id]);
   await grant(P.nostatus.id, ["helpdesk.request"], "nostatus");
   T1 = (await fixtureQuery("INSERT INTO hd_teams (name, position) VALUES ($1, 9301) RETURNING id", [`${STAMP} IT`])).rows[0].id;

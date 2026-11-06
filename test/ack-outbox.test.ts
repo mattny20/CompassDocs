@@ -194,7 +194,7 @@ describe("the notice outbox", () => {
 
     const row = (await getAckOutboxRow(outboxId))!;
     assert.equal(row.user_ids, null);
-    const notices = await listAckNotices({ documentId: id });
+    const notices = await listAckNotices({ documentId: id, limit: 500 });
     assert.ok(!notices.some((n) => n.user_id === readerA), "the person who confirmed in the meantime is not told");
     const b = notices.find((n) => n.user_id === readerB);
     assert.ok(b, "the pending person is");
@@ -213,7 +213,7 @@ describe("the notice outbox", () => {
       user_ids: [readerB, readerB],
     });
     await drainUntil(quiet, done(explicit), `row ${explicit} delivered`);
-    const only = (await listAckNotices({ documentId: id })).filter((n) => n.outbox_id === explicit);
+    const only = (await listAckNotices({ documentId: id, limit: 500 })).filter((n) => n.outbox_id === explicit);
     assert.deepEqual(
       only.map((n) => n.user_id),
       [readerB],
@@ -266,7 +266,7 @@ describe("the notice outbox", () => {
     // Other test files create accounts while this runs; a brand-new account
     // has no notice today and is told, which is the rule, so the count is
     // compared with the rows rather than with zero.
-    const second_rows = (await listAckNotices({ documentId: id })).filter((n) => n.outbox_id === second);
+    const second_rows = (await listAckNotices({ documentId: id, limit: 500 })).filter((n) => n.outbox_id === second);
     assert.equal(row2.noticed, second_rows.length);
     assert.ok(!second_rows.some((n) => n.user_id === readerA || n.user_id === readerB), "neither A nor B again");
     assert.equal(row2.error, null);
@@ -331,7 +331,7 @@ describe("the notice outbox", () => {
     assert.equal(await noticesFor(id, readerA, "updated"), 3, "A's day is over: told again");
     assert.equal(await noticesFor(id, readerB, "updated"), 2, "B heard today");
     assert.equal(await noticesFor(id, readerC, "updated"), 2, "so did C");
-    const rows5 = (await listAckNotices({ documentId: id })).filter((n) => n.outbox_id === fifth);
+    const rows5 = (await listAckNotices({ documentId: id, limit: 500 })).filter((n) => n.outbox_id === fifth);
     assert.ok(rows5.some((n) => n.user_id === readerA), "A is among the rows written");
     const audit5 = (await auditRows("ack.reset_notified", id)).find((r) => r.details.outbox_id === fifth)!;
     assert.ok((audit5.details.skipped_recent as number) >= 2, `B and C were skipped: ${audit5.details.skipped_recent}`);
@@ -347,7 +347,7 @@ describe("the notice outbox", () => {
     const older = await enqueueAckNotice(null, { document_id: id, mode: "updated", source: "edit", reason: "First save", actor: actor(), delay_minutes: 0 });
     const newer = await enqueueAckNotice(null, { document_id: id, mode: "updated", source: "edit", reason: "Second save", actor: actor(), delay_minutes: 0 });
     await drainUntil(quiet, async () => (await done(older)()) && (await done(newer)()), "both rows delivered");
-    const rows = await listAckNotices({ documentId: id });
+    const rows = await listAckNotices({ documentId: id, limit: 500 });
     assert.ok(rows.length >= 2);
     assert.ok(rows.every((n) => n.outbox_id === newer), "every notice cites the newest row of the group");
     assert.equal(await noticesFor(id, readerA), 1, "one notice, not two");
@@ -372,7 +372,7 @@ describe("the notice outbox", () => {
     assert.equal(audit2.details.reason, "Please re-read before Friday");
     assert.equal((await auditRows("ack.reset_notified", id)).length, 2, "two deliveries in all");
     assert.ok(
-      (await listAckNotices({ documentId: id })).filter((n) => n.outbox_id === manual2).some((n) => n.user_id === readerA),
+      (await listAckNotices({ documentId: id, limit: 500 })).filter((n) => n.outbox_id === manual2).some((n) => n.user_id === readerA),
       "A's second row cites the merged group's newest row"
     );
   });
@@ -536,7 +536,7 @@ describe("the notice outbox", () => {
     const a = (await listAckNotices({ documentId: id, userId: readerA }))[0];
     assert.ok(a, "the in-app notice that did go out is on record");
     assert.deepEqual(a.channels, ["inapp"], "without the email");
-    assert.equal(row.noticed, (await listAckNotices({ documentId: id })).filter((n) => n.outbox_id === outboxId).length);
+    assert.equal(row.noticed, (await listAckNotices({ documentId: id, limit: 500 })).filter((n) => n.outbox_id === outboxId).length);
     assert.equal(row.emailed, 0);
     assert.equal((await inboxRows(readerA, `Action required: confirm "${title}"`)).length, 1);
 
@@ -620,7 +620,7 @@ describe("the notice outbox", () => {
     const row = (await getAckOutboxRow(outboxId))!;
     assert.equal(row.noticed, 0);
     assert.equal(row.error, null);
-    assert.equal((await listAckNotices({ documentId: id })).length, 0);
+    assert.equal((await listAckNotices({ documentId: id, limit: 500 })).length, 0);
 
     const r = await notify([readerA, readerA], { kind: "ack_requested", title: `${STAMP} direct`, body: "x", link: "/doc/1" });
     assert.deepEqual(r, { inbox: 1, webhook: 0, inboxIds: [readerA], webhookIds: [] });

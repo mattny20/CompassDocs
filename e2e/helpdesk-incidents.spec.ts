@@ -175,6 +175,11 @@ test.describe("major incidents", () => {
       const strip = page.getByTestId("incident-link-strip");
       await expect(strip).toContainText(`Linked to major incident #${incident}`);
       await strip.getByRole("button", { name: "Unlink" }).click();
+      // A read of the ticket's incident side starts just before the change
+      // (as a poll or another view's reload can): the views must still show
+      // the state after it. (1.19.2 fix: the shared read was reused for half
+      // a second, so a fast server's answer to a change never showed.)
+      await page.evaluate(() => window.dispatchEvent(new Event("hd-incidents-changed")));
       await page.getByRole("button", { name: "Unlink" }).last().click();
       await expect(page.getByText(`#${b} unlinked from #${incident}.`)).toBeVisible({ timeout: 60_000 });
       await expect(page.getByTestId("incident-link-strip")).toHaveCount(0);

@@ -6,54 +6,69 @@
 // requests); any change dispatches "hd-incidents-changed", which reloads
 // them, the queue's "Major incidents" group and the list.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { IncidentForTicket, IncidentNavItem } from "@/lib/helpdesk/incidents-shared";
 import { getJson } from "../api";
 
 export const INCIDENTS_CHANGED = "hd-incidents-changed";
 
+const cache = new Map<number, { at: number; key: unknown; p: Promise<IncidentForTicket> }>();
+
 /** Tell every incident view (and the queue) to reload. */
 export function incidentsChanged(): void {
+  // A read started before the change must never answer for after it.
+  cache.clear();
   if (typeof window !== "undefined") window.dispatchEvent(new Event(INCIDENTS_CHANGED));
 }
 
-const cache = new Map<number, { at: number; p: Promise<IncidentForTicket> }>();
-
-/** One request serves every view of the ticket: a fresh read reuses one started in the last half second. */
-function load(number: number, fresh: boolean): Promise<IncidentForTicket> {
+/**
+ * One request serves every view of the ticket. A view reading for a version
+ * of the ticket (`key`, its updated_at) reuses a read for that same version
+ * started in the last `maxAge` ms; `anyKey` (a view without a version, or a
+ * reload after incidentsChanged emptied the cache) takes any recent one.
+ * The reuse is never across a change: incidentsChanged() empties the cache
+ * and a new version of the ticket has a new key. (A fast server used to
+ * answer the change inside the reuse window, and the views kept the state
+ * from before it: a posted update or a link that never showed.)
+ */
+function load(number: number, key: unknown, maxAge: number, anyKey: boolean): Promise<IncidentForTicket> {
   const hit = cache.get(number);
-  if (hit && Date.now() - hit.at < (fresh ? 500 : 2_000)) return hit.p;
+  if (hit && (anyKey || hit.key === key) && Date.now() - hit.at < maxAge) return hit.p;
   const p = getJson<IncidentForTicket>(`/api/helpdesk/incidents/ticket/${number}`, "Couldn't load the incident.").catch(() => ({ role: null }) as IncidentForTicket);
-  cache.set(number, { at: Date.now(), p });
+  cache.set(number, { at: Date.now(), key, p });
   return p;
 }
 
 /** The ticket's incident side: its own incident, its link, or nothing (null while loading). */
 export function useTicketIncident(number: number, refreshKey?: unknown): { data: IncidentForTicket | null; reload: () => void } {
   const [data, setData] = useState<IncidentForTicket | null>(null);
+  const key = useRef(refreshKey);
+  key.current = refreshKey;
+  // The newest read wins: an older one answering late never overwrites it.
+  const seq = useRef(0);
+  const take = useCallback((p: Promise<IncidentForTicket>) => {
+    const mine = ++seq.current;
+    void p.then((d) => mine === seq.current && setData(d));
+  }, []);
   const reload = useCallback(() => {
-    void load(number, true).then(setData);
-  }, [number]);
+    cache.delete(number);
+    take(load(number, key.current, 500, true));
+  }, [number, take]);
   useEffect(() => {
-    let live = true;
     setData(null);
-    void load(number, false).then((d) => live && setData(d));
-    const on = () => void load(number, true).then((d) => live && setData(d));
+    take(load(number, key.current, 2_000, key.current === undefined));
+    const on = () => take(load(number, key.current, 500, true));
     window.addEventListener(INCIDENTS_CHANGED, on);
     return () => {
-      live = false;
+      seq.current++;
       window.removeEventListener(INCIDENTS_CHANGED, on);
     };
-  }, [number]);
+  }, [number, take]);
   // The ticket itself changed (status, a message): read again, quietly.
   useEffect(() => {
     if (refreshKey === undefined) return;
-    let live = true;
-    void load(number, false).then((d) => live && setData(d));
-    return () => {
-      live = false;
-    };
-  }, [number, refreshKey]);
+    take(load(number, refreshKey, 2_000, false));
+  }, [number, refreshKey, take]);
   return { data, reload };
 }
 
