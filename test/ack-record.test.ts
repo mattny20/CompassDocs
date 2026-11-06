@@ -8,7 +8,7 @@
 // asking keeps its rows as closed rows marked stopped; a stranger gets null
 // (404). The IP travels
 // only where the viewer may see it; the inferred version flag rides along;
-// the CSV has 21 columns; every CSV download writes ack.record_exported
+// the CSV has 22 columns (asked_through since 1.18.3); every CSV download writes ack.record_exported
 // before the response streams; `me` is the viewer's own record.
 //
 // Fixtures: five accounts, three groups and three private spaces of this
@@ -608,10 +608,10 @@ describe("the per-person compliance record (F3)", () => {
     assert.equal(await userPolicyTranscript(2_000_000_000, viewer(program)), null);
   });
 
-  test("the CSV: 21 columns, the superseded, inferred and exempt cells", async () => {
-    assert.equal(RECORD_CSV_HEADER.split(",").length, 21);
+  test("the CSV: 22 columns, the superseded, inferred and exempt cells", async () => {
+    assert.equal(RECORD_CSV_HEADER.split(",").length, 22);
     const t = await record(program);
-    for (const r of [...t.current, ...t.history]) assert.equal(recordCsvCells(r).length, 21, `${r.record} ${r.title}`);
+    for (const r of [...t.current, ...t.history]) assert.equal(recordCsvCells(r).length, 22, `${r.record} ${r.title}`);
     const superseded = recordCsvCells(byTitle(t.history, pubPolicy, "superseded")!);
     assert.equal(superseded[2], "superseded");
     assert.equal(superseded[8], "v1");
@@ -646,7 +646,7 @@ describe("the per-person compliance record (F3)", () => {
     assert.equal(lines[0], RECORD_CSV_HEADER);
     // This file's rows: another file's internal-space policy may ask Ana too.
     assert.equal(lines.slice(1).filter((l) => l.includes(STAMP)).length, 8, "four current rows and four history rows");
-    for (const line of lines.slice(1)) assert.equal(cellsOf(line).length, 21, line);
+    for (const line of lines.slice(1)) assert.equal(cellsOf(line).length, 22, line);
     assert.ok(csv.text.includes(PRIVATE_TITLE), "the programme's file carries the private policy");
     const audit = await pool().query<{ details: Record<string, unknown>; target_id: string; ip: string | null }>(
       "SELECT details, target_id, ip FROM audit_log WHERE action = 'ack.record_exported' AND actor_id = $1 ORDER BY id",
@@ -707,7 +707,7 @@ describe("the per-person compliance record (F3)", () => {
     assert.ok(t.current.every((r) => r.stopped === false));
 
     const cells = recordCsvCells(row);
-    assert.equal(cells.length, 21);
+    assert.equal(cells.length, 22);
     assert.equal(cells[2], "confirmed");
     assert.equal(cells[5], "", "no removed_at");
     assert.equal(cells[8], "v1");

@@ -154,7 +154,9 @@ export async function GET(req: Request) {
     // which is in no count), snoozed_until and due_at, then (1.14.0) the
     // standing as the portal counts it, status (F1: confirmed | pending |
     // overdue | exempt through matrixStatus with the policy's resolved
-    // grace), and the policy sets the policy belongs to, set (D3). No IP
+    // grace), and the policy sets the policy belongs to, set (D3), then
+    // (1.18.3) asked_through, the handbook a person who cannot open the
+    // space is asked through (blank otherwise). No IP
     // column here: with_ip is false. Every cell goes through
     // csvCell (quotes doubled, a formula-leading value prefixed with a
     // quote), so a name or a note that starts with = never runs when the
@@ -210,6 +212,7 @@ export async function GET(req: Request) {
             ...exemptionCsvCells(r).map(esc),
             esc(matrixStatus(r, d.overdue_grace_days)),
             esc(d.set_names.join("; ")),
+            esc(r.via_handbook_title ?? ""),
           ].join(",")
         );
       }
@@ -238,6 +241,7 @@ export async function GET(req: Request) {
             ...exemptionCsvCells({}).map(esc),
             esc(matrixStatus({ acknowledged_at: r.acknowledged_at }, d.overdue_grace_days)),
             esc(d.set_names.join("; ")),
+            esc(""),
           ].join(",")
         );
       }

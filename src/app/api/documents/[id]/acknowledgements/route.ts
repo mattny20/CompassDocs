@@ -65,7 +65,9 @@ export const dynamic = "force-dynamic";
 // due_at. The headers live in src/lib/read-evidence.ts beside the cell
 // rules. Every cell goes through csvCell (quotes doubled, a
 // formula-leading value prefixed with a quote), so a name or a note that
-// starts with = never runs when the sheet opens.
+// starts with = never runs when the sheet opens. Last (1.18.3),
+// asked_through: the handbook a person who cannot open the space is asked
+// through (blank otherwise).
 //
 // The JSON rows (the Record tab and the portal's expand row, AckRoster) are
 // AckStatusRow as is: with 1.13.0 each carries its assignment (D2:
@@ -272,6 +274,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           ...recert,
           ...exemptionCsvCells(r).map(esc),
           setCell,
+          esc(r.via_handbook_title ?? ""),
         ].join(",")
       ),
       ...former.map((r) =>
@@ -298,6 +301,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           // No assignment row travels with a former staff member: five blanks.
           ...exemptionCsvCells({}).map(esc),
           setCell,
+          // Asked through (1.18.3): a former staff member has no assignment.
+          esc(""),
         ].join(",")
       ),
     ].join("\n");

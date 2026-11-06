@@ -35,6 +35,12 @@ export interface EmailTemplateDef {
    * else inside the value is substituted.
    */
   compose?: string[];
+  /**
+   * Documented tags that render blank when the sender passes no value
+   * (1.18.3: the handbook tags, so a caller that predates them never shows
+   * a raw {{handbook_line}}). Every other unknown tag stays visible.
+   */
+  optional?: string[];
 }
 
 const T = (tag: string, label: string) => ({ tag, label });
@@ -130,6 +136,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     // before 1.18.3 has no {{handbook_line}} and simply leaves it out.
     text: ["requester_name", "doc_title", "change_note", "reason", "handbook_title"],
     compose: ["handbook_line"],
+    optional: ["handbook_line", "handbook_title"],
     subject: '[{{org_name}}] {{request_label}}: confirm "{{doc_title}}"{{due_suffix}}',
     body:
       "**{{requester_name}}** {{request_type}} that you read and confirm:\n\n" +
@@ -160,6 +167,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     // 1.18.3: the handbook tags and {{doc_url}} are each person's, as on ack_request.
     text: ["doc_title", "handbook_title"],
     compose: ["handbook_line"],
+    optional: ["handbook_line", "handbook_title"],
     subject: '[{{org_name}}] {{status_label}}: confirm "{{doc_title}}"',
     body:
       "**{{status_label}}**: you still need to read and confirm **{{doc_title}}**.\n\n" +
@@ -543,6 +551,7 @@ async function renderParts(
   accent: string,
   origin: string
 ): Promise<{ subject: string; text: string; html: string }> {
+  for (const tag of def?.optional ?? []) if (!(tag in vars)) vars = { ...vars, [tag]: "" };
   const bodyVars = { ...vars };
   const tokens: [string, string][] = [];
   for (const tag of def?.text ?? []) {

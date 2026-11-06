@@ -10164,6 +10164,13 @@ export interface PolicyTranscriptRow {
    * (viewer_kind 'self') such a row's space_name and space_icon are ''.
    */
   via_handbook_title: string | null;
+  /**
+   * The same handbook with its id (1.18.3), null exactly when
+   * `via_handbook_title` is: on the person's own record the policy links to
+   * the handbook reader (`/handbooks/{id}/{docId}#confirm-reading`) instead
+   * of /doc/{docId}, which they cannot open.
+   */
+  via_handbook: ViaHandbook | null;
 }
 
 /** One row of the person's notice log (E3), as listAckNotices lists it. */
@@ -10261,7 +10268,7 @@ async function transcriptAccess(userId: number, viewer: SessionUser): Promise<Tr
 }
 
 /** The row as the SQL answers it: PolicyTranscriptRow's columns plus the two successor candidates of a superseded row. */
-type RawTranscriptRow = Omit<PolicyTranscriptRow, "set_names" | "superseded_by"> & {
+type RawTranscriptRow = Omit<PolicyTranscriptRow, "set_names" | "superseded_by" | "via_handbook_title"> & {
   next_at: string | null;
   next_version: number | null;
   dec_at: string | null;
@@ -10339,7 +10346,8 @@ function transcriptAssignmentSql(
   const space = (col: string) => (p.self ? `CASE WHEN ${sees} THEN s.${col} ELSE '' END` : `s.${col}`);
   return `SELECT '${record}' AS record, d.id AS document_id, d.title, d.space_id,
                  ${space("name")} AS space_name, ${space("icon")} AS space_icon,
-                 ${viaHandbookTitleSql(user)} AS via_handbook_title,
+                 CASE WHEN ${sees} THEN NULL
+                      ELSE ${VIA_HANDBOOK_FIRST(user, "json_build_object('id', ah.id, 'title', ah.title)")} END AS via_handbook,
                  pa.id AS assignment_id, pa.source, pa.assigned_at, pa.cycle_started_at, pa.due_at,
                  pa.removed_at, COALESCE(pa.removed_reason, '') AS removed_reason, ${opts.stopped ? "true" : "false"} AS stopped,
                  ${status} AS status,
@@ -10387,7 +10395,7 @@ function transcriptSupersededSql(p: ReturnType<typeof transcriptParams>): string
     p.self ? `CASE WHEN ${sees} THEN COALESCE(s.${col}, '') ELSE '' END` : `COALESCE(s.${col}, '')`;
   return `SELECT 'superseded' AS record, x.document_id, COALESCE(d.title, x.document_title, '') AS title,
                  d.space_id, ${space("name")} AS space_name, ${space("icon")} AS space_icon,
-                 NULL::text AS via_handbook_title,
+                 NULL::json AS via_handbook,
                  NULL::int AS assignment_id, '' AS source, NULL::timestamptz AS assigned_at,
                  NULL::timestamptz AS cycle_started_at, NULL::timestamptz AS due_at,
                  NULL::timestamptz AS removed_at, '' AS removed_reason, false AS stopped,
@@ -10441,8 +10449,11 @@ function transcriptRowOf(r: RawTranscriptRow, sets: Map<number, string[]>): Poli
     superseded_by =
       decision && next ? (new Date(decision.at).getTime() <= new Date(next.at).getTime() ? decision : next) : (decision ?? next);
   }
+  const via = row.via_handbook ? { id: Number(row.via_handbook.id), title: String(row.via_handbook.title) } : null;
   return {
     ...row,
+    via_handbook: via,
+    via_handbook_title: via?.title ?? null,
     set_names: row.document_id != null ? (sets.get(row.document_id) ?? []) : [],
     superseded_by,
   };

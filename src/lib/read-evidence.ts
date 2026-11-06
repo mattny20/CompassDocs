@@ -33,6 +33,15 @@ export const SHORT_READ_TOOLTIP = "Shorter than a typical read of this document"
  */
 export const ATTESTATION_CSV_COLUMNS = "statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at";
 
+/**
+ * The column 1.18.3 appends at the very end of the roster, the matrix and
+ * the person-record CSVs: the title of the handbook a person is asked
+ * through when they cannot open the policy's space (the row's
+ * `via_handbook_title`), blank otherwise and on rows without an assignment
+ * (former staff, prior confirmations).
+ */
+export const ASKED_THROUGH_CSV_COLUMN = "asked_through";
+
 /** The roster header as 1.11.0 shipped it: the prefix every later release keeps in place. */
 const ROSTER_CSV_HEADER_1110 =
   "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent,version_published_by,version_approved_by,read_seconds,reached_end_self_reported";
@@ -56,7 +65,7 @@ export const EXEMPTION_CSV_COLUMNS = "exempt_reason,exempt_by,exempt_until,snooz
  * the names joined with "; ", the same on every row, blank when none) close
  * the line.
  */
-export const ROSTER_CSV_HEADER = `${ROSTER_CSV_HEADER_1110},${ATTESTATION_CSV_COLUMNS},${EXEMPTION_CSV_COLUMNS},${POLICY_SET_CSV_COLUMN}`;
+export const ROSTER_CSV_HEADER = `${ROSTER_CSV_HEADER_1110},${ATTESTATION_CSV_COLUMNS},${EXEMPTION_CSV_COLUMNS},${POLICY_SET_CSV_COLUMN},${ASKED_THROUGH_CSV_COLUMN}`;
 
 /** The matrix header as 1.10.1 shipped it (GET /api/admin/compliance?format=csv). */
 const MATRIX_CSV_HEADER_1101 =
@@ -74,7 +83,7 @@ const MATRIX_CSV_HEADER_1101 =
 export const STANDING_CSV_COLUMNS = "status,set";
 
 /** The matrix CSV header: the 1.10.1 columns in place, the same six (1.12.0), the same five (1.13.0) and the two of 1.14.0 appended. */
-export const MATRIX_CSV_HEADER = `${MATRIX_CSV_HEADER_1101},${ATTESTATION_CSV_COLUMNS},${EXEMPTION_CSV_COLUMNS},${STANDING_CSV_COLUMNS}`;
+export const MATRIX_CSV_HEADER = `${MATRIX_CSV_HEADER_1101},${ATTESTATION_CSV_COLUMNS},${EXEMPTION_CSV_COLUMNS},${STANDING_CSV_COLUMNS},${ASKED_THROUGH_CSV_COLUMN}`;
 
 /** The roster's status column: 'exempt' outranks the confirmation, since an exempt row is in no denominator. */
 export type RosterStatus = "acknowledged" | "pending" | "exempt";
@@ -346,15 +355,15 @@ export function ledgerCsvCells(row: LedgerCsvRow, canExport: boolean): (string |
  * record (the current requirements, then the prior confirmations, the closed
  * assignments and the rows on retired policies), through the same viewer
  * filter as the page, so a lead's file never carries a private-space policy.
- * 21 columns: `status` is confirmed | pending | overdue | exempt on an
+ * 22 columns: `status` is confirmed | pending | overdue | exempt on an
  * assignment row and superseded on a prior confirmation; `removed_at` is
  * filled on a closed assignment; `superseded_by` on a prior confirmation
  * (supersededByText), and reads "no longer required" on a row whose policy
  * stopped asking (`stopped`: the status is the standing frozen then);
- * `ip` only where the viewer may see it.
+ * `ip` only where the viewer may see it; `asked_through` (1.18.3) last.
  */
 export const RECORD_CSV_HEADER =
-  "policy,set,status,source,assigned_at,removed_at,due_at,acknowledged_at,version,version_id,version_source,content_sha256,signed_name,identity_proof,read_seconds,reached_end,ip,exempt_reason,exempt_by,exempt_until,superseded_by";
+  `policy,set,status,source,assigned_at,removed_at,due_at,acknowledged_at,version,version_id,version_source,content_sha256,signed_name,identity_proof,read_seconds,reached_end,ip,exempt_reason,exempt_by,exempt_until,superseded_by,${ASKED_THROUGH_CSV_COLUMN}`;
 
 /** What replaced a superseded confirmation (the db's TranscriptSuccessor satisfies this). */
 export interface RecordSuccessor {
@@ -388,8 +397,10 @@ export interface RecordCsvRow {
   exempt_by_name: string;
   exempt_until: string | Date | null;
   superseded_by: RecordSuccessor | null;
-  /** The policy stopped asking while the row stayed open (a 'closed' row with no removed_at): the last cell says so. */
+  /** The policy stopped asking while the row stayed open (a 'closed' row with no removed_at): the superseded_by cell says so. */
   stopped?: boolean;
+  /** The handbook the person is asked through (1.18.3): the asked_through cell; blank when absent or null. */
+  via_handbook_title?: string | null;
 }
 
 /** The last cell of a row whose policy stopped asking (the page's "No longer required"). */
@@ -434,5 +445,6 @@ export function recordCsvCells(row: RecordCsvRow): (string | number)[] {
     row.exempt ? row.exempt_by_name : "",
     row.exempt ? stampCell(row.exempt_until) : "",
     row.superseded_by ? supersededByText(row.superseded_by) : row.stopped ? RECORD_STOPPED_CELL : "",
+    row.via_handbook_title ?? "",
   ];
 }
