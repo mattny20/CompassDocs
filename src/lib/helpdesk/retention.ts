@@ -279,9 +279,31 @@ export function redactAuditDetails(v: unknown, names: Set<string>, key = ""): un
   }
   if (Array.isArray(v)) return v.map((x) => redactAuditDetails(x, names, key));
   if (v && typeof v === "object") {
-    return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, redactAuditDetails(x, names, k)]));
+    // contact_id (1.19.2, a portal rating's contact) would lead back to the customer's address.
+    return Object.fromEntries(
+      Object.entries(v as Record<string, unknown>)
+        .filter(([k]) => k !== "contact_id")
+        .map(([k, x]) => [k, redactAuditDetails(x, names, k)])
+    );
   }
   return v;
+}
+
+/**
+ * 1.19.2 review (agent W5): the actor name an anonymised ticket's audit row
+ * takes when its actor is the requester's side with no account (actor_id
+ * NULL, and the name is "Customer portal…" or carries a requester-side
+ * address or name), or null to leave the row's actor alone.
+ */
+export function requesterSideActor(a: { actor_id: number | null; actor_name: string; ip: string | null }, emails: string[], names: Set<string>): string | null {
+  if (a.actor_id !== null) return null;
+  const name = a.actor_name ?? "";
+  const lower = name.toLowerCase();
+  const portal = lower.startsWith("customer portal");
+  const named = names.has(name) || emails.some((e) => e && lower.includes(e.toLowerCase()));
+  if (!portal && !named) return null;
+  const next = portal ? "Customer portal" : HD_FORMER_REQUESTER;
+  return next === name && a.ip === null ? null : next;
 }
 
 /** A report line with the requester-side names in it (as actor, or as "to …") replaced. */
@@ -382,6 +404,10 @@ export async function anonymiseTicketTx(client: PoolClient, ticketId: number, no
   if (opt.has("hd_reply_drafts")) await client.query("DELETE FROM hd_reply_drafts WHERE ticket_id = $1", [ticketId]);
   if (opt.has("hd_time_entries")) await client.query("UPDATE hd_time_entries SET note = '' WHERE ticket_id = $1 AND note <> ''", [ticketId]);
   if (opt.has("hd_ticket_presence")) await client.query("DELETE FROM hd_ticket_presence WHERE ticket_id = $1", [ticketId]);
+  // 1.19.2: checklist items may name the requester (agent W3, lib/helpdesk/checklists).
+  await (await import("./checklists")).anonymiseChecklistsTx(client, ticketId);
+  // 1.19.2: an incident's own ticket: its updates, title and their audit copies (agent W1, lib/helpdesk/incidents).
+  await (await import("./incidents")).anonymiseIncidentTx(client, ticketId, ANONYMISED_SUBJECT);
   const files = await client.query<{ stored_name: string }>("DELETE FROM hd_attachments WHERE ticket_id = $1 RETURNING stored_name", [ticketId]);
   await client.query(
     `UPDATE hd_tickets
@@ -400,8 +426,8 @@ export async function anonymiseTicketTx(client: PoolClient, ticketId: number, no
     [links, `${links[0]}?%`, `${links[1]}?%`, `#${t.number} ${ANONYMISED_SUBJECT}`, nameList, HD_FORMER_REQUESTER]
   );
   // Its audit rows keep the action, actor, time and ids; the subject, names and addresses go.
-  const audits = await hq<{ id: number; details: unknown; target_label: string | null }>(
-    `SELECT id, details, target_label FROM audit_log
+  const audits = await hq<{ id: number; details: unknown; target_label: string | null; actor_id: number | null; actor_name: string; ip: string | null }>(
+    `SELECT id, details, target_label, actor_id, actor_name, ip FROM audit_log
       WHERE target_type = 'helpdesk_ticket'
         AND (target_id = $1 OR (action LIKE 'helpdesk.time.%' AND target_id = $2))`,
     [String(ticketId), String(t.number)],
@@ -413,6 +439,11 @@ export async function anonymiseTicketTx(client: PoolClient, ticketId: number, no
     if (JSON.stringify(details) !== JSON.stringify(a.details) || a.target_label !== label) {
       await client.query("UPDATE audit_log SET details = $2, target_label = $3 WHERE id = $1", [a.id, details == null ? null : JSON.stringify(details), label]);
     }
+    // 1.19.2 review (agent W5): a row whose actor is the requester's side
+    // with no account (a portal rating; "Customer portal: <address>" before
+    // the review) loses the address and the IP.
+    const actor = requesterSideActor(a, emails, names);
+    if (actor !== null) await client.query("UPDATE audit_log SET actor_name = $2, ip = NULL WHERE id = $1", [a.id, actor]);
   }
   if (!t.anonymised_at) {
     await client.query(
@@ -767,6 +798,8 @@ export interface HdPersonalExport {
     /** Their own requests: the public conversation. Otherwise: only their own public messages. */
     conversation: { from: string; at: string; text: string; files: string[]; from_request?: number }[];
   }[];
+  /** 1.19.2: major incidents they said affect them ("Me too" in Get help; agent W1, lib/helpdesk/incidents). */
+  incidents_affected?: { incident: string; at: string }[];
 }
 
 /**
@@ -819,7 +852,8 @@ export async function personalHelpdeskExport(userId: number): Promise<HdPersonal
       ORDER BY t.created_at, t.id`,
     [userId, email]
   );
-  if (!tickets.length) return { included: true, requests: [] };
+  const incidentsAffected = await (await import("./incidents")).incidentsAffectedFor(userId);
+  if (!tickets.length) return { included: true, requests: [], incidents_affected: incidentsAffected };
   const own = tickets.filter((t) => t.relation === "requester");
   const msgs = await hq<{
     id: number;
@@ -862,6 +896,7 @@ export async function personalHelpdeskExport(userId: number): Promise<HdPersonal
   for (const t of tickets) if (t.relation !== "requester") conversations.set(t.id, conversationOf(t));
   return {
     included: true,
+    incidents_affected: incidentsAffected,
     requests: tickets.map((t) => ({
       number: t.number,
       subject: t.subject,

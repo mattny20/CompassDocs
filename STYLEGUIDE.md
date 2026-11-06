@@ -1169,6 +1169,19 @@ and `py-1.5` (`dense`) in the settings and account rails. Group labels
   `w-sidebar-rail`, `w-rail`, or `var(--container-rail)` in a grid template),
   so the sidebar and the rails grow together with the interface scale. The
   collapsed rail's right-placed tooltip offset assumes the 4rem token.
+- **A rail row's badge** (1.19.2) goes in `RailLink`'s `badge` slot, never
+  in the label: it sits at the row's end and the label wraps beside it
+  (no truncation while a badge shows). The desk settings rail's **New**
+  chip is `chipClass("label", "sm")` ("New", violet, the product-label
+  tone) on the pages of the release's list (`lib/helpdesk/whats-new-shared`
+  `DESK_NEW_PAGES`); it goes, per person, the first time they open the
+  page. The release strip ("New in 1.19.2: A, B and C. The New badge goes
+  once you've opened the page.") is the info tint (`border-compass-200
+  bg-compass-50`, `Sparkles` in `text-compass-600`, `role="note"`) under
+  the Teams page's header, with a quiet `X` icon button (`aria-label`
+  "Dismiss what's new in 1.19.2", `data-tt` "Dismiss"); dismissed, it stays
+  gone for that person. A release replaces the list and the version;
+  nothing else changes.
 - A destination behind the sidebar's More fold that carries a badge is
   rendered with the fold open and the toggle hidden, exactly as the current
   page is: the accent pill means work waiting for you, and it is never
@@ -3427,6 +3440,41 @@ for Rules).
 - **Pause auto-assign** lives in the top bar's availability menu as a
   `menuitemcheckbox` under the three availability rows, with a hint line
   like theirs; it only appears for someone in at least one team.
+- **The rule editor's "Assign to" is `RadioCards`** (1.19.2): one card per
+  way to assign, its name and one sentence (`HD_ASSIGN_ACTION_HINT`); the
+  chosen card's own controls (the person, or the skills panel) sit under
+  its sentence. "The team's turn" is the team's own mode.
+
+## Helpdesk: skills and languages
+
+Desk settings → **Skills and languages** (1.19.2, `/desk/settings/skills`,
+lucide `Languages`, in the People group after Agents), components in
+`components/helpdesk/desk/skills`.
+
+- **Two tag kinds, two chip tones**: a skill is a `neutral` `Chip`, a
+  language an `accent` one (`SkillChip`, `language` prop), everywhere they
+  show (the lists, the agents table, the rule editor). Never the `Tag`
+  component (that is directory attributes) and never a third tone.
+- **The page**: two cards side by side from `lg` (Skills, Languages), each
+  row a chip, "N agents" in `tabular-nums` slate-500 and, for
+  `teams.manage`, quiet icon buttons (Rename, Delete / Remove; `data-tt` and
+  `aria-label`); the card's `secondary` `sm` **Add skill** / **Add
+  language** in its header. Under the languages, one sentence on where a
+  ticket's language comes from. Then the agents `Table` (`scroll`, Agent ·
+  Teams · Skills · Languages · a Pencil per row the viewer may change) whose
+  edit is a `Modal` of checkboxes. A lead sees only their teams' people as
+  editable and a line saying so.
+- **The skills action in a rule** (`SkillsActionPanel`): bordered pills
+  reading as a sentence, "Speaks [select]" and "and knows [chip ×]", then a
+  quiet **+ Skill** `PickMenu`; "Nobody matching available?" with a `Select`
+  (fall back to the team's turn / wait in the queue); and the live **"N
+  agents match today"** band (`border-compass-200 bg-compass-50`,
+  `UsersRound`, `aria-live="polite"`), with who matches but can't take one
+  now in a slate-600 `text-xs` line under it.
+- **On a ticket**, the language is a Properties row like Priority (a pill
+  menu; `Languages` icon in slate-400; "Unknown" in slate-500 when not
+  known), its source as the trigger's `data-tt` and in its `aria-label`.
+  Changing it writes an internal timeline line, never a public one.
 
 ## Helpdesk: customer portal
 
@@ -3496,6 +3544,25 @@ account, so there is no preference to honour and no app shell.
   (search, a `sm` **Blocked** `error` chip, Block behind a danger
   `confirmDialog`). A `notice-warn` asks for the workspace domain when the
   portal is on without one.
+- **The satisfaction survey** (1.19.2, `PortalSurvey`, mock e3) sits under
+  the request's title once it is solved or closed and not yet rated: one
+  `bg-surface` `rounded-xl` card, the question centred and bold ("This
+  request is solved. How did we do?"), three radio tiles in a row (a
+  `sr-only` radio in each label; `w-24`/`sm:w-28`, `rounded-xl`,
+  `border-[1.5px]`, lucide `Smile`/`Meh`/`Frown` at 28px; the chosen tile is
+  `border-compass-500 bg-compass-50` with a `text-compass-600` icon, the
+  others `border-slate-200` with `text-slate-400` icons), then "Anything to
+  add? (optional)" over a `Textarea` and **Send** at the end. Never stars
+  or a 1-to-5 row in the portal. The email's rating links open the
+  request with the answer preselected; the customer still presses Send.
+  Once rated the card says thanks with the answer's icon and their comment
+  in quotes. `print:hidden`.
+- **The kept request** lists each of the customer's own requests joined
+  with it (`PortalJoinedNotice`): a `bg-surface` card, the day in
+  `text-xs text-slate-500` ("Earlier today", "Yesterday", else the date,
+  in the reader's zone), then "Your request #N was joined with this one,
+  because it was about the same problem. Replies to either go here." No
+  icon, no link (they are on the kept request already).
 
 ## Helpdesk: drafts from Claude and the Claude connector
 
@@ -3594,6 +3661,130 @@ Merging duplicate tickets and changing many at once from the queue
   (`ArrowUpRight`). The status menu becomes the plain status chip. The
   messages route and PATCH status answer 409 with the same sentence.
 
+## Helpdesk: major incidents
+
+One ticket for an outage, with the tickets people raise about it linked to
+it (1.19.2, Enterprise `helpdesk`; components in
+`components/helpdesk/desk/incidents`, Get help's in
+`components/helpdesk/help/IncidentBanners`).
+
+- **Red is for an open incident only.** The incident's own ticket has a
+  `notice-error` strip above its header (`Siren`, "**Major incident** ·
+  declared by Ana Kowalski 48m ago · 34 tickets linked · shown in Get
+  help"), which turns neutral (`border-slate-200 bg-slate-50`) once it is
+  solved. Its queue row's chip is `chipClass("error", "sm")` with `Siren`,
+  "Major incident"; a linked row's chip is neutral with `Link2` and the
+  incident's number. The queue's views column has a **Major incidents**
+  group (house rail rows, `Siren` in red, the open linked count in red
+  semibold), shown only while one is open.
+- **A linked ticket** shows a neutral strip above its header ("Linked to
+  major incident #1101 VPN is down from home · its updates reach this
+  requester") with a ghost **Unlink** that confirms first; the incident's
+  number is a link only for someone who works its ticket.
+- **The incident's cards** sit in the main column above the conversation:
+  *Updates to everyone affected* (eyebrow with `Megaphone`; each update is
+  time, text and "Ana Kowalski · sent to 34 requesters and shown in Get
+  help", from `sentLine`), its composer (a framed textarea, then "Solve the
+  incident and its 34 linked tickets" and a primary **Post update** with
+  `Send`; solving confirms and lists what it will do), and *Linked tickets
+  · 34* (a table with a screen-reader header, rows' Unlink as a hover icon
+  button with `aria-label` and `data-tt`, the rule as inline `code` words
+  with an Edit pencil, and "Tell requesters when their ticket is linked").
+  The side column starts with *Get help banner* (who sees it, a "Shown to"
+  menu, a preview in `notice-error`, the Me too and affected counts) and,
+  only when the Status page has an internal service, *Status page* (a
+  `Toggle`).
+- **Per-ticket results** ("2 tickets linked. 1 skipped." / "… left open")
+  are one toast with **See why**, opening a dialog that lists each ticket
+  with the server's own sentence, as the bulk bar does.
+- **The declare dialog** (mock-up a2) is the house Modal: `Siren` title,
+  one lede, Title, Team and Priority (two columns from `sm`), the tickets
+  to link as one checked radio card, the rule as a prefixed input
+  ("Subject or description contains:" in muted ink inside the control),
+  the two checkboxes, and **Declare incident** with `Siren`.
+- **A control inside a frame** (the prefixed input, the update composer)
+  takes `.frame-input` (globals.css, beside `.cmd-input` and `.tiptap`):
+  the frame carries the focus outline with
+  `has-[:focus-visible]:outline-2 outline-compass-600` (300 in dark), so
+  there is one ring, never one inside another.
+- **Get help** shows one `notice-error` card per incident under the page
+  header (`Siren`, the title in `font-semibold`, the latest update, then
+  "IT Service Desk · last update 10:42 · 61 people affected" at
+  `opacity-80`) with a secondary `sm` **Me too** (`Users`; `Check` and
+  `aria-pressed` once pressed; pressing again takes it back). It wraps
+  under the text on a phone. It never shows a ticket number or an agent's
+  name.
+
+## Helpdesk: status services per team
+
+The Status page's services on the desk, chosen per team (1.19.2, agent W6,
+Enterprise `helpdesk`; components in `components/helpdesk/desk/team-status`,
+rules in `lib/helpdesk/status-teams`). The Status page itself is unchanged
+and stays the one place services are added.
+
+- **One poll feeds every piece.** `TeamStatusProvider` (in `DeskShell`)
+  asks `GET /api/helpdesk/team-status` once a minute while the tab is
+  visible and when it comes back; the pill, the pop-ups and the queue
+  banner read its answer. Never a second poll per piece.
+- **The top-bar pill** sits left of **CompassDocs**. While a followed
+  service is degraded or out it is a `rounded-full border h-8` button in
+  `notice-warn` (degraded) or `notice-error` (any outage) with a
+  `StatusDot`, "N services affected" (the number alone under `sm`) and
+  `ChevronDown`; otherwise a quiet `Activity` icon button
+  (`data-tt` "Service status") with a green dot. It opens a `Popover`
+  (`role="dialog"`, "Your teams' services"): "Services for {teams}", "From
+  the Status page · checked 2m ago" (vendor feeds only), one row per
+  service (dot, name, detail or "All systems normal", the state chip),
+  then a hairline footer: where services are chosen (a link to Desk
+  settings → Teams for `teams.manage`, a **Choose services for {team}**
+  button opening the same editor in a dialog for a team's lead, or "Your
+  team lead chooses these services.") and **Status page** with
+  `ExternalLink` in a new tab. An agent sees only their teams' services,
+  and nothing at all without the workspace's `status.read` (the Status
+  page's own permission): no pill, pop-ups, banners or notices.
+- **State colours** are `StatusDot` (emerald operational, amber degraded,
+  red outage, sky maintenance, slate unknown; decoration only, the state is
+  always written beside it) and `stateTone()` for chips (`ok`, `warn`,
+  `error`, `info`, `neutral`). Copy comes from `stateSentence()`: "is
+  degraded", "is down", "is operational again".
+- **Pop-ups** are cards, not toasts: fixed bottom-right under the toast
+  host (`z-40`, `w-[min(25rem,calc(100vw-2rem))]`, `shadow-modal`,
+  `bg-surface` with an amber, red or emerald border), at most three, in an
+  `aria-live="polite"` region. A down card: `CircleAlert`, "{service} is
+  degraded", "{detail}. Started 10:14, 3 new tickets mention mail since.",
+  a `sm` primary **Declare major incident** with `Siren` (only when the
+  agent may run incidents in that team; once a major incident is open for
+  the service, a `sm` secondary **Major incident #N** link to it instead,
+  never a second declare) and a `sm` secondary **View
+  details** (opens the pill's popover), and a 28px `X` with an
+  `aria-label` naming the service. A recovery note (`CircleCheck`, "Back
+  to normal at 11:02…") follows only for those who saw the pop-up; a solve
+  ask (`Siren`, "{service} is operational again" or "is under
+  maintenance", **Solve incident and linked tickets** / **Not now**) goes
+  to the people who can still run the incident. Trouble that returns
+  within ten minutes is the same spell: no second pop-up or bell. Dismissing is remembered on the server, one
+  pop-up per person per episode.
+- **The queue banner** opens a team's list (under the list header, above
+  the bulk bar) while a followed service is degraded or out: `notice-warn`
+  or `notice-error`, `role="status"`, the dot, "**{service} is degraded**
+  since 10:14", the detail, then `sm` secondary **Declare major incident**
+  (`Siren`; or **Major incident #N** when one is open for it) and **Hide for today** (`EyeOff`; per person, until the end of
+  their day). Pop-up level "off" still shows it.
+- **Choosing services** (Desk settings → Teams, the "Status services for
+  {team}" section beside "Reply targets"; the same `TeamStatusServices`
+  editor in the lead's dialog): one sentence on what agents get, a house
+  table (follow checkbox labelled by the service's name, **Service**,
+  **Now** chip, **Pop-up for** `Select dense` shown only when ticked:
+  Outage and degraded, Outage only, Off (banner only)), then "Need another
+  service? Add it on the Status page…" and one **Save** (disabled until
+  something changed). Saving toasts "{team}'s status services saved."
+- **Declaring from a service** reuses W1's dialog with `fromStatus`: the
+  lede "Started from the Status page: {service} is degraded.", the title
+  and auto-link words prefilled, "Link the N open tickets that mention
+  {word} since 10:14" in place of the selection card, and "Solve the
+  incident's tickets when {service} is operational again (asks first)".
+  Nothing is ever solved without a person's click.
+
 ## Helpdesk: recurring tickets and time tracking
 
 Recurring tickets and the Time card (1.19.1, agent V8). Components live in
@@ -3683,3 +3874,140 @@ may be written until the person has seen what will happen.
   or failure. The page polls; the job id travels in the address (`?job=12`)
   so a reload returns to it, and the page loads the job before its first
   render so step 1 never flashes.
+- **A check in the background** (1.19.2, mock e1: the dry run, or reading
+  the export again after a column change) replaces its step's card while
+  it runs: a `Spinner` and "Checking your export" (or "Reading your export
+  again") with the file and ticket count at the end of the row, the `h-2`
+  compass bar, under it "13,800 of 30,000 tickets checked · about 3 minutes
+  left" (`aria-live="polite"`) and the percentage at the end; for a dry run
+  four count tiles with the label *above* the number ("To create", "To
+  update", "Contacts matched", "Skipped so far"; `text-xl font-bold
+  tabular-nums`), then the info strip with `Bell`: "You can leave this
+  page. We'll tell you in the bell when the dry run is ready." and, for a
+  dry run, **Stop** (secondary) beside the import button waiting disabled
+  with the count so far. A rescan has no Stop. The time left appears only
+  once there is a pace to go on (`importTimeLeft`). A check that failed
+  shows its reason as a `notice-error` on the map step.
+
+## Helpdesk: canned responses
+
+Text-only snippets (1.19.2), separate from macros: inserting one never
+changes the ticket. Components: `desk/ticket/CannedPicker.tsx` (the
+composer's picker), `desk/settings/CannedSettings.tsx` and
+`CannedBodyEditor.tsx` (the library); the pure rules are
+`lib/helpdesk/canned-shared`.
+
+- **An inline trigger keeps the typing in the box, and never eats it.** `;`
+  at the start of a word arms the picker; it shows *under* the composer
+  toolbar (anchored on the Canned response button, `side="bottom"`,
+  scrolled into view) only once two letters follow and a response's
+  **name or folder** matches (`inlinePickerShows`; the text is not
+  searched here). Until it shows, every key is the box's own: ` ;` then
+  Enter is a line break, `;D` stays a wink. The agent keeps typing in the
+  reply box and the picker's search row mirrors what follows the `;` (with
+  a `;` `kbd` at its right). ↑/↓ move the active row, Enter or Tab inserts
+  it in place of `;query`, Escape (the overlay stack) closes and leaves the
+  text; keys during IME composition (`isComposing`, keyCode 229) are never
+  taken. A refused insert (the response was deleted or moved) inserts
+  nothing: the server's sentence is a toast and the list reloads. While it is open the textarea carries
+  `aria-controls`, `aria-autocomplete="list"` and `aria-activedescendant`,
+  and a polite `sr-only` line says how many match. Never fire mid-word or
+  in a URL (`cannedTrigger`): the `;` must follow the start, a space or a
+  line break, and the query must start with a letter or digit, so `; ` and
+  `;)` stay punctuation. Triggers never overlap: `/` (empty box, macros),
+  `;` (canned responses), `[[` (articles).
+- **The picker** is a `Popover` (`p-0`, `w-[min(29rem,calc(100vw-2rem))]`)
+  with a search row, a `role="listbox"` of `role="group"` sections headed
+  in `RAIL_GROUP_TEXT` (the ticket's team, other teams, Workspace, Mine),
+  options with `MessageSquareText`, the title (`font-medium`) and a
+  two-line preview in `text-xs text-slate-500` (placeholders shown as
+  written), an `↵` `kbd` on the active row, and a footnote under a
+  hairline: "Inserts text at the cursor. Canned responses never change the
+  ticket; use a macro for that." From the button, the search row is a real
+  `role="combobox"` input.
+- **Placeholders as chips.** In the library editor the text is a
+  `role="textbox" aria-multiline` contenteditable in the house control
+  recipe (`controlClass`) where each `{{tag}}` is a neutral `Chip`
+  (`contenteditable="false"`, `data-ph`) reading in words ("requester
+  first name", "ticket number", "my first name"); the chips under it
+  insert one at the caret. The stored value stays plain text with
+  `{{tags}}`. An unknown placeholder, or a stray `{{` / `}}` (a one-brace
+  typo), is refused on save and left out on insert, so a reply never
+  carries raw braces.
+- **The library** (Desk settings → Canned responses, `MessageSquareText`):
+  the filter row is a `Segmented` (All, Workspace, each team, Mine; a
+  `Select` when there would be more than five), a search box and a primary
+  **New**; the table's Shared with is a neutral chip ("Only me", the team,
+  "Workspace"), Folder an ink cell with `Folder`, Used (30 days) a number
+  (both columns hidden under `sm`), and a quiet pencil (`Eye` for a row the
+  viewer can read but not edit). The editor is a card under the table,
+  headed in the eyebrow tier ("Editing · {name}"), never a modal, with
+  Save, Cancel, "Unsaved changes" and a ghost Delete on the right.
+  Managers also get a "Deactivated people's personal responses" card: who
+  and how many (never the text), each with a ghost Delete that asks first.
+- **Deleting a team** says how many canned responses go with it in its
+  confirm dialog (`cannedTeamDeleteNote`).
+
+## Helpdesk: checklists
+
+Checklists on tickets (1.19.2, agent W3; mock-ups c1 and c2). Components
+live in `components/helpdesk/desk/checklists`.
+
+- **On a ticket** each checklist is its own `CARD_CLASS` section in the
+  main column, between the workflow banners and the conversation: the
+  eyebrow tier with `ListChecks` and the name, "4 of 7 done" in
+  `text-sm text-slate-500`, then quiet 28px icon buttons on the right
+  (**Add an item** `Plus`, **Remove checklist** `Trash2` with
+  `hover-danger`; each with `aria-label` and `data-tt`). Under it a 6px
+  progress bar (`bg-slate-100` track, `bg-compass-600` fill,
+  `role="progressbar"` with "n of m done" as its value text). Items are
+  hairline rows: a native checkbox (`accent-compass-600`) with its own
+  label; a done item's title is struck through in `text-slate-500` (never
+  400); an open required item carries a `warn` `sm` chip **Required**. The
+  right-hand meta is `text-xs text-slate-500`: who ticked it, or the owner
+  team · "due Mon Jan 4" (`shortDate`), in `ink-warn` once overdue. One
+  note under the last card: "Ticking an item is noted on the timeline.
+  Required items must be done before the ticket can be solved."
+- **Ticking is optimistic**: the box changes at once and goes back if the
+  server refuses. A closed or merged ticket's checklists are read-only.
+- **The side card** "Checklists" lists each one's name (an in-page link
+  to its card) and `n/total` in `font-bold tabular-nums` (`ink-warn`
+  while required items are open), then a full-width secondary **Add a
+  checklist** that opens a picker menu (§Overlays and modals) of the
+  library, each option's hint "7 items · 2 required". An empty library
+  is a `SectionEmpty` with "Set one up" for people who manage it.
+- **A refused solve** (every path: Solve, `e`, Send and set Solved, a
+  macro, bulk edit, the Claude connector) says "Finish the required
+  checklist items first: "…", "…" and 2 more." The desk toasts it and
+  scrolls to the first checklist with an open required item, focusing it.
+  The sentence's prefix (`CHECKLIST_BLOCK_PREFIX`) is how the desk tells
+  it from a task's hand-off 409, which opens Mark done instead.
+  On a team that asks for time on solve, the desk checks first
+  (`checklistsHoldSolve`): a blocked solve never opens "Log your time" or
+  stops the timer. A reply sent while an item was unticked meanwhile is
+  still sent, with a second toast "Sent, but the status didn't change."
+- **The library** (Desk settings → Checklists, `ListChecks`; Request types
+  uses `List`): a house table (Checklist · Items · Added automatically to
+  · Used; Items and Used fold into the first cell's second line under
+  `sm`), each row a stretched button (`aria-current`, `bg-compass-50`)
+  as in Recurring tickets. **New checklist** is the header's action.
+- **The editor** is a card under the table, headed in the eyebrow tier
+  ("Editing · Leaver: IT"), never a modal: Name, then the items as
+  hairline rows. Each row: a `GripVertical` grip (drags with a pointer;
+  clicked or from the keyboard it opens a menu with Move up / Move down),
+  the title as a borderless input that shows its border on hover and
+  focus (Enter goes to the next item or adds one), then the item's state
+  in words (**Required** `warn` chip, the owner team and "Due +2 days" as
+  `text-xs text-slate-500`), a quiet `SlidersHorizontal` that opens a
+  popover (Required `Toggle`, Owner team, Due in business days) and a
+  quiet `X` remove. **Add item** is a secondary `sm` button. "Add it
+  automatically" lists request types as bordered checkbox labels, and the
+  workflow tasks that add it read-only beneath. The action row: ghost
+  **Delete** (`hover-danger`, `mr-auto`), amber "Unsaved changes",
+  primary **Save checklist**.
+- **The workflow builder's Task step** has a "Checklists" section like
+  "If the team can't do it": rows naming each chosen checklist with its
+  item count and a quiet `X`, and a secondary `sm` **Add checklist**
+  picker.
+- Requesters, CCs and portal customers never see checklists: no
+  requester route returns them and every timeline line is internal.

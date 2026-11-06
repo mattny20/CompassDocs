@@ -98,6 +98,7 @@ import {
 } from "./import-shared";
 import type {
   DepartmentTarget,
+  ImportCheckProgress,
   ImportCounts,
   ImportFileKind,
   ImportJobStatus,
@@ -248,7 +249,14 @@ interface JobRow {
   updated_at: string;
   heartbeat_at: string | null;
   finished_at: string | null;
+  // 1.19.2 (agent W5, lib/helpdesk/import-check): the background dry run / rescan.
+  check_kind?: string;
+  check_progress?: ImportCheckProgress;
+  check_by?: number | null;
+  check_error?: string;
 }
+
+export type ImportJobRow = JobRow;
 
 export async function getImportJob(id: number): Promise<JobRow | undefined> {
   if (!Number.isInteger(id) || id <= 0) return undefined;
@@ -285,6 +293,11 @@ export async function jobView(row: JobRow): Promise<ImportJobView> {
     dry_run: stripSkipped(row.counts.dry_run),
     result: stripSkipped(row.counts.result),
     progress: row.progress ?? {},
+    check: {
+      kind: row.check_kind === "dry_run" || row.check_kind === "rescan" ? row.check_kind : null,
+      progress: row.check_progress ?? {},
+      error: row.check_error ?? "",
+    },
     next_number: await nextTicketNumber(),
   };
 }
@@ -330,9 +343,16 @@ export async function createImportJob(input: {
 }
 
 /** Attach (or replace) a generic import's messages CSV, then rescan. */
-export async function attachMessagesFile(id: number, stored: { name: string; size: number }, filename: string): Promise<JobRow> {
+export async function attachMessagesFile(
+  id: number,
+  stored: { name: string; size: number },
+  filename: string,
+  /** 1.19.2: read the export again in the background (lib/helpdesk/import-check), for this person. */
+  opts: { background?: { by: number | null } } = {}
+): Promise<JobRow> {
   const job = await getImportJob(id);
   if (!job || job.status === "discarded") throw new ImportError("That import was not found.", 404);
+  assertNotChecking(job);
   if (!["uploaded", "ready"].includes(job.status)) throw new ImportError("This import has already started.", 409);
   if (job.source !== "csv") throw new ImportError("Only a CSV import takes a separate messages file.");
   if (await isZipFile(storedPath(stored.name))) {
@@ -340,16 +360,69 @@ export async function attachMessagesFile(id: number, stored: { name: string; siz
     throw new ImportError("The messages file must be a CSV file.");
   }
   const files = job.files as ImportFiles;
-  await removeStored(files.messages);
   const next: ImportFiles = { ...files, messages: stored.name, messages_filename: cleanFilename(filename), size: files.size + stored.size };
-  await hq("UPDATE hd_import_jobs SET files = $2, updated_at = now() WHERE id = $1", [id, JSON.stringify(next)]);
+  // 1.19.2 review: only while the job still takes a file (a check or an
+  // import that began since the read is never overwritten), and the old file
+  // goes only once the new one is recorded.
+  const written = await hqOne<JobRow>(
+    "UPDATE hd_import_jobs SET files = $2, updated_at = now() WHERE id = $1 AND status IN ('uploaded', 'ready') RETURNING *",
+    [id, JSON.stringify(next)]
+  );
+  if (!written) {
+    await removeStored(stored.name);
+    throw await changedUnderneath(id);
+  }
+  await removeStored(files.messages);
+  if (opts.background) return (await import("./import-check")).queueImportCheck(id, "rescan", opts.background.by);
   return rescanJob(id);
+}
+
+/** A background check holds the job (1.19.2, lib/helpdesk/import-check): nothing else changes it meanwhile. */
+function assertNotChecking(job: JobRow): void {
+  if (job.status === "checking") throw new ImportError("The export is being checked. Wait for it to finish, or stop the check.", 409);
+}
+
+/** The refusal when a conditional write found the job moved on since it was read (a check or an import began). */
+async function changedUnderneath(id: number): Promise<ImportError> {
+  const now = await getImportJob(id);
+  if (now?.status === "checking") return new ImportError("The export is being checked. Wait for it to finish, or stop the check.", 409);
+  if (!now || now.status === "discarded") return new ImportError("That import was not found.", 404);
+  return new ImportError("This import has already started.", 409);
+}
+
+/**
+ * What a scan was made from (1.19.2 review): the column choices and the
+ * files. A scan whose basis no longer matches the job (new columns or a new
+ * messages file saved, and the rescan failed or hasn't run) is stale: the
+ * next save reads the export again, and the dry run refuses to plan on it.
+ */
+export function scanBasis(columns: ImportMapping["columns"] | undefined, files: Partial<ImportFiles> | Record<string, never>): string {
+  const flat = (["tickets", "messages", "comments"] as const)
+    .flatMap((kind) => Object.entries((columns?.[kind] ?? {}) as Record<string, string>).filter(([, h]) => h).map(([f, h]) => `${kind}.${f}=${h}`))
+    .sort();
+  const f = files as Partial<ImportFiles>;
+  return [...flat, `files=${f.main ?? ""}|${f.messages ?? ""}`].join("\n");
+}
+
+/** The job's scan was made from its current columns and files (a scan from before 1.19.2 has no basis and counts as current). */
+export function scanIsCurrent(job: Pick<JobRow, "counts" | "mapping" | "files">): boolean {
+  const basis = job.counts.scan?.basis;
+  if (!basis) return true;
+  return basis === scanBasis("columns" in job.mapping ? (job.mapping as ImportMapping).columns : undefined, job.files);
+}
+
+/** The dry run's refusal on a stale scan. */
+export function assertScanCurrent(job: Pick<JobRow, "counts" | "mapping" | "files">): void {
+  if (!scanIsCurrent(job)) {
+    throw new ImportError("The export hasn't been read with these columns and files yet. Save the mapping to read it again, then run the dry run.", 409);
+  }
 }
 
 export async function discardImportJob(id: number): Promise<JobRow | undefined> {
   const job = await getImportJob(id);
   if (!job) return undefined;
   if (job.status === "running" || job.status === "queued" || job.status === "cancelling") throw new ImportError("Stop the import before discarding it.", 409);
+  assertNotChecking(job);
   await removeJobFiles(job.files);
   return hqOne<JobRow>("UPDATE hd_import_jobs SET status = 'discarded', files = '{}', updated_at = now(), finished_at = COALESCE(finished_at, now()) WHERE id = $1 RETURNING *", [id]);
 }
@@ -915,7 +988,32 @@ function bump(map: Map<string, number>, k: string): void {
 export async function rescanJob(id: number): Promise<JobRow> {
   const job = await getImportJob(id);
   if (!job) throw new ImportError("That import was not found.", 404);
+  const { mapping, scan } = await scanExport(job);
+  const row = await hqOne<JobRow>(
+    `UPDATE hd_import_jobs SET mapping = $2, counts = jsonb_build_object('scan', $3::jsonb), status = 'uploaded', check_error = '', updated_at = now()
+      WHERE id = $1 AND status IN ('uploaded', 'ready') RETURNING *`,
+    [id, JSON.stringify(mapping), JSON.stringify(scan)]
+  );
+  if (!row) throw await changedUnderneath(id);
+  return row;
+}
+
+/** What one pass of a scan has read (1.19.2: the background rescan's progress). */
+export type ScanObserver = (p: { rows: number; tickets: number }) => Promise<void>;
+
+/**
+ * Read the export: files, headers, values to map, agents and contacts, and
+ * the mapping kept from before (rescanJob writes it; the background rescan,
+ * lib/helpdesk/import-check, writes it under its lease). `observe` is told
+ * every 500 rows read.
+ */
+export async function scanExport(job: JobRow, observe?: ScanObserver): Promise<{ mapping: ImportMapping; scan: ImportScan }> {
   const layout = await openLayout(job);
+  let seenRows = 0;
+  const tick = async (tickets: number) => {
+    seenRows++;
+    if (observe && seenRows % 500 === 0) await observe({ rows: seenRows, tickets });
+  };
   const existing = "columns" in job.mapping ? (job.mapping as ImportMapping) : null;
   const warnings: string[] = [];
   if (!layout.entries.tickets && layout.kind === "zip") warnings.push("No tickets file was found in the zip (a CSV named like Tickets.csv or Cases.csv).");
@@ -950,6 +1048,7 @@ export async function rescanJob(id: number): Promise<JobRow> {
   let tickets = 0;
   for await (const r of rowsOf(layout, "tickets")) {
     tickets++;
+    await tick(tickets);
     bump(fileRows, r.file);
     const t = extractTicket(r.values, cols.tickets, lk);
     if (t.department) bump(departments, t.department);
@@ -970,11 +1069,13 @@ export async function rescanJob(id: number): Promise<JobRow> {
   let messages = 0;
   for await (const r of rowsOf(layout, "threads")) {
     messages++;
+    await tick(tickets);
     bump(fileRows, r.file);
   }
   let comments = 0;
   for await (const r of rowsOf(layout, "comments")) {
     comments++;
+    await tick(tickets);
     bump(fileRows, r.file);
   }
   const users = await usersByEmail([...contactEmails, ...[...agents.values()].map((a) => a.email)]);
@@ -1044,13 +1145,9 @@ export async function rescanJob(id: number): Promise<JobRow> {
   for (const s of scan.statuses) mapping.statuses[s.name] = existing?.statuses[s.name] ?? defaultStatusFor(s.name);
   for (const p of scan.priorities) mapping.priorities[p.name] = existing?.priorities[p.name] ?? defaultPriorityFor(p.name);
   for (const a of scan.agents) mapping.agents[a.key] = existing && a.key in existing.agents ? existing.agents[a.key] : a.matched_user_id;
-
-  const row = await hqOne<JobRow>(
-    `UPDATE hd_import_jobs SET mapping = $2, counts = jsonb_build_object('scan', $3::jsonb), status = 'uploaded', updated_at = now()
-      WHERE id = $1 RETURNING *`,
-    [id, JSON.stringify(mapping), JSON.stringify(scan)]
-  );
-  return row!;
+  // What this scan was read with (1.19.2 review): a later column or file change makes it stale.
+  scan.basis = scanBasis(mapping.columns, job.files);
+  return { mapping, scan };
 }
 
 function pickValid<T extends string>(cols: Partial<Record<T, string>> | undefined, headers: string[]): Partial<Record<T, string>> {
@@ -1067,9 +1164,15 @@ function sortValues(m: Map<string, number>): { name: string; tickets: number }[]
 // --- Mapping -------------------------------------------------------------------------------
 
 /** Validate and save the admin's mapping; the dry run must run again after. */
-export async function saveMapping(id: number, raw: unknown): Promise<JobRow> {
+export async function saveMapping(
+  id: number,
+  raw: unknown,
+  /** 1.19.2: when the columns change, read the export again in the background (lib/helpdesk/import-check), for this person. */
+  opts: { background?: { by: number | null } } = {}
+): Promise<JobRow> {
   const job = await getImportJob(id);
   if (!job || job.status === "discarded") throw new ImportError("That import was not found.", 404);
+  assertNotChecking(job);
   if (!["uploaded", "ready"].includes(job.status)) throw new ImportError("This import has already started.", 409);
   const prev = job.mapping as ImportMapping;
   if (!raw || typeof raw !== "object") throw new ImportError("Send the mapping as JSON.");
@@ -1087,7 +1190,8 @@ export async function saveMapping(id: number, raw: unknown): Promise<JobRow> {
     for (const [f, h] of Object.entries(src ?? {})) {
       if (!allowed.includes(f) || typeof h !== "string") continue;
       if (h && !headers[kind].includes(h)) throw new ImportError(`"${h}" is not a column in the ${kind} file.`);
-      if (h) out[f] = h;
+      // 1.19.2: a blank choice ("Not in the file") is kept, so a rescan's guess doesn't put the column back.
+      out[f] = h;
     }
     return out;
   };
@@ -1134,13 +1238,33 @@ export async function saveMapping(id: number, raw: unknown): Promise<JobRow> {
     else if (typeof v === "number" && (userIds.has(v) || prev.agents[key] === v)) next.agents[key] = v;
     else throw new ImportError("One of the agents maps to an account that doesn't exist.");
   }
-  const columnsChanged = JSON.stringify(next.columns) !== JSON.stringify(prev.columns);
+  // 1.19.2: compared field by field. The stored mapping comes back from jsonb
+  // with its keys reordered, so comparing JSON text called every save a column
+  // change and read the whole export again before each dry run.
+  const columnsChanged = !sameColumns(next.columns, prev.columns);
+  // 1.19.2 review: only while the job still takes a mapping; never over a check or an import that began since the read.
   const row = await hqOne<JobRow>(
-    `UPDATE hd_import_jobs SET mapping = $2, status = 'uploaded', counts = counts - 'dry_run', updated_at = now() WHERE id = $1 RETURNING *`,
+    `UPDATE hd_import_jobs SET mapping = $2, status = 'uploaded', counts = counts - 'dry_run', updated_at = now()
+      WHERE id = $1 AND status IN ('uploaded', 'ready') RETURNING *`,
     [id, JSON.stringify(next)]
   );
-  // New columns can mean new values to map: read the export again (keeping these choices).
-  return columnsChanged ? rescanJob(id) : row!;
+  if (!row) throw await changedUnderneath(id);
+  // New columns can mean new values to map: read the export again (keeping
+  // these choices). So does a scan that is stale (a rescan failed earlier),
+  // even when the columns didn't change this time.
+  const rescan = columnsChanged || !scanIsCurrent(row);
+  if (rescan && opts.background) return (await import("./import-check")).queueImportCheck(id, "rescan", opts.background.by);
+  return rescan ? rescanJob(id) : row;
+}
+
+/** The same column choices, whatever the key order (a blank choice is no choice). */
+export function sameColumns(a: ImportMapping["columns"] | undefined, b: ImportMapping["columns"] | undefined): boolean {
+  const flat = (c: ImportMapping["columns"] | undefined) =>
+    (["tickets", "messages", "comments"] as const)
+      .flatMap((kind) => Object.entries((c?.[kind] ?? {}) as Record<string, string>).filter(([, h]) => h).map(([f, h]) => `${kind}.${f}=${h}`))
+      .sort()
+      .join("\n");
+  return flat(a) === flat(b);
 }
 
 function validZone(z: string): boolean {
@@ -1243,6 +1367,8 @@ const ANONYMISED_MESSAGE = "Its ticket was anonymised in CompassDocs, so it isn'
 export async function dryRunJob(id: number): Promise<JobRow> {
   const job = await getImportJob(id);
   if (!job || job.status === "discarded") throw new ImportError("That import was not found.", 404);
+  assertNotChecking(job);
+  assertScanCurrent(job);
   if (!["uploaded", "ready"].includes(job.status)) throw new ImportError("This import has already started.", 409);
   if (!("columns" in job.mapping)) throw new ImportError("Map the columns first.");
   const counts = await planAll(job, null);
@@ -1270,8 +1396,17 @@ async function teamsToCreate(job: JobRow): Promise<string[]> {
  * refs and assignability are read, nothing is written); otherwise each
  * batch is handed to the run's writer. Returns the counts.
  */
-async function planAll(job: JobRow, run: RunState | null): Promise<ImportCounts> {
+/** How far a dry run has got (1.19.2: the background dry run's progress, lib/helpdesk/import-check). */
+export type PlanObserver = (p: { phase: "reading" | "tickets" | "messages"; done: number; counts: ImportCounts }) => Promise<void>;
+
+/** The dry run's plan and counts, writing nothing (the background dry run writes them under its lease). */
+export function planDryRun(job: JobRow, observe?: PlanObserver): Promise<ImportCounts> {
+  return planAll(job, null, observe);
+}
+
+async function planAll(job: JobRow, run: RunState | null, observe?: PlanObserver): Promise<ImportCounts> {
   const layout = await openLayout(job);
+  if (observe) await observe({ phase: "reading", done: 0, counts: run?.counts ?? emptyCounts() });
   const ctx = await planContext(job, layout);
   const mapping = ctx.mapping;
   const counts: ImportCounts = run?.counts ?? emptyCounts();
@@ -1299,6 +1434,7 @@ async function planAll(job: JobRow, run: RunState | null): Promise<ImportCounts>
     }
     const ok = run ? await run.writeTickets(batch, counts, teamIdFor, ctx) : await countTickets(ctx, batch, counts);
     batch = [];
+    if (observe) await observe({ phase: "tickets", done: index, counts });
     return ok;
   };
   for await (const row of rowsOf(layout, "tickets")) {
@@ -1327,6 +1463,7 @@ async function planAll(job: JobRow, run: RunState | null): Promise<ImportCounts>
     if (!mBatch.length) return true;
     const ok = run ? await run.writeMessages(mBatch, counts, ctx, layout) : await countMessages(mBatch, counts, ctx, layout, plannedRefs);
     mBatch = [];
+    if (observe) await observe({ phase: "messages", done: mIndex, counts });
     return ok;
   };
   if (msgCursor !== Infinity) {
@@ -1756,6 +1893,7 @@ export async function startImport(id: number): Promise<JobRow> {
   const job = await getImportJob(id);
   if (!job || job.status === "discarded") throw new ImportError("That import was not found.", 404);
   if (job.status === "uploaded") throw new ImportError("Run the dry run first.", 409);
+  assertNotChecking(job);
   if (!["ready", "cancelled", "failed"].includes(job.status)) throw new ImportError("This import is already running or finished.", 409);
   const key = importSourceKey(job.source, job.mapping);
   const active = await hq<{ id: number; source: ImportSource; mapping: JobRow["mapping"] }>(
@@ -1893,6 +2031,10 @@ export async function importSweep(): Promise<{ resumed: number; cleaned: number 
     resumed++;
     runImportInBackground(j.id);
   }
+  // 1.19.2 (agent W5, lib/helpdesk/import-check): background dry runs and rescans nobody is running.
+  await (await import("./import-check")).importCheckSweep().catch((e) =>
+    logEvent("error", "helpdesk.import.check_sweep_failed", { error: e instanceof Error ? e.message : String(e) })
+  );
   // A stop asked of a job no process is running any more.
   await hq(
     `UPDATE hd_import_jobs SET status = 'cancelled', finished_at = now(), updated_at = now()
@@ -1901,7 +2043,7 @@ export async function importSweep(): Promise<{ resumed: number; cleaned: number 
   );
   const old = await hq<{ id: number; files: ImportFiles }>(
     `SELECT id, files FROM hd_import_jobs
-      WHERE files ? 'main' AND status NOT IN ('queued', 'running', 'cancelling')
+      WHERE files ? 'main' AND status NOT IN ('queued', 'running', 'cancelling', 'checking')
         AND (status IN ('completed', 'discarded') OR created_at < now() - make_interval(secs => $1))
       LIMIT 50`,
     [IMPORT_FILE_TTL_MS / 1000]

@@ -138,7 +138,7 @@ export async function refreshDueStatuses(origin = ""): Promise<void> {
         detail: parsed.detail,
         url: parsed.url,
       });
-      await alertOnTransition(svc.name, prev, parsed, origin);
+      await alertOnTransition(svc.name, prev, parsed, origin, svc.id);
     } catch (e) {
       // Keep the last known state; a fetch hiccup isn't an outage. Only note
       // the failure when we never had data for this service.
@@ -152,19 +152,31 @@ export async function refreshDueStatuses(origin = ""): Promise<void> {
       console.error(`[status] poll failed for ${svc.name}:`, e);
     }
   }
+  // Helpdesk 1.19.2 (agent W6): tell the desk teams that follow a service
+  // when it degrades, goes down or recovers (helpdesk-licensed, gated
+  // inside; per-service locks; never throws). Runs every minute with the
+  // scheduler's call, whichever services were due for a poll.
+  try {
+    const { syncTeamStatus } = await import("./helpdesk/status-teams");
+    await syncTeamStatus({ origin });
+  } catch (e) {
+    console.error("[status] desk teams:", e);
+  }
 }
 
 async function alertOnTransition(
   name: string,
   prev: ServiceStatus | undefined,
   next: ParsedStatus,
-  origin: string
+  origin: string,
+  serviceId?: number
 ): Promise<void> {
   if (!prev || prev === next.status) return;
   const worsened = ALERTABLE.includes(next.status) && !ALERTABLE.includes(prev);
   const recovered = next.status === "operational" && ALERTABLE.includes(prev);
   if (!worsened && !recovered) return; // unknown↔operational and similar: quiet
-  await notify(await listActiveUserIds(), {
+  const everyone = await listActiveUserIds();
+  await notify(await withoutDeskAgents(everyone, serviceId, worsened ? "down" : "up", next.status), {
     kind: "service_status",
     title: worsened
       ? `${name}: ${next.status === "outage" ? "outage" : "degraded performance"}`
@@ -175,6 +187,22 @@ async function alertOnTransition(
   });
 }
 
+/**
+ * Helpdesk 1.19.2 (agent W6): the desk tells the agents of teams that follow
+ * a service with its own notice (service_down), so this alert skips them:
+ * one bell per person for the same change. Unchanged without the helpdesk.
+ */
+async function withoutDeskAgents(ids: number[], serviceId: number | undefined, kind: "down" | "up", state: string): Promise<number[]> {
+  if (!serviceId) return ids;
+  try {
+    const { deskStatusRecipients } = await import("./helpdesk/status-teams");
+    const skip = await deskStatusRecipients(serviceId, kind, state);
+    return skip.size ? ids.filter((id) => !skip.has(id)) : ids;
+  } catch {
+    return ids;
+  }
+}
+
 /** Manual-incident alert (declared/resolved by an admin). */
 export async function alertManualIncident(input: {
   serviceName: string;
@@ -182,8 +210,11 @@ export async function alertManualIncident(input: {
   severity: string;
   resolved: boolean;
   origin?: string;
+  /** The service, so desk agents told by their team's status notice aren't told twice. */
+  serviceId?: number;
 }): Promise<void> {
-  await notify(await listActiveUserIds(), {
+  const everyone = await listActiveUserIds();
+  await notify(await withoutDeskAgents(everyone, input.serviceId, input.resolved ? "up" : "down", input.severity), {
     kind: "service_status",
     title: input.resolved
       ? `Resolved: ${input.serviceName} — ${input.title}`

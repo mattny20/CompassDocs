@@ -91,6 +91,8 @@ export async function DELETE(req: Request, { params }: Ctx) {
   if (Number((found.ticket as { legal_hold?: number }).legal_hold ?? 0) === 1) {
     return NextResponse.json({ error: `#${found.ticket.number} is on legal hold. Take it off hold before deleting it.` }, { status: 409 });
   }
+  // 1.19.2: a major incident's own ticket ends the incident (its Status page incident too) before it goes (agent W1).
+  await (await import("@/lib/helpdesk/incidents")).onIncidentTicketEnded(found.ticket.id, gate.name || gate.username);
   await deleteTicketFiles(found.ticket.id);
   const row = await deleteTicket(found.ticket.id);
   if (!row) return notFound();

@@ -22,6 +22,9 @@ export interface AssignmentChoices {
   integrations: { id: number; name: string }[];
   agents: { id: number; name: string }[];
   form_fields: { key: string; label: string }[];
+  /** The workspace's skills and languages (1.19.2, agent W2). */
+  skills?: { id: number; name: string }[];
+  languages?: { code: string; name: string }[];
 }
 
 export interface AssignmentOverview {

@@ -25,6 +25,7 @@ import { PickMenu } from "../PickMenu";
 import { PRIORITY_DOT } from "../ui";
 import { MergeDialog } from "./MergeDialog";
 import type { RowSelection } from "./selection";
+import { DeclareFromSelection } from "../incidents/IncidentActions";
 
 const MENU_BTN = buttonClass("secondary", "sm", "gap-1");
 
@@ -227,6 +228,8 @@ export function BulkBar({ selection, shown, onDone }: { selection: RowSelection;
           Merge…
         </Button>
       )}
+      {/* Declare a major incident linking the selection (1.19.2, agent W1). */}
+      <DeclareFromSelection rows={rows} busy={busy} onDone={() => { selection.clear(); onDone(); }} />
       <Button variant="ghost" size="sm" icon={<X />} onClick={selection.clear}>
         Clear
       </Button>

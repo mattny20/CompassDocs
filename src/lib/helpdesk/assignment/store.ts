@@ -359,10 +359,12 @@ export interface TicketState {
 
 /** What the engine decided for a ticket it had to queue: retried as is by the sweep (rules do not run again). */
 export interface PendingDecision {
-  kind?: "round_robin" | "load_balanced" | "on_call" | "team_mode";
+  kind?: "round_robin" | "load_balanced" | "on_call" | "team_mode" | "skills";
   min_role?: string | null;
   rule_id?: number | null;
   rule_name?: string;
+  /** With kind 'skills' (1.19.2, agent W2): the rule's criteria, retried as they were. */
+  skills?: import("../skills/shared").HdSkillCriteria;
 }
 
 export async function getTicketState(ticketId: number, client?: HdQueryable): Promise<TicketState | undefined> {

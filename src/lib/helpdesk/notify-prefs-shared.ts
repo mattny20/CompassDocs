@@ -22,6 +22,8 @@ export const HD_NOTIFY_EVENTS = [
   "review_returned",
   "sla_warning",
   "sla_breach",
+  // 1.19.2 (agent W6, lib/helpdesk/status-teams): a Status page service a team follows.
+  "service_down",
 ] as const;
 export type HdNotifyEvent = (typeof HD_NOTIFY_EVENTS)[number];
 /** The same list under the name the workspace notification policy (lib/notify-policy) imports. */
@@ -123,6 +125,12 @@ export const HD_NOTIFY_EVENT_INFO: Record<HdNotifyEvent, HdNotifyEventInfo> = {
     hint: "A ticket of yours missed its reply or resolve target",
     email: true,
     defaults: { push: true, email: true, bell: true },
+  },
+  service_down: {
+    label: "A service your team uses is down",
+    hint: "A Status page service one of your teams follows degrades or goes down, and when it is back",
+    email: false,
+    defaults: { push: true, email: false, bell: true },
   },
 };
 

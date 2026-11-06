@@ -6,12 +6,17 @@
 // is created until the admin confirms after the dry run, a re-run updates
 // instead of duplicating, and no email or notice goes out. The job runs in
 // the background; this page polls it while it runs. The current job travels
-// in the address (?job=12) so a reload comes back to it.
+// in the address (?job=12) so a reload comes back to it. 1.19.2 (agent W5,
+// mock e1, lib/helpdesk/import-check): the dry run and the map step's
+// rescan run in the background too ("checking"), with progress, counts so
+// far and the time left; the page can be left, and the bell says when the
+// check is ready.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
+  Bell,
   Check,
   Download,
   FileArchive,
@@ -29,7 +34,7 @@ import { chipClass, type ChipTone } from "@/components/Chip";
 import { Field, Select, SectionEmpty, TextInput } from "@/components/form";
 import { PageHeader } from "@/components/PageHeader";
 import { PageContainer } from "@/components/PageWidth";
-import { LoadingRow } from "@/components/Spinner";
+import { LoadingRow, Spinner } from "@/components/Spinner";
 import { RelativeTime } from "@/components/RelativeTime";
 import { confirmDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
@@ -43,6 +48,7 @@ import {
   IMPORT_SOURCE_NAME_MAX,
   IMPORT_STATUS_LABEL,
   MESSAGE_FIELDS,
+  importTimeLeft,
   MESSAGE_FIELD_LABEL,
   TICKET_FIELDS,
   TICKET_FIELD_LABEL,
@@ -65,18 +71,22 @@ const STEPS: { n: Step; label: string }[] = [
   { n: 4, label: "Import" },
 ];
 const RUNNING: ImportJobStatus[] = ["queued", "running", "cancelling"];
+/** Statuses the page polls: an import running, or a background check (1.19.2). */
+const POLLED: ImportJobStatus[] = [...RUNNING, "checking"];
 const fmt = (n: number) => n.toLocaleString("en-US");
 
 function stepFor(job: ImportJobView | null): Step {
   if (!job) return 1;
   if (job.status === "uploaded") return 2;
   if (job.status === "ready") return 3;
+  if (job.status === "checking") return job.check.kind === "rescan" ? 2 : 3;
   return 4;
 }
 
 const STATUS_TONE: Record<ImportJobStatus, ChipTone> = {
   uploaded: "neutral",
   ready: "info",
+  checking: "accent",
   queued: "accent",
   running: "accent",
   cancelling: "warn",
@@ -121,7 +131,7 @@ export function ImportWizard() {
       id ? getJson<{ job: ImportJobView }>(`/api/helpdesk/admin/import/${id}`).catch(() => null) : Promise.resolve(null),
     ])
       .then(([d, r]) => {
-        setJob(r?.job ?? (id ? null : d.jobs.find((j) => RUNNING.includes(j.status)) ?? null));
+        setJob(r?.job ?? (id ? null : d.jobs.find((j) => POLLED.includes(j.status)) ?? null));
         setData(d);
       })
       .catch((e: Error) => setError(e.message));
@@ -138,15 +148,15 @@ export function ImportWizard() {
     [router]
   );
 
-  // While a job runs, poll it.
-  const running = job && RUNNING.includes(job.status);
+  // While a job runs (or its export is being checked), poll it.
+  const running = job && POLLED.includes(job.status);
   useEffect(() => {
     if (!running || !job) return;
     const t = setInterval(() => {
       getJson<{ job: ImportJobView }>(`/api/helpdesk/admin/import/${job.id}`)
         .then((r) => {
           setJob(r.job);
-          if (!RUNNING.includes(r.job.status)) void load();
+          if (!POLLED.includes(r.job.status)) void load();
         })
         .catch(() => {});
     }, 1500);
@@ -163,8 +173,10 @@ export function ImportWizard() {
       <PageHeader icon={<Upload />} title="Import" subtitle="Bring tickets across from Zoho Desk or a CSV file. Nothing is created until you confirm." />
       <Stepper step={step} />
       {step === 1 && <UploadStep data={data} onUploaded={(j) => { show(j); void load(); }} onSettings={(s) => setData({ ...data, settings: s })} onOpen={show} onChanged={load} />}
-      {step === 2 && job && <MapStep job={job} data={data} onSaved={(j) => show(j)} onCancel={() => show(null)} />}
-      {step === 3 && job && <DryRunStep job={job} data={data} onBack={() => setBackToMap(true)} onStarted={(j) => { show(j); void load(); }} />}
+      {step === 2 && job && job.status === "checking" && <CheckStep job={job} onChanged={setJob} />}
+      {step === 2 && job && job.status !== "checking" && <MapStep job={job} data={data} onSaved={(j) => show(j)} onCancel={() => show(null)} />}
+      {step === 3 && job && job.status === "checking" && <CheckStep job={job} onChanged={setJob} />}
+      {step === 3 && job && job.status !== "checking" && <DryRunStep job={job} data={data} onBack={() => setBackToMap(true)} onStarted={(j) => { show(j); void load(); }} />}
       {step === 4 && job && <RunStep job={job} onChanged={(j) => { setJob(j); void load(); }} onDone={() => show(null)} />}
     </PageContainer>
   );
@@ -360,7 +372,7 @@ function RecentRow({ job, onOpen, onChanged }: { job: ImportJobView; onOpen: () 
       toast("error", (e as Error).message);
     }
   }
-  const canDiscard = !RUNNING.includes(job.status);
+  const canDiscard = !POLLED.includes(job.status);
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
       <div className="min-w-0 flex-1">
@@ -405,13 +417,14 @@ function MapStep({ job, data, onSaved, onCancel }: { job: ImportJobView; data: P
     setErr("");
     try {
       const saved = await sendJson<{ job: ImportJobView }>(`/api/helpdesk/admin/import/${job.id}`, "PUT", m, "Couldn't save the mapping.");
-      // New columns may bring new values to map: stay on this step to show them.
-      if (JSON.stringify(saved.job.mapping?.columns) !== JSON.stringify(job.mapping?.columns)) {
+      // New columns may bring new values to map: the export is read again in
+      // the background (1.19.2), and this step shows them when it's done.
+      if (saved.job.status === "checking") {
         onSaved(saved.job);
-        toast("ok", "Columns saved. Check the values they brought in, then run the dry run.");
         return;
       }
-      const r = await sendJson<{ job: ImportJobView }>(`/api/helpdesk/admin/import/${job.id}/dry-run`, "POST", {}, "The dry run didn't finish.");
+      // The dry run runs in the background (1.19.2): the next step shows its progress.
+      const r = await sendJson<{ job: ImportJobView }>(`/api/helpdesk/admin/import/${job.id}/dry-run`, "POST", {}, "Couldn't start the dry run.");
       onSaved(r.job);
     } catch (e) {
       setErr((e as Error).message);
@@ -437,6 +450,11 @@ function MapStep({ job, data, onSaved, onCancel }: { job: ImportJobView; data: P
   return (
     <div className="flex flex-col gap-4">
       <Card title={job.filename} description={summaryLine(job)}>
+        {job.check.error && (
+          <p role="alert" className="notice-error mb-3 rounded-lg border px-3 py-2 text-sm">
+            {job.check.error}
+          </p>
+        )}
         {scan.warnings.length > 0 && (
           <div className="notice-warn mb-3 flex gap-2 rounded-lg border px-3 py-2 text-sm">
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
@@ -614,7 +632,7 @@ function MapStep({ job, data, onSaved, onCancel }: { job: ImportJobView; data: P
           Start over
         </Button>
         <Button busy={busy} onClick={saveAndDryRun}>
-          {busy ? "Running the dry run…" : "Run the dry run"}
+          {busy ? "Starting the dry run…" : "Run the dry run"}
         </Button>
       </div>
     </div>
@@ -790,6 +808,109 @@ function DryRunStep({ job, data, onBack, onStarted }: { job: ImportJobView; data
           Import {fmt(total)} {total === 1 ? "ticket" : "tickets"}
         </Button>
       </div>
+    </Card>
+  );
+}
+
+// --- A background check (1.19.2, mock e1) ----------------------------------------------------------
+
+function CheckTile({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-slate-200 bg-surface px-3 py-2.5 sm:px-4">
+      <p className="text-sm text-slate-600">{label}</p>
+      <p className="text-xl font-bold tabular-nums text-slate-900">{fmt(value)}</p>
+    </div>
+  );
+}
+
+/**
+ * The dry run (step 3) or the rescan after a column change (step 2) while
+ * it runs in the background: a progress bar with rows checked and the time
+ * left, the counts so far, the "you can leave" strip, Stop (dry run only)
+ * and the Import button waiting, disabled, for the result.
+ */
+function CheckStep({ job, onChanged }: { job: ImportJobView; onChanged: (j: ImportJobView) => void }) {
+  const [busy, setBusy] = useState(false);
+  const dry = job.check.kind !== "rescan";
+  const p = job.check.progress ?? {};
+  const total = Math.max(p.total ?? 0, 0);
+  const done = Math.min(p.done ?? 0, total || (p.done ?? 0));
+  const pct = total ? Math.min(99, Math.floor((done / total) * 100)) : 0;
+  const ticketsTotal = p.tickets_total ?? job.scan?.tickets ?? 0;
+  const c = p.counts;
+  const left = importTimeLeft(p.counting_at, done, total, Date.now(), p.counting_from ?? 0);
+  const reading = !p.phase || p.phase === "queued" || p.phase === "reading";
+
+  async function stop() {
+    setBusy(true);
+    try {
+      const r = await sendJson<{ job: ImportJobView }>(`/api/helpdesk/admin/import/${job.id}/stop-check`, "POST", {}, "Couldn't stop the dry run.");
+      onChanged(r.job);
+    } catch (e) {
+      toast("error", (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  let line: string;
+  if (reading) line = dry ? "Reading the export…" : "Reading the export with your columns…";
+  else if (!dry) line = `${fmt(done)} of about ${fmt(total)} rows read`;
+  else if (p.phase === "messages") line = `All ${fmt(ticketsTotal)} tickets checked · ${fmt(Math.max(0, done - ticketsTotal))} of ${fmt(Math.max(0, total - ticketsTotal))} conversations`;
+  else line = `${fmt(p.tickets_done ?? done)} of ${fmt(ticketsTotal)} tickets checked`;
+  const toImport = (c?.tickets_create ?? 0) + (c?.tickets_update ?? 0);
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <Spinner className="text-compass-600" />
+        <p className="text-base font-semibold text-slate-900">{dry ? "Checking your export" : "Reading your export again"}</p>
+        <p className="min-w-0 truncate text-sm text-slate-500 sm:ml-auto">
+          {job.filename}
+          {ticketsTotal > 0 && ` · ${fmt(ticketsTotal)} tickets`}
+        </p>
+      </div>
+      <div
+        role="progressbar"
+        aria-label={dry ? "Dry run progress" : "Reading progress"}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100"
+      >
+        <div className="h-full rounded-full bg-compass-600 transition-[width]" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="mt-1.5 flex justify-between gap-3 text-sm text-slate-500">
+        <p aria-live="polite">
+          {line}
+          {left && ` · ${left}`}
+        </p>
+        <p className="tabular-nums">{pct}%</p>
+      </div>
+      {dry && (
+        <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <CheckTile label="To create" value={c?.tickets_create ?? 0} />
+          <CheckTile label="To update" value={c?.tickets_update ?? 0} />
+          <CheckTile label="Contacts matched" value={c?.contacts_matched ?? 0} />
+          <CheckTile label="Skipped so far" value={c?.skipped ?? 0} />
+        </div>
+      )}
+      <div className="mt-4 flex items-start gap-2 rounded-lg border border-compass-200 bg-compass-50 px-3 py-2.5 text-sm text-slate-800">
+        <Bell className="mt-0.5 h-4 w-4 shrink-0 text-compass-600" aria-hidden />
+        <p>
+          You can leave this page. We&apos;ll tell you in the bell when {dry ? "the dry run is ready" : "the export has been read"}.
+        </p>
+      </div>
+      {dry && (
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <Button variant="secondary" busy={busy} onClick={stop}>
+            Stop
+          </Button>
+          <Button disabled>
+            Import {fmt(toImport)} {toImport === 1 ? "ticket" : "tickets"}
+          </Button>
+        </div>
+      )}
     </Card>
   );
 }

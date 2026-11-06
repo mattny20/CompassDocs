@@ -25,6 +25,7 @@ import { answerText, isIsoDate } from "./request-types";
 import type { Checked } from "./request-types";
 import { HD_CONDITION_OPS, HD_REQUESTER_FIELDS } from "./types";
 import { checkCount, countedHoursLabel, countedReminderAt, countedTaskDue, countedWaitUntil, countMode, shiftBusinessDays, shortDate } from "./business-waits-shared";
+import { checkTaskChecklistIds } from "./checklists-shared";
 import type {
   HdApproverDefB,
   HdConditionOp,
@@ -148,6 +149,10 @@ function checkTask(raw: Record<string, unknown>, key: string, where: string): Ch
   const outputs = checkOutputs(raw.outputs, where);
   if (!outputs.ok) return outputs;
   if (outputs.value) step.outputs = outputs.value;
+  // 1.19.2: checklists added to the task's ticket (agent W3, lib/helpdesk/checklists-shared).
+  const checklists = checkTaskChecklistIds(raw.checklist_ids, where);
+  if (!checklists.ok) return checklists;
+  if (checklists.value) step.checklist_ids = checklists.value;
   // How the due counts (1.19.1): only with a due date to count.
   const count = checkCount(raw, where);
   if (!count.ok) return count;
@@ -489,6 +494,11 @@ export async function checkWorkflowRefs(def: HdWorkflowDefinition, form?: HdForm
       const bad = checkRules(s.when.rules, s.title);
       if (bad) return { ok: false, error: bad };
     }
+  }
+  // 1.19.2: the checklists a task adds still exist (agent W3).
+  for (const t of definitionTasks(def) as HdTaskStepDefB[]) {
+    const bad = t.checklist_ids?.length ? await (await import("./checklists")).missingChecklistRef(t.checklist_ids, t.title) : null;
+    if (bad) return { ok: false, error: bad };
   }
   if (teamIds.size) {
     const found = await hq<{ id: number }>("SELECT id FROM hd_teams WHERE id = ANY($1::int[])", [[...teamIds]]);

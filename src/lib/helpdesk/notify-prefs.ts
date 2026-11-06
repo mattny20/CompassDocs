@@ -257,6 +257,7 @@ const PRIVATE_TITLE: Record<HdNotifyEvent, (n: string) => string> = {
   review_returned: (n) => `Your reply on ${n} was sent back`,
   sla_warning: (n) => `${n} is close to its SLA target`,
   sla_breach: (n) => `${n} missed its SLA target`,
+  service_down: () => "A service your team uses changed",
 };
 
 /** A same-origin path, or /desk. */

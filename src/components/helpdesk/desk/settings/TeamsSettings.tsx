@@ -16,6 +16,7 @@ import { EntityPicker } from "@/components/EntityPicker";
 import { EmptyState, Select, SectionEmpty } from "@/components/form";
 import { PageHeader } from "@/components/PageHeader";
 import { PageContainer } from "@/components/PageWidth";
+import { DeskNewStrip } from "./DeskNew";
 import { LoadingRow } from "@/components/Spinner";
 import { confirmDialog, formDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
@@ -29,6 +30,8 @@ import { TEAM_ICON_NAMES, TeamIcon } from "../TeamIcon";
 import { TeamCalendarSelect } from "../calendars/TeamCalendarSelect";
 import { TeamSlaTargets } from "../calendars/TeamSlaTargets";
 import { TeamTimeToggle } from "../time/TeamTimeToggle";
+import { TeamStatusSection } from "../team-status/TeamStatusServices";
+import { cannedTeamDeleteNote } from "./canned-client";
 
 const ICON_HELP = `A lucide icon name: ${TEAM_ICON_NAMES.slice(0, 8).join(", ")}…`;
 
@@ -75,6 +78,8 @@ export function TeamsSettings() {
           </Button>
         }
       />
+      {/* 1.19.2 (agent W5): "New in 1.19.2" until dismissed (DeskNew). */}
+      <DeskNewStrip />
       {error && <p className="notice-error mb-4 rounded-lg border px-3 py-2 text-sm">{error}</p>}
       {teams === null && <LoadingRow className="py-10" />}
       {teams && teams.length === 0 && (
@@ -143,9 +148,11 @@ function TeamCard({ team, people, onChanged }: { team: HdTeamWithMembers; people
   }
 
   async function remove() {
+    // Its canned responses go with it (1.19.2, agent W4): the dialog says how many.
+    const cannedNote = await cannedTeamDeleteNote(team.id);
     const ok = await confirmDialog({
       title: `Delete ${team.name}?`,
-      body: "Its people leave the team. Its tickets and request types keep their history but no longer belong to a team. This cannot be undone.",
+      body: `Its people leave the team. Its tickets and request types keep their history but no longer belong to a team.${cannedNote} This cannot be undone.`,
       confirmLabel: "Delete team",
       danger: true,
     });
@@ -190,6 +197,8 @@ function TeamCard({ team, people, onChanged }: { team: HdTeamWithMembers; people
         </details>
         {/* Time tracking: ask for time on solve (1.19.1, agent V8). */}
         <TeamTimeToggle teamId={team.id} teamName={team.name} />
+        {/* Status page services the team follows (1.19.2, agent W6). */}
+        <TeamStatusSection teamId={team.id} teamName={team.name} />
       </div>
       {team.members.length === 0 ? (
         <SectionEmpty className="mb-3">Nobody yet. Add the people who answer for {team.name}.</SectionEmpty>

@@ -40,6 +40,7 @@ export function RailLink({
   label,
   active,
   dense = true,
+  badge,
   children,
 }: {
   href: string;
@@ -47,13 +48,20 @@ export function RailLink({
   label: string;
   active: boolean;
   dense?: boolean;
+  /**
+   * A badge slot (1.19.2: the settings rail's "New" chip): pinned to the
+   * row's end, and the label wraps beside it instead of truncating, so a
+   * long label stays readable next to the chip.
+   */
+  badge?: ReactNode;
   /** Trailing content (a count chip). */
   children?: ReactNode;
 }) {
   return (
     <Link href={href} aria-current={active ? "page" : undefined} className={railRowClass(active, { dense })}>
       <Icon className={`h-4 w-4 ${railIconClass(active)}`} aria-hidden />
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className={`min-w-0 flex-1 ${badge ? "break-words" : "truncate"}`}>{label}</span>
+      {badge && <span className="ml-auto shrink-0">{badge}</span>}
       {children}
       <LinkPending />
     </Link>

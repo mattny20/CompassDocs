@@ -12,20 +12,24 @@ import {
   Clock,
   LifeBuoy,
   ListChecks,
+  List,
   Mail,
   ShieldCheck,
   Star,
   Users,
   UsersRound,
   Zap,
+  MessageSquareText,
   Bot,
   Repeat,
   Upload,
   Globe,
+  Languages,
   Link,
   Shield,
   type LucideIcon,
 } from "lucide-react";
+import { CHECKLIST_MANAGE_CAPS } from "@/lib/helpdesk/checklists-caps";
 
 export interface SettingsNavItem {
   href: string;
@@ -45,11 +49,17 @@ const NEED: Record<string, string[]> = {
   "/desk/settings/automations": ["automations.manage"],
   "/desk/settings/recurring": ["settings.manage", "agents.manage_team"],
   "/desk/settings/macros": ["macros.manage_all", "macros.manage_team", "macros.manage_personal"],
+  // Canned responses (1.19.2, agent W4): the macro capabilities.
+  "/desk/settings/canned": ["macros.manage_all", "macros.manage_team", "macros.manage_personal"],
+  // Checklists (1.19.2, agent W3): the configuration capabilities (lib/helpdesk/checklists-caps).
+  "/desk/settings/checklists": [...CHECKLIST_MANAGE_CAPS],
   "/desk/settings/csat": ["csat.manage"],
   "/desk/settings/assignment": ["agents.manage_team", "automations.manage"],
   "/desk/settings/contact-cards": ["settings.manage"],
   "/desk/settings/integrations": ["settings.manage", "channels.manage"],
   "/desk/settings/agents": ["agents.manage_team", "agents.assign_roles"],
+  // Skills and languages (1.19.2, agent W2): leads tag their teams' people; teams.manage edits the lists.
+  "/desk/settings/skills": ["agents.manage_team", "teams.manage"],
   "/desk/settings/roles": ["roles.manage"],
   "/desk/settings/claude": ["settings.manage"],
   "/desk/settings/portal": ["settings.manage"],
@@ -62,7 +72,7 @@ const NEED: Record<string, string[]> = {
 const HELPDESK: SettingsNavItem[] = [
   { href: "/desk/setup", label: "Setup", icon: LifeBuoy },
   { href: "/desk/settings/teams", label: "Teams", icon: Users },
-  { href: "/desk/settings/request-types", label: "Request types", icon: ListChecks },
+  { href: "/desk/settings/request-types", label: "Request types", icon: List },
   { href: "/desk/settings/sla", label: "Reply targets", icon: Clock },
   { href: "/desk/settings/calendars", label: "Calendars", icon: CalendarClock },
   { href: "/desk/settings/email", label: "Email", icon: Mail },
@@ -75,6 +85,8 @@ const HELPDESK: SettingsNavItem[] = [
   { href: "/desk/settings/shortcuts", label: "Shortcuts", icon: Link },
   { href: "/desk/settings/portal", label: "Customer portal", icon: Globe },
   { href: "/desk/settings/macros", label: "Macros", icon: Zap },
+  { href: "/desk/settings/canned", label: "Canned responses", icon: MessageSquareText },
+  { href: "/desk/settings/checklists", label: "Checklists", icon: ListChecks },
   { href: "/desk/settings/csat", label: "Satisfaction", icon: Star },
   { href: "/desk/settings/import", label: "Import", icon: Upload },
   { href: "/desk/settings/retention", label: "Retention and privacy", icon: Shield },
@@ -82,6 +94,7 @@ const HELPDESK: SettingsNavItem[] = [
 ];
 const PEOPLE: SettingsNavItem[] = [
   { href: "/desk/settings/agents", label: "Agents", icon: UsersRound },
+  { href: "/desk/settings/skills", label: "Skills and languages", icon: Languages },
   { href: "/desk/settings/roles", label: "Roles", icon: ShieldCheck },
 ];
 

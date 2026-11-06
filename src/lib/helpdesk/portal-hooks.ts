@@ -42,9 +42,10 @@ import { hqOne, withTx } from "./db-core";
 import { emailAllowed, firstName, PORTAL_PATH } from "./portal-shared";
 
 /** The requester templates a portal contact receives. */
-const PORTAL_TEMPLATES = new Set(["hd_request_received", "hd_reply", "hd_solved_csat", "hd_workflow_notify", "hd_merged"]);
+// 1.19.2 (agent W1): hd_incident_update, a major incident's update on a linked portal request.
+const PORTAL_TEMPLATES = new Set(["hd_request_received", "hd_reply", "hd_solved_csat", "hd_workflow_notify", "hd_merged", "hd_incident_update"]);
 
-interface ContactRow {
+export interface ContactRow {
   id: number;
   email: string;
   blocked: number;
@@ -56,7 +57,7 @@ interface ContactRow {
  * contact of a ticket merged into it whose address is this ticket's
  * requester address. Undefined when none.
  */
-async function contactForTicket(t: { id: number; portal_contact_id: number | null; requester_email: string }): Promise<ContactRow | undefined> {
+export async function contactForTicket(t: { id: number; portal_contact_id: number | null; requester_email: string }): Promise<ContactRow | undefined> {
   if (t.portal_contact_id) return hqOne<ContactRow>("SELECT id, email, blocked FROM hd_portal_contacts WHERE id = $1", [t.portal_contact_id]);
   if (!t.requester_email) return undefined;
   const { contactReachSql } = await import("./portal");
@@ -71,14 +72,14 @@ async function contactForTicket(t: { id: number; portal_contact_id: number | nul
 }
 
 /** The portal is open and admits this address (access rule, blocked domains). */
-async function portalAdmits(email: string): Promise<boolean> {
+export async function portalAdmits(email: string): Promise<boolean> {
   const { getPortalSettings, portalOpen } = await import("./portal");
   const settings = await getPortalSettings();
   return (await portalOpen(settings)) && emailAllowed(email, settings);
 }
 
 /** Blocked itself, or another address of the same mailbox is. */
-async function contactBlocked(c: ContactRow): Promise<boolean> {
+export async function contactBlocked(c: ContactRow): Promise<boolean> {
   if (c.blocked) return true;
   const { isBlockedPortalMailbox } = await import("./portal");
   return isBlockedPortalMailbox(c.email);
@@ -119,6 +120,8 @@ export async function portalRequesterNotice(
     // Opening it signs in first when the browser has no portal session, then lands here.
     ticket_url: `${base}${PORTAL_PATH}/requests/${target}`,
   };
+  // 1.19.2 (agent W5, lib/helpdesk/portal-csat): the survey's links open the portal, not Get help.
+  if (template === "hd_solved_csat" && out.csat_block) out.csat_block = await (await import("./portal-csat")).portalCsatBlock(t.id, base);
   if (out.author_name) out.author_name = firstName(out.author_name) || "Support";
   if (out.agent_name) out.agent_name = firstName(out.agent_name) || "Support";
   const { sendHelpdeskTemplate } = await import("./email");

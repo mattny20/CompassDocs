@@ -697,6 +697,11 @@ async function recompute(scope: Scope, before: CalendarSnapshot | null, now = Da
     if (n < 0) break;
     moved += n;
   }
+  // 1.19.2 (agent W5, lib/helpdesk/recurring-recalc): the same teams'
+  // recurring schedules get their stored next run worked out again.
+  await import("./recurring-recalc")
+    .then((m) => m.recomputeRecurringForTeams(scope.teamIds, now))
+    .catch(() => 0);
   return moved;
 }
 

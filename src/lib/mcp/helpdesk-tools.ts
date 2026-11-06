@@ -61,6 +61,7 @@ import { textField } from "../helpdesk/routes";
 import { getClaudeLevel, HD_CLAUDE_LEVEL_LABEL, HD_CLAUDE_LEVEL_RANK, type HdClaudeLevel } from "../helpdesk/claude-connector";
 import { createReplyDraft, listPendingDrafts, DRAFT_LIMITS } from "../helpdesk/drafts";
 import { mergedLock } from "../helpdesk/merge";
+import { CANNED_TOOL_DEF, cannedResponsesTool } from "./canned-tool";
 import type { HdFormField, HdMessage, HdTicket } from "../helpdesk/types";
 
 type Args = Record<string, any>;
@@ -190,7 +191,7 @@ export const HELPDESK_TOOL_DEFS: HdToolDef[] = [
     name: "hd_read_ticket",
     side: "agent",
     description:
-      "Helpdesk desk: the full ticket for an agent who works it: fields, reply and resolution targets, the whole conversation including internal notes, form answers, workflow progress and task hand-offs, the requester's contact card (directory visibility applies), agents it can be assigned to, and any pending reply drafts.",
+      "Helpdesk desk: the full ticket for an agent who works it: fields, reply and resolution targets, the whole conversation including internal notes, form answers, workflow progress and task hand-offs, the requester's contact card (directory visibility applies), agents it can be assigned to, any pending reply drafts, and its checklists (required items must be ticked in the desk before it can be solved).",
     inputSchema: obj({ number: NUMBER }, ["number"]),
   },
   {
@@ -209,6 +210,8 @@ export const HELPDESK_TOOL_DEFS: HdToolDef[] = [
       "Helpdesk desk: save a reply DRAFT on a ticket. It is NOT sent: the draft waits in the ticket as \"Draft from Claude\" above the composer, and an agent edits it and sends it from the desk, or discards it (their send follows the normal rules, including newbie review). No tool sends a reply to a requester, and no setting allows it. Tell the person the draft is waiting in the desk.",
     inputSchema: obj({ number: NUMBER, body: { type: "string", description: "The reply text, addressed to the requester (markdown)." } }, ["number", "body"]),
   },
+  // Canned responses, read only (1.19.2, agent W4, lib/mcp/canned-tool).
+  CANNED_TOOL_DEF,
   {
     name: "hd_update_ticket",
     side: "agent",
@@ -468,6 +471,10 @@ export async function callHelpdeskTool(user: User, name: string, args: Args, ctx
         return await draftReply(user, a, ctx);
       case "hd_update_ticket":
         return await updateTicketTool(user, a, ctx);
+      case "hd_canned_responses": {
+        const r = await cannedResponsesTool(user, a);
+        return r.ok ? toolJson(r.value) : refuse(r.error);
+      }
       case "hd_ticket_summary":
         return await ticketSummary(user, a, ctx);
       case "hd_report":
@@ -764,6 +771,8 @@ async function readTicket(user: User, a: Args, ctx: Ctx) {
     workflow: d.workflow,
     parent: d.parent,
     tasks: d.children.map((c) => ({ number: c.number, subject: c.subject, status: c.status, team: c.team_name })),
+    // 1.19.2: checklists (agents only; required items must be ticked before it can be solved; agent W3).
+    checklists: await (await import("../helpdesk/checklists")).checklistsForMcp(t.id),
     conversation: d.messages.map((m) => messageOut(m, true)),
     pending_drafts: drafts.map((x) => ({ id: x.id, asked_by: x.created_by_name, at: x.created_at, body: x.body })),
     assignable_agents: agents.map((g) => ({ id: g.user_id, name: g.name })),

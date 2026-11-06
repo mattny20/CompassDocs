@@ -412,8 +412,8 @@ export async function runAutomations(event: HdAutomationEvent, ticketId: number)
   });
 }
 
-/** Apply one rule's actions. Answers whether it did anything. */
-async function applyRule(rule: HdAutomation, t: HdTicketRow): Promise<boolean> {
+/** Apply one rule's actions. Answers whether it did anything. Exported for tests (1.19.2, W3). */
+export async function applyRule(rule: HdAutomation, t: HdTicketRow): Promise<boolean> {
   const a = rule.actions ?? {};
   const patch = effectivePatch(a, t);
   const actor = { id: null, name: `Automation: ${rule.name}` };
@@ -421,19 +421,27 @@ async function applyRule(rule: HdAutomation, t: HdTicketRow): Promise<boolean> {
   let acted = false;
   if (Object.keys(patch).length) {
     const { updateTicket } = await import("./tickets");
-    try {
-      await updateTicket(t.id, patch, actor, ctx);
-      acted = true;
-    } catch (e) {
-      // An assignee who is not on the team, a team that was deleted: the
-      // rest of the patch still applies.
-      logEvent("warn", "helpdesk.automation_patch_refused", { automation: rule.id, error: e instanceof Error ? e.message : String(e) });
-      const { assignee_id, team_id, ...rest } = patch;
-      void assignee_id;
-      void team_id;
-      if (Object.keys(rest).length) {
-        await updateTicket(t.id, rest, actor, ctx);
+    // Refusals peel off only what was refused, then the rest applies: a blocked
+    // solve (1.19.2, required checklist items, agent W3) drops the status alone;
+    // an assignee who is not on the team, or a team that was deleted, drops the
+    // assignee and team. At most three tries (each drops something).
+    let left: typeof patch = { ...patch };
+    for (let attempt = 0; attempt < 3 && Object.keys(left).length; attempt++) {
+      try {
+        await updateTicket(t.id, left, actor, ctx);
         acted = true;
+        break;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        logEvent("warn", "helpdesk.automation_patch_refused", { automation: rule.id, error: msg });
+        const next = { ...left };
+        if ((await import("./checklists-shared")).isChecklistBlock(msg)) delete next.status;
+        else {
+          delete next.assignee_id;
+          delete next.team_id;
+        }
+        if (Object.keys(next).length === Object.keys(left).length) throw e;
+        left = next;
       }
     }
   }

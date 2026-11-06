@@ -40,6 +40,9 @@ import { PRIORITY_DOT, slaInk, statusChip, ticketHref } from "../ui";
 import { AssignmentHistory } from "../assignment/AssignmentHistory";
 import { RelatedCard } from "../merge/MergeCards";
 import { TimeCard } from "../time/TimeCard";
+import { IncidentSideCards } from "../incidents/IncidentSideCards";
+import { ChecklistsSideCard } from "../checklists/TicketChecklists";
+import { TicketLanguageRow } from "../skills/TicketLanguageRow";
 
 interface Agent {
   user_id: number;
@@ -56,8 +59,11 @@ export function SidePanel({
   onPatch,
   onInsertArticle,
   onReply,
+  onReload,
 }: {
   onReply?: () => void;
+  /** Reload the ticket (1.19.2: after a change made through its own route, such as the language). */
+  onReload?: () => void;
   d: HdTicketDetail;
   onPatch: (patch: HdTicketPatch, ok?: string) => void;
   onInsertArticle: (title: string, url: string) => void;
@@ -122,6 +128,9 @@ export function SidePanel({
 
   return (
     <div className="flex flex-col gap-3">
+      {/* A major incident's Get help banner and Status page (1.19.2, agent W1). */}
+      {d.can_work && <IncidentSideCards number={t.number} refreshKey={t.updated_at} />}
+
       {/* The people on the ticket, the requester's card first (agent O). */}
       <TicketContacts ticket={t.number} onReply={onReply} refreshKey={d.messages.length} />
 
@@ -132,6 +141,9 @@ export function SidePanel({
       <PartOfRequestCard detail={d} />
 
       {/* Time logged and the agent's timer (1.19.1, agent V8). */}
+      {/* Checklists on the ticket and Add a checklist (1.19.2, agent W3). */}
+      <ChecklistsSideCard number={t.number} canWork={d.can_work} />
+
       {d.can_work && <TimeCard ticketNumber={t.number} refreshKey={t.status} />}
 
       {/* Merged into / merged in (1.19.1, agent V2). */}
@@ -197,6 +209,8 @@ export function SidePanel({
             {can && <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />}
           </button>
         </div>
+        {/* The ticket's language (1.19.2, agent W2). */}
+        <TicketLanguageRow ticket={t} can={can} onChanged={onReload} />
         <div className={`${ROW} items-start py-2.5`}>
           <span className="text-sm text-slate-500">Tags</span>
           <ul className="flex min-w-0 flex-wrap justify-end gap-1">

@@ -160,6 +160,10 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.portal.contact_blocked": "Blocked a customer portal contact",
   "helpdesk.portal.contact_unblocked": "Unblocked a customer portal contact",
   "helpdesk.portal.signin": "Signed in to the customer portal",
+  // Portal satisfaction survey (1.19.2, agent W5, lib/helpdesk/portal-csat).
+  "helpdesk.portal.csat": "Rated a request in the customer portal",
+  // "New" badges in the desk settings rail (1.19.2, agent W5, lib/helpdesk/whats-new).
+  "helpdesk.whats_new.seen": "Saw what's new in the desk",
   "helpdesk.automation.created": "Created helpdesk rule",
   "helpdesk.automation.updated": "Edited helpdesk rule",
   "helpdesk.automation.deleted": "Deleted helpdesk rule",
@@ -167,6 +171,11 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.macro.created": "Created macro",
   "helpdesk.macro.updated": "Edited macro",
   "helpdesk.macro.deleted": "Deleted macro",
+  // Canned responses (1.19.2, agent W4).
+  "helpdesk.canned.created": "Created canned response",
+  "helpdesk.canned.updated": "Edited canned response",
+  "helpdesk.canned.deleted": "Deleted canned response",
+  "helpdesk.canned.purged": "Deleted a deactivated person's canned responses",
   "helpdesk.view.created": "Saved a queue view",
   "helpdesk.view.updated": "Changed a saved view",
   "helpdesk.view.deleted": "Deleted a saved view",
@@ -186,6 +195,20 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.ticket.follower_removed": "Unfollowed a ticket",
   "helpdesk.ticket.merged": "Merged tickets",
   "helpdesk.ticket.bulk_updated": "Bulk edited tickets",
+  // 1.19.2: major incidents (agent W1).
+  "helpdesk.incident.declared": "Declared a major incident",
+  "helpdesk.incident.linked": "Linked tickets to a major incident",
+  "helpdesk.incident.unlinked": "Unlinked a ticket from a major incident",
+  "helpdesk.incident.auto_linked": "Linked a new ticket to a major incident by its rule",
+  "helpdesk.incident.update_posted": "Posted a major incident update",
+  "helpdesk.incident.solved": "Solved a major incident and its linked tickets",
+  "helpdesk.incident.settings_changed": "Changed a major incident's settings",
+  "helpdesk.incident.affected_added": "Said a major incident affects them",
+  "helpdesk.incident.affected_removed": "Took back \"Me too\" on a major incident",
+  // 1.19.2: Status page services per team (agent W6).
+  "helpdesk.team_status.services_changed": "Changed a team's status services",
+  "helpdesk.team_status.incident_watched": "Linked a major incident to a status service",
+  "helpdesk.team_status.solve_asked": "Asked to solve a major incident after its service recovered",
   "helpdesk.space_access.granted": "Granted space access from a request",
   "helpdesk.approval.decided": "Decided an approval",
   "helpdesk.approval.approved": "Approved a request",
@@ -197,6 +220,14 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.assignment.rules_reordered": "Reordered assignment rules",
   "helpdesk.assignment.on_call_updated": "Changed a team's on-call rota",
   "helpdesk.assignment.member_paused": "Paused or resumed auto-assignment for an agent",
+  // Skills and languages routing (1.19.2, agent W2, lib/helpdesk/skills).
+  "helpdesk.skills.skill_created": "Added a helpdesk skill",
+  "helpdesk.skills.skill_renamed": "Renamed a helpdesk skill",
+  "helpdesk.skills.skill_deleted": "Deleted a helpdesk skill",
+  "helpdesk.skills.language_added": "Added a helpdesk language",
+  "helpdesk.skills.language_removed": "Removed a helpdesk language",
+  "helpdesk.skills.agent_updated": "Changed an agent's skills or languages",
+  "helpdesk.ticket.language_changed": "Changed a ticket's language",
   // Recurring tickets and time tracking (1.19.1, agent V8).
   "helpdesk.recurring.created": "Created a recurring ticket schedule",
   "helpdesk.recurring.updated": "Edited a recurring ticket schedule",
@@ -207,6 +238,15 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.time.deleted": "Deleted logged time",
   "helpdesk.time.exported": "Exported logged time",
   "helpdesk.team.time_setting_changed": "Changed whether a team is asked for time on solve",
+  // Checklists (1.19.2, agent W3).
+  "helpdesk.checklist_template.created": "Created a checklist",
+  "helpdesk.checklist_template.updated": "Edited a checklist",
+  "helpdesk.checklist_template.deleted": "Deleted a checklist",
+  "helpdesk.checklist.added": "Added a checklist to a ticket",
+  "helpdesk.checklist.removed": "Removed a checklist from a ticket",
+  "helpdesk.checklist.item_added": "Added an item to a ticket's checklist",
+  "helpdesk.checklist.item_ticked": "Ticked a checklist item",
+  "helpdesk.checklist.item_unticked": "Unticked a checklist item",
   "helpdesk.reports.exported": "Exported helpdesk report",
   "helpdesk.report.exported": "Exported helpdesk report",
   // Workspace notification policy (1.19.0, agent F's helpdesk notifications).
@@ -252,6 +292,9 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.import.started": "Started a ticket import",
   "helpdesk.import.completed": "Finished a ticket import",
   "helpdesk.import.cancelled": "Stopped a ticket import",
+  // Background dry run and rescan (1.19.2, agent W5, lib/helpdesk/import-check).
+  "helpdesk.import.check_started": "Started checking a ticket import",
+  "helpdesk.import.check_stopped": "Stopped checking a ticket import",
   // Bulk actions across policies and people (F5, 1.14.0): one summary row
   // per call beside the per-policy and per-row rows the writes emit
   // (ack.bulk_extended, above, is the dispatcher's since 1.13.0).

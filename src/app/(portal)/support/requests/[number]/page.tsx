@@ -3,13 +3,19 @@
 // by first name and team; never internal notes, held replies or system
 // lines) and the reply box. Someone else's number is a 404. A request an
 // agent joined with another (merged) says so and links to the one kept,
-// where its conversation now is.
+// where its conversation now is. 1.19.2 (agent W5, lib/helpdesk/portal-csat):
+// a solved request asks "How did we do?" (?rate=&t= from the email's rating
+// links preselects an answer), and the kept request lists the contact's
+// requests that were joined with it.
 
 import { notFound, redirect } from "next/navigation";
 import { ChevronLeft, Download, GitMerge } from "lucide-react";
 import Link from "next/link";
 import { chipClass } from "@/components/Chip";
-import { contactRequestDetail, currentPortalContact, getPortalSettings, portalOpen } from "@/lib/helpdesk/portal";
+import { contactRequestDetail, contactTicket, currentPortalContact, getPortalSettings, portalOpen } from "@/lib/helpdesk/portal";
+import { isPortalRating, portalJoinedNotices, portalSurveyState } from "@/lib/helpdesk/portal-csat";
+import { PortalSurvey } from "@/components/helpdesk/portal/PortalSurvey";
+import { PortalJoinedNotice } from "@/components/helpdesk/portal/PortalJoinedNotice";
 import { PortalReply } from "@/components/helpdesk/portal/PortalReply";
 import { PortalTime } from "@/components/helpdesk/portal/PortalTime";
 
@@ -18,7 +24,13 @@ export const metadata = { title: "Request" };
 
 const size = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
-export default async function PortalRequest({ params }: { params: Promise<{ number: string }> }) {
+export default async function PortalRequest({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ number: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const settings = await getPortalSettings();
   if (!(await portalOpen(settings))) notFound();
   const raw = (await params).number;
@@ -27,6 +39,12 @@ export default async function PortalRequest({ params }: { params: Promise<{ numb
   const n = /^\d{1,10}$/.test(raw) ? Number(raw) : 0;
   const r = n ? await contactRequestDetail(contact, n) : null;
   if (!r) notFound();
+  const ticket = await contactTicket(contact.id, n);
+  const survey = ticket ? await portalSurveyState(contact, ticket.id) : { can_rate: false, rated: null };
+  const joined = ticket ? await portalJoinedNotices(contact.id, ticket.id) : [];
+  const sp = await searchParams;
+  const preset = isPortalRating(sp.rate) ? sp.rate : null;
+  const token = typeof sp.t === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(sp.t) ? sp.t : undefined;
   return (
     <div className="mx-auto mt-6 w-full max-w-3xl sm:mt-8">
       <Link href="/support/requests" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-compass-700 print:hidden">
@@ -42,6 +60,19 @@ export default async function PortalRequest({ params }: { params: Promise<{ numb
         </div>
         <span className={chipClass(r.tone, "md", "shrink-0")}>{r.status_label}</span>
       </div>
+
+      {(survey.can_rate || survey.rated) && (
+        <div className="mt-4 print:hidden">
+          <PortalSurvey number={r.number} state={survey} preset={preset} token={token} />
+        </div>
+      )}
+      {joined.length > 0 && (
+        <div className="mt-3 space-y-3">
+          {joined.map((j) => (
+            <PortalJoinedNotice key={j.number} number={j.number} at={j.at} />
+          ))}
+        </div>
+      )}
 
       {r.answers.length > 0 && (
         <dl className="mt-4 grid gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-surface p-4 text-sm shadow-xs sm:grid-cols-2">

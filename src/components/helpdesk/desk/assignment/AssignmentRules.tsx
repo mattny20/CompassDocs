@@ -32,6 +32,7 @@ import {
   HD_ASSIGN_SOURCES,
   HD_MIN_ROLES,
   ANSWER_OPS,
+  HD_ASSIGN_ACTION_HINT,
   opTakesValue,
   type HdAssignAction,
   type HdAssignCondition,
@@ -42,10 +43,13 @@ import {
 } from "@/lib/helpdesk/assignment/shared";
 import { HD_PRIORITIES, HD_PRIORITY_LABEL, type HdPriority } from "@/lib/helpdesk/types";
 import { HD_ROLE_LABEL, type HdRole } from "@/lib/helpdesk/roles-shared";
+import { RadioCards } from "@/components/PolicyFields";
+import { HD_DETECTABLE_LANGUAGES, criteriaText, languageOptions } from "@/lib/helpdesk/skills/shared";
 import { getJson, sendJson } from "../api";
+import { EMPTY_SKILL_CRITERIA, SkillsActionPanel } from "../skills/SkillsActionPanel";
 import type { AssignmentChoices } from "./data";
 
-const EMPTY_CHOICES: AssignmentChoices = { teams: [], request_types: [], integrations: [], agents: [], form_fields: [] };
+const EMPTY_CHOICES: AssignmentChoices = { teams: [], request_types: [], integrations: [], agents: [], form_fields: [], skills: [], languages: [] };
 const MAX_CONDITIONS = 12;
 
 interface FieldChoice {
@@ -62,6 +66,8 @@ function fieldChoices(c: AssignmentChoices): FieldChoice[] {
     team: c.teams.map((t) => ({ value: String(t.id), label: t.name })),
     request_type: c.request_types.map((t) => ({ value: String(t.id), label: t.name })),
     integration: c.integrations.map((t) => ({ value: String(t.id), label: t.name })),
+    // The ticket's language (1.19.2): the workspace's languages and the ones the detector knows.
+    language: languageOptions([...new Set([...(c.languages ?? []).map((l) => l.code), ...HD_DETECTABLE_LANGUAGES])]),
   };
   const fixed = (Object.entries(HD_ASSIGN_FIELDS) as [string, HdAssignFieldDef][])
     .filter(([k]) => k !== "integration" || c.integrations.length > 0)
@@ -103,11 +109,22 @@ function ruleSummary(r: Pick<HdAssignmentRule, "conditions" | "action" | "scope_
   if (a.set_priority) then.push(a.set_priority === "from_severity" ? "priority from the alert's severity" : `set ${HD_PRIORITY_LABEL[a.set_priority]}`);
   if (a.add_tags?.length) then.push(`tag ${a.add_tags.join(", ")}`);
   if (a.assign === "user") then.push(`assign to ${c.agents.find((x) => x.id === a.user_id)?.name ?? "someone"}`);
+  else if (a.assign === "skills" && a.skills) {
+    const who = criteriaText(a.skills, (id) => c.skills?.find((s) => s.id === id)?.name ?? "a deleted skill") || "has the right skills";
+    then.push(`assign to an agent who ${who} (else ${a.skills.fallback === "queue" ? "wait in the queue" : "the team's turn"})`);
+  }
   else if (a.assign !== "team_mode") then.push(HD_ASSIGN_ACTION_LABEL[a.assign].toLowerCase());
   else then.push("use the team's setting");
   if (a.min_role) then.push(`${HD_ROLE_LABEL[a.min_role].toLowerCase()} or above`);
   const scope = r.scope_team_id ? `In ${team(r.scope_team_id)}: if ` : "If ";
   return `${scope}${when}, then ${then.join(", ")}.`;
+}
+
+/** A new "agent with the right skills" action starts from the rule's own language condition ("Ticket language is French" → speaks French). */
+function skillsFromConditions(c: HdAssignConditions): NonNullable<HdAssignAction["skills"]> {
+  const lang = c.rules.find((r) => r.field === "language" && r.op === "equals");
+  const vals = Array.isArray(lang?.value) ? lang.value : lang?.value ? [lang.value] : [];
+  return { ...EMPTY_SKILL_CRITERIA, language: vals.length === 1 ? vals[0] : null };
 }
 
 export function AssignmentRules() {
@@ -309,11 +326,13 @@ function RuleEditor({
     setError("");
   }, [rule]);
 
+  const skillsProblem = action.assign === "skills" && !action.skills?.language && !action.skills?.skill_ids.length;
   const condProblem = conds.rules.findIndex((c) => opTakesValue(c.op) && (Array.isArray(c.value) ? c.value.length === 0 : !String(c.value ?? "").trim()));
   const errs = {
     name: !name.trim() ? "Name the rule." : undefined,
     user: action.assign === "user" && !action.user_id ? "Choose who gets the tickets." : undefined,
     conds: condProblem >= 0 ? `Give condition ${condProblem + 1} a value.` : undefined,
+    skills: skillsProblem ? "Choose a language or at least one skill the agent needs." : undefined,
   };
 
   function addCondition() {
@@ -325,7 +344,7 @@ function RuleEditor({
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setTried(true);
-    if (errs.name || errs.user || errs.conds) return;
+    if (errs.name || errs.user || errs.conds || errs.skills) return;
     const add_tags = tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
     const payload = {
       name: name.trim(),
@@ -336,6 +355,7 @@ function RuleEditor({
         assign: action.assign,
         ...(action.team_id ? { team_id: action.team_id } : {}),
         ...(action.assign === "user" ? { user_id: action.user_id } : {}),
+        ...(action.assign === "skills" ? { skills: action.skills ?? EMPTY_SKILL_CRITERIA } : {}),
         ...(action.min_role ? { min_role: action.min_role } : {}),
         ...(action.set_priority ? { set_priority: action.set_priority } : {}),
         ...(add_tags.length ? { add_tags } : {}),
@@ -431,28 +451,49 @@ function RuleEditor({
 
           <fieldset className="rounded-lg border border-slate-200 p-3">
             <legend className="px-1 text-sm font-semibold text-slate-800">Then</legend>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Assign to" error={tried ? errs.user : undefined}>
-                <Select value={action.assign} onChange={(e) => setAction({ ...action, assign: e.target.value as HdAssignAction["assign"] })}>
-                  {HD_ASSIGN_ACTIONS.map((a) => (
-                    <option key={a} value={a}>
-                      {HD_ASSIGN_ACTION_LABEL[a]}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              {action.assign === "user" ? (
-                <Field label="Person">
-                  <Select value={action.user_id ?? ""} onChange={(e) => setAction({ ...action, user_id: e.target.value ? Number(e.target.value) : null })}>
-                    <option value="">Choose someone</option>
-                    {choices.agents.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              ) : (
+            <p className="mb-2 text-sm font-medium text-slate-800">Assign to</p>
+            <RadioCards
+              label="Assign to"
+              name={`assign-${titleId}`}
+              value={action.assign}
+              onChange={(a) => setAction({ ...action, assign: a, ...(a === "skills" && !action.skills ? { skills: skillsFromConditions(conds) } : {}) })}
+              options={HD_ASSIGN_ACTIONS.map((a) => ({
+                value: a,
+                label: HD_ASSIGN_ACTION_LABEL[a],
+                description: HD_ASSIGN_ACTION_HINT[a],
+                extra:
+                  a === "user" ? (
+                    <Field label="Person" error={tried ? errs.user : undefined}>
+                      <Select value={action.user_id ?? ""} onChange={(e) => setAction({ ...action, user_id: e.target.value ? Number(e.target.value) : null })}>
+                        <option value="">Choose someone</option>
+                        {choices.agents.map((x) => (
+                          <option key={x.id} value={x.id}>
+                            {x.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  ) : a === "skills" ? (
+                    <>
+                      <SkillsActionPanel
+                        value={action.skills ?? EMPTY_SKILL_CRITERIA}
+                        onChange={(next) => setAction({ ...action, skills: next })}
+                        skills={choices.skills ?? []}
+                        languages={choices.languages ?? []}
+                        teamId={action.team_id ?? scope ?? null}
+                        minRole={action.min_role ?? null}
+                      />
+                      {tried && errs.skills && (
+                        <p role="alert" className="mt-2 text-xs text-red-600">
+                          {errs.skills}
+                        </p>
+                      )}
+                    </>
+                  ) : undefined,
+              }))}
+            />
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {action.assign !== "user" && (
                 <Field label="Only people who are at least" help={needsTeam ? "VIP and urgent work can need a team lead." : undefined}>
                   <Select value={action.min_role ?? ""} onChange={(e) => setAction({ ...action, min_role: (e.target.value || null) as HdRole | null })} disabled={action.assign === "leave_unassigned"}>
                     <option value="">Anyone the team includes</option>
@@ -625,12 +666,14 @@ interface TestResult {
   matched: { id: number; name: string } | null;
   trace: { rule_id: number; name: string; matched: boolean; reason: string }[];
   outcome: string;
+  /** 1.19.2: the ticket's language and where it came from. */
+  language?: { code: string | null; note: string };
 }
 
 function TestBox({ choices }: { choices: AssignmentChoices }) {
   const [mode, setMode] = useState<"sample" | "ticket">("sample");
   const [number, setNumber] = useState("");
-  const [s, setS] = useState({ subject: "", source: "portal", team_id: "", priority: "normal", automated: false, vip: false, hours: "open" as "open" | "closed", department: "" });
+  const [s, setS] = useState({ subject: "", source: "portal", team_id: "", priority: "normal", automated: false, vip: false, hours: "open" as "open" | "closed", department: "", language: "" });
   const [result, setResult] = useState<TestResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -643,7 +686,7 @@ function TestBox({ choices }: { choices: AssignmentChoices }) {
       const body =
         mode === "ticket"
           ? { ticket_number: Number(number.replace(/^#/, "")) }
-          : { sample: { ...s, team_id: s.team_id ? Number(s.team_id) : null, automated: s.automated || s.source === "alert" || s.source === "api" } };
+          : { sample: { ...s, team_id: s.team_id ? Number(s.team_id) : null, automated: s.automated || s.source === "alert" || s.source === "api", language: s.language || null } };
       setResult(await sendJson<TestResult>("/api/helpdesk/admin/assignment/rules/test", "POST", body, "Couldn't test the rules."));
     } catch (err) {
       setResult(null);
@@ -703,6 +746,16 @@ function TestBox({ choices }: { choices: AssignmentChoices }) {
                 ))}
               </Select>
             </Field>
+            <Field label="Ticket language">
+              <Select value={s.language} onChange={(e) => setS({ ...s, language: e.target.value })}>
+                <option value="">Unknown</option>
+                {languageOptions([...new Set([...(choices.languages ?? []).map((l) => l.code), ...HD_DETECTABLE_LANGUAGES])]).map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
             <Field label="Requester's department">
               <TextInput value={s.department} onChange={(e) => setS({ ...s, department: e.target.value })} placeholder="Finance" />
             </Field>
@@ -739,6 +792,7 @@ function TestBox({ choices }: { choices: AssignmentChoices }) {
       {result && (
         <div className="mt-4 border-t border-slate-100 pt-4" aria-live="polite">
           <p className="text-sm font-medium text-slate-900">{result.outcome}</p>
+          {result.language && <p className="mt-1 text-xs text-slate-500">{result.language.note}</p>}
           {result.trace.length > 0 && (
             <>
               <h3 className={`${SUB_HEADING_TEXT} mt-3`}>Rule by rule</h3>

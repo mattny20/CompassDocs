@@ -53,6 +53,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ number:
     const missing = await validateTaskSolve(t.id);
     if (missing) return NextResponse.json(missing, { status: 409 });
   }
+  // 1.19.2: required checklist items block "Send and set Solved" before anything is posted (lib/helpdesk/checklists, agent W3).
+  // (The same test as updateTicket: solved → closed never asks; addMessage re-checks under the ticket's lock.)
+  const checklists = await import("@/lib/helpdesk/checklists");
+  if (checklists.solvesForChecklists(t.status, b.then_status as string | undefined)) {
+    const held = await checklists.checklistSolveRefusal(t.id);
+    if (held) return NextResponse.json(held, { status: 409 });
+  }
   // 1.19.1 collision warning (lib/helpdesk/presence): someone else's newer
   // message since expect_last_message_id → 409 { newer }, unless force.
   const collided = await collisionRefusal(t.id, gate.id, b);
@@ -82,5 +89,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ number:
   }
   if (!res) return notFound();
   if (attachments.length) await attachToMessage(attachments.map((a) => a.id), t.id, res.message.id, { userId: gate.id });
-  return NextResponse.json({ message: res.message, status: res.status, held: res.held }, { status: 201 });
+  return NextResponse.json(
+    { message: res.message, status: res.status, held: res.held, ...(res.status_unchanged ? { status_unchanged: res.status_unchanged } : {}) },
+    { status: 201 }
+  );
 }

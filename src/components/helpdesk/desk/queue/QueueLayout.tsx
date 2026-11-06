@@ -33,6 +33,8 @@ import { savedApiQs, useSavedViews } from "../views/saved";
 import { SavedViewsNav } from "../views/SavedViewsNav";
 import { EditViewButton, SaveViewButton } from "../views/ViewControls";
 import { ViewDialogs } from "../views/ViewDialogs";
+import { IncidentsNav } from "../incidents/IncidentsNav";
+import { TeamStatusBanner } from "../team-status/TeamStatusBanner";
 import { filterSummary } from "@/lib/helpdesk/saved-views-shared";
 
 interface QueueCtx {
@@ -171,6 +173,8 @@ export function QueueLayout({ children }: { children: ReactNode }) {
         </Link>
       )}
       <SavedViewsNav sv={sv} sel={sel} onPick={onPick} asMenu={asMenu} />
+      {/* Open major incidents (1.19.2, agent W1, ../incidents). */}
+      <IncidentsNav selected={selected} qs={qs} onPick={onPick} asMenu={asMenu} />
       {counts && counts.teams.length > 0 && (
         <>
           <p className={`${RAIL_GROUP_TEXT} mb-1 mt-4 px-3`}>Teams</p>
@@ -264,6 +268,8 @@ export function QueueLayout({ children }: { children: ReactNode }) {
               </Link>
             </div>
           )}
+          {/* A followed Status page service in trouble (1.19.2, agent W6, ../team-status). */}
+          {sel.team && !sel.drill && <TeamStatusBanner teamId={sel.team} />}
           {selectable && <BulkBar selection={selection} shown={rows?.length ?? 0} onDone={refresh} />}
           <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
             <TicketList rows={rows} error={error} selected={selected} qs={qs} onRetry={load} title={title} selection={selectable ? selection : undefined} />

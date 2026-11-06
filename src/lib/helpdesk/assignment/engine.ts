@@ -78,6 +78,7 @@ import {
   type MemberRow,
   type PendingDecision,
 } from "./store";
+import { HD_LANGUAGE_SOURCE_LABEL, languageName, type HdSkillCriteria } from "../skills/shared";
 
 /** pg_advisory_xact_lock(class, user_id): one capacity decision per person at a time. */
 const AGENT_LOCK_CLASS = 7_281_962;
@@ -89,7 +90,7 @@ const OPEN_STATUSES = ["new", "open", "pending", "on_hold"];
 
 // --- Loading -----------------------------------------------------------------------------
 
-type TicketForAssign = HdTicketRow & { automated: number; integration_id: string | null; body: string };
+type TicketForAssign = HdTicketRow & { automated: number; integration_id: string | null; body: string; language?: string | null };
 
 async function loadTicket(id: number): Promise<TicketForAssign | undefined> {
   return hqOne<TicketForAssign>(
@@ -151,6 +152,7 @@ export async function factsFor(t: TicketForAssign, now: Date): Promise<HdAssignF
     answers: (t.form_answers ?? {}) as Record<string, unknown>,
     requester: await requesterFacts(t),
     open: await teamOpen(t.team_id, now),
+    language: t.language ?? null,
   };
 }
 
@@ -175,6 +177,8 @@ export interface RuleDecision {
   assign: HdAssignAction["assign"];
   user_id: number | null;
   min_role: HdRole | null;
+  /** With assign 'skills' (1.19.2, agent W2). */
+  skills: HdSkillCriteria | null;
   trace: RuleTraceLine[];
 }
 
@@ -187,7 +191,9 @@ function fieldLabel(field: string): string {
 
 /** "Came in through is any of alert" (for the test box's reasons). */
 export function conditionText(c: HdAssignCondition): string {
-  const v = Array.isArray(c.value) ? c.value.join(", ") : c.value ?? "";
+  // Languages read by name ("Ticket language is French"), 1.19.2.
+  const named = (x: string) => (c.field === "language" ? languageName(x) : x);
+  const v = Array.isArray(c.value) ? c.value.map(named).join(", ") : named(c.value ?? "");
   if (c.op === "is_true") return fieldLabel(c.field);
   if (c.op === "is_false") return `not: ${fieldLabel(c.field).toLowerCase()}`;
   if (c.field === "hours") return v === "closed" ? "the team is closed" : "the team is open";
@@ -205,7 +211,7 @@ export function evaluateRules(
   facts: HdAssignFacts,
   opts: { severity?: unknown; teamName?: (id: number) => string; openFor?: (teamId: number | null) => boolean } = {}
 ): RuleDecision {
-  const out: RuleDecision = { rule: null, matched: [], team_id: undefined, priority: undefined, add_tags: [], assign: "team_mode", user_id: null, min_role: null, trace: [] };
+  const out: RuleDecision = { rule: null, matched: [], team_id: undefined, priority: undefined, add_tags: [], assign: "team_mode", user_id: null, min_role: null, skills: null, trace: [] };
   const f = { ...facts };
   let stopped = false;
   for (const r of rules) {
@@ -255,6 +261,7 @@ export function evaluateRules(
     if (a.assign && a.assign !== "team_mode") {
       out.assign = a.assign;
       out.user_id = a.assign === "user" ? a.user_id ?? null : null;
+      out.skills = a.assign === "skills" ? a.skills ?? null : null;
       out.rule = r;
     } else if (!out.rule) out.rule = r;
     if (a.min_role && (!out.min_role || (RANK[a.min_role] ?? 0) > (RANK[out.min_role] ?? 0))) out.min_role = a.min_role;
@@ -385,7 +392,8 @@ type Plan =
   | { kind: "leave"; note?: string }
   | { kind: "user"; user_id: number }
   | { kind: "round_robin" | "load_balanced" }
-  | { kind: "on_call" };
+  | { kind: "on_call" }
+  | { kind: "skills"; criteria: HdSkillCriteria };
 
 async function writeNote(client: import("pg").PoolClient, ticketId: number, body: string, now: Date) {
   await client.query(
@@ -496,6 +504,9 @@ async function assignTicketInner(ticketId: number, opts: AssignOptions): Promise
           case "on_call":
             plan = { kind: "on_call" };
             break;
+          case "skills":
+            plan = d.skills ? { kind: "skills", criteria: d.skills } : null;
+            break;
           case "leave_unassigned":
             plan = { kind: "leave", note: `Rule “${rule?.name ?? ""}” left it in the queue.` };
             break;
@@ -506,7 +517,8 @@ async function assignTicketInner(ticketId: number, opts: AssignOptions): Promise
     }
   } else if (opts.trigger === "retry" && state?.decision?.kind) {
     const k = state.decision.kind;
-    plan = k === "team_mode" ? null : { kind: k };
+    if (k === "skills") plan = state.decision.skills ? { kind: "skills", criteria: state.decision.skills } : null;
+    else plan = k === "team_mode" ? null : { kind: k };
     minRole = (state.decision.min_role as HdRole | null) ?? null;
     if (state.decision.rule_id) rule = { id: state.decision.rule_id, name: state.decision.rule_name ?? "" } as HdAssignmentRule;
   }
@@ -531,9 +543,39 @@ async function assignTicketInner(ticketId: number, opts: AssignOptions): Promise
     min_role: minRole,
     rule_id: rule?.id ?? null,
     rule_name: rule?.name ?? "",
+    ...(plan.kind === "skills" ? { skills: plan.criteria } : {}),
   };
   const open = await teamOpen(teamId, now);
   const cands = await teamCandidates(teamId, settings, { minRole, exclude: reassign ? t.assignee_id : null, open });
+
+  // An agent with the right skills or language (1.19.2, agent W2): the same
+  // pool, availability and caps as the team's turn, narrowed to the people
+  // whose tags match; nobody matching = the team's turn or the queue.
+  let skill: import("../skills/match").SkillMatch | null = null;
+  let skillFallbackNote = "";
+  if (plan.kind === "skills") {
+    const { skillMatch } = await import("../skills/match");
+    skill = await skillMatch(cands.map((c) => c.user_id), plan.criteria, t.language ?? null);
+    // Nothing to match on ("speaks the ticket's language" when it is unknown), or the criteria name a
+    // skill or language that no longer exists: the team's turn decides, never a wait for the impossible.
+    const why = skill.missing
+      ? `needs ${skill.missing}`
+      : !skill.language && !plan.criteria.skill_ids.length
+        ? "needs the ticket's language, which is unknown"
+        : "";
+    if (why) {
+      skill = null;
+      skillFallbackNote = ` The rule ${why}, so the team's turn decided.`;
+      if (settings.mode === "manual") {
+        // The team assigns by hand: out of the retry queue, so the sweep doesn't note it again every minute.
+        await clearQueued(ticketId);
+        return finishLeave(ticketId, `Rule “${rule?.name ?? ""}” ${why}, and the team assigns by hand, so it waits in the queue.`, rule, now);
+      }
+      plan = { kind: settings.mode };
+      decision.kind = "team_mode";
+      delete decision.skills;
+    }
+  }
 
   // A named person or the on-call person: no turn, no capacity, but they must be able to work it.
   let fixed: { user_id: number; method: HdAssignMethod; name: string } | null = null;
@@ -570,7 +612,7 @@ async function assignTicketInner(ticketId: number, opts: AssignOptions): Promise
 
   const pool = cands.filter((c) => !c.skip);
   const expectAssignee = reassign || opts.trigger === "manual_request" ? t.assignee_id : null;
-  const mode = plan.kind === "load_balanced" ? "load_balanced" : "round_robin";
+  const mode = plan.kind === "load_balanced" || (plan.kind === "skills" && settings.mode === "load_balanced") ? "load_balanced" : "round_robin";
 
   const tx = await withTx(async (client) => {
     const row = (await client.query<{ assignee_id: number | null; team_id: number | null; status: string }>(
@@ -583,6 +625,8 @@ async function assignTicketInner(ticketId: number, opts: AssignOptions): Promise
     let to: number | null = null;
     let method: HdAssignMethod = "round_robin";
     const capSkips = new Map<number, string>();
+    let skillHit = false;
+    let skillMissed = false;
     if (fixed) {
       to = fixed.user_id;
       method = fixed.method;
@@ -595,15 +639,31 @@ async function assignTicketInner(ticketId: number, opts: AssignOptions): Promise
       const ids = pool.map((c) => c.user_id).sort((a, b) => a - b);
       for (const id of ids) await client.query("SELECT pg_advisory_xact_lock($1, $2)", [AGENT_LOCK_CLASS, id]);
       const load = await loadOf(ids, client);
-      const able = pool.filter((c) => {
+      const capable = pool.filter((c) => {
         const why = capacitySkip(settings, load.get(c.user_id)?.open_count ?? 0);
         if (why) capSkips.set(c.user_id, why);
         return !why;
       });
+      let able = capable;
+      let how = mode;
+      if (skill) {
+        const matching = capable.filter((c) => skill!.ids.has(c.user_id));
+        if (matching.length) {
+          able = matching;
+          skillHit = true;
+        } else if (skill.criteria.fallback === "team" && settings.mode !== "manual") {
+          skillMissed = true;
+          how = settings.mode;
+        } else able = [];
+      }
       if (stickyId && able.some((c) => c.user_id === stickyId)) {
         to = stickyId;
         method = "sticky";
-      } else if (mode === "load_balanced") {
+      } else if (skillHit && how !== "load_balanced") {
+        // In turn among the matches, without the team's cursor (it stays the team's own turn order).
+        const { pickLongestWaiting } = await import("../skills/shared");
+        to = pickLongestWaiting(able.map((c) => ({ user_id: c.user_id, last_assigned_at: load.get(c.user_id)?.last_assigned_at ?? null })));
+      } else if (how === "load_balanced") {
         to = pickLeastLoaded(able.map((c) => ({ user_id: c.user_id, weight: c.weight, ...(load.get(c.user_id) ?? { open_count: 0, last_assigned_at: null }) })));
         method = "load_balanced";
       } else {
@@ -614,9 +674,17 @@ async function assignTicketInner(ticketId: number, opts: AssignOptions): Promise
           await client.query("UPDATE hd_assignment_cursor SET last_user_id = $2, streak = $3, updated_at = $4 WHERE team_id = $1", [teamId, pick.user_id, pick.streak, now]);
         }
       }
+      if (skillHit && to !== null && method !== "sticky") method = "skills";
     }
     if (to === null) {
-      const reason = whyNobody(cands, capSkips, !open && settings.respect_shift === 1 && cands.length > 0 && cands.every((c) => c.skip === "is off shift" || c.skip === "has no desk role"));
+      const outside = !open && settings.respect_shift === 1 && cands.length > 0 && cands.every((c) => c.skip === "is off shift" || c.skip === "has no desk role");
+      let reason = whyNobody(cands, capSkips, outside);
+      if (skill && !skillHit && !skillMissed && !outside) {
+        const matching = cands.filter((c) => skill!.ids.has(c.user_id));
+        reason = matching.length
+          ? `Nobody who ${skill.text} is available (${whyNobody(matching, capSkips)})${settings.mode === "manual" && skill.criteria.fallback === "team" ? " and the team assigns by hand" : ""}`
+          : `Nobody in the team ${skill.text}`;
+      }
       if (reassign) return { kind: "nobody" as const, reason };
       const fresh = await queueTicket(ticketId, reason, decision, now, client);
       if (fresh) await writeNote(client, ticketId, `No one available; waiting in the queue. (${reason}.)`, now);
@@ -636,10 +704,13 @@ async function assignTicketInner(ticketId: number, opts: AssignOptions): Promise
       note = `Reassigned from ${fromName} to ${toName}: ${reason}.`;
     } else {
       const how = methodPhrase(method, rule?.name);
-      const viaRule = rule && method !== "rule" ? ` (rule “${rule.name}”)` : "";
+      const viaRule = rule && method !== "rule" && method !== "skills" ? ` (rule “${rule.name}”)` : "";
       const vip = vipReason ? ` VIP list: ${vipReason}.` : "";
-      reason = `${how}${viaRule}`.trim();
-      note = `Assigned to ${toName} ${how}${viaRule}${opts.trigger === "retry" ? waited(state?.queued_since ?? null, now) : ""}.${vip}${fallbackNote}`;
+      // Skills (1.19.2): why this person, or why the team's turn decided instead.
+      const skillWhy = method === "skills" && skill ? `: ${firstName(toName)} ${skill.text}` : "";
+      const skillMiss = skillMissed && skill ? ` Nobody who ${skill.text} was available, so the team's turn decided.` : skillFallbackNote;
+      reason = `${how}${viaRule}${skillWhy}`.trim();
+      note = `Assigned to ${toName} ${how}${viaRule}${skillWhy}${opts.trigger === "retry" ? waited(state?.queued_since ?? null, now) : ""}.${vip}${fallbackNote}${skillMiss}`;
       if (fromUser && fromUser !== to) note = `Reassigned from ${fromName} to ${toName} ${how}${viaRule}.`;
     }
     await insertLog({ ticket_id: ticketId, method, rule_id: rule?.id ?? null, rule_name: rule?.name ?? "", from_user_id: fromUser, to_user_id: to, team_id: teamId, reason, at: now }, client);
@@ -889,6 +960,8 @@ export interface RuleTestSample {
   hours?: "open" | "closed";
   severity?: string;
   answers?: Record<string, unknown>;
+  /** The ticket's language (1.19.2, agent W2). */
+  language?: string | null;
 }
 
 export interface RuleTestResult {
@@ -896,6 +969,8 @@ export interface RuleTestResult {
   trace: RuleTraceLine[];
   /** "Moves to Infra, sets Urgent, then round robin among Infra's agents (next: Sam)." */
   outcome: string;
+  /** The ticket's language and where it came from (1.19.2, agent W2): "Ticket language: French (detected from the first message)." */
+  language: { code: string | null; name: string; source: string; note: string };
 }
 
 /** Which rule would match this ticket (or sample), why, and what would happen. Writes nothing. */
@@ -926,6 +1001,7 @@ export async function testRules(sample: RuleTestSample, ticket: TicketForAssign 
       answers: sample.answers ?? {},
       requester: automated ? null : { department: sample.department ?? "", office: sample.office ?? "", vip: sample.vip === true, vip_reason: "" },
       open: sample.hours ? sample.hours === "open" : await teamOpen(teamId, now),
+      language: sample.language ?? null,
     };
   }
   const fixedOpen = !ticket && sample.hours ? sample.hours === "open" : null;
@@ -959,26 +1035,76 @@ export async function testRules(sample: RuleTestSample, ticket: TicketForAssign 
       how = u ? `goes to ${u.name}, on call for ${name} now` : `waits in ${name}'s queue: nobody is on call now`;
     } else if (s) {
       const open = facts.team_id === teamId ? facts.open : openCache.get(teamId!) ?? true;
-      const cands = (await teamCandidates(teamId!, s, { minRole: d.min_role, open })).filter((c) => !c.skip);
+      const all = await teamCandidates(teamId!, s, { minRole: d.min_role, open });
+      const cands = all.filter((c) => !c.skip);
       const load = await loadOf(cands.map((c) => c.user_id));
-      const able = cands.filter((c) => !capacitySkip(s, load.get(c.user_id)?.open_count ?? 0));
-      let id: number | null;
-      if (kind === "load_balanced") id = pickLeastLoaded(able.map((c) => ({ user_id: c.user_id, weight: c.weight, ...(load.get(c.user_id) ?? { open_count: 0, last_assigned_at: null }) })));
-      else {
-        const cur = await hqOne<{ last_user_id: number | null; streak: number }>("SELECT last_user_id, streak FROM hd_assignment_cursor WHERE team_id = $1", [teamId]);
-        id = pickRoundRobin(able.map((c) => ({ user_id: c.user_id, weight: c.weight })), { last_user_id: cur?.last_user_id ?? null, streak: cur?.streak ?? 0 })?.user_id ?? null;
-      }
-      const label = kind === "load_balanced" ? `goes to the least busy in ${name}${seniors}` : `goes round robin in ${name}${seniors}`;
-      const who = able.find((c) => c.user_id === id);
-      how = who ? `${label}: next is ${who.name}` : `${label}, but no one is available now, so it waits in the queue`;
+      const capSkips = new Map<number, string>();
+      const capable = cands.filter((c) => {
+        const why = capacitySkip(s, load.get(c.user_id)?.open_count ?? 0);
+        if (why) capSkips.set(c.user_id, why);
+        return !why;
+      });
+      const next = async (k: string, able: Candidate[]): Promise<Candidate | undefined> => {
+        let id: number | null;
+        if (k === "load_balanced") id = pickLeastLoaded(able.map((c) => ({ user_id: c.user_id, weight: c.weight, ...(load.get(c.user_id) ?? { open_count: 0, last_assigned_at: null }) })));
+        else {
+          const cur = await hqOne<{ last_user_id: number | null; streak: number }>("SELECT last_user_id, streak FROM hd_assignment_cursor WHERE team_id = $1", [teamId]);
+          id = pickRoundRobin(able.map((c) => ({ user_id: c.user_id, weight: c.weight })), { last_user_id: cur?.last_user_id ?? null, streak: cur?.streak ?? 0 })?.user_id ?? null;
+        }
+        return able.find((c) => c.user_id === id);
+      };
+      const turn = async (k: string): Promise<string> => {
+        const label = k === "load_balanced" ? `goes to the least busy in ${name}${seniors}` : `goes round robin in ${name}${seniors}`;
+        const who = await next(k, capable);
+        return who ? `${label}: next is ${who.name}` : `${label}, but no one is available now, so it waits in the queue`;
+      };
+      if (kind === "skills" && d.skills) {
+        // 1.19.2 (agent W2): who has the skills and language, who of them can take it now, and what happens if nobody can.
+        const { skillMatch } = await import("../skills/match");
+        const m = await skillMatch(all.map((c) => c.user_id), d.skills, facts.language ?? null);
+        const needs = m.missing ? `needs ${m.missing}` : !m.language && !d.skills.skill_ids.length ? "needs the ticket's language, which is unknown" : "";
+        if (needs) {
+          how = s.mode === "manual" ? `${needs}, so it waits in ${name}'s queue` : `${needs}, so the team's turn decides: it ${await turn(s.mode)}`;
+        } else {
+          const matching = all.filter((c) => m.ids.has(c.user_id));
+          const able = capable.filter((c) => m.ids.has(c.user_id));
+          // The engine's skills pick: least busy in a load-balanced team, else whoever has waited longest (never the team's cursor).
+          const { pickLongestWaiting } = await import("../skills/shared");
+          const who =
+            s.mode === "load_balanced"
+              ? await next("load_balanced", able)
+              : able.find((c) => c.user_id === pickLongestWaiting(able.map((x) => ({ user_id: x.user_id, last_assigned_at: load.get(x.user_id)?.last_assigned_at ?? null }))));
+          if (who) {
+            const names = able.map((c) => c.name);
+            const list = names.length > 4 ? `${names.slice(0, 4).join(", ")} and ${names.length - 4} more` : names.join(", ");
+            how = `goes to an agent in ${name} who ${m.text}${seniors} (${able.length === 1 ? `${list} matches` : `${list} match`}): next is ${who.name}`;
+          } else {
+            const why = matching.length ? `finds nobody in ${name} who ${m.text} available now (${whyNobody(matching, capSkips)})` : `finds nobody in ${name} who ${m.text}`;
+            how =
+              d.skills.fallback === "team" && s.mode !== "manual"
+                ? `${why}, so it falls back to the team's turn and ${await turn(s.mode)}`
+                : `${why}, so it waits in the queue for a match`;
+          }
+        }
+      } else how = await turn(kind);
     }
   }
   parts.push(how);
   const lead = d.matched.length ? `Rule “${d.rule?.name ?? d.matched[0].name}” matches` : "No rule matches";
+  const langCode = facts.language ?? null;
+  const langSource = ticket ? ((ticket as { language_source?: string }).language_source ?? "") : sample.language ? "sample" : "";
   return {
     matched: d.matched.length ? { id: (d.rule ?? d.matched[0]).id, name: (d.rule ?? d.matched[0]).name } : null,
     trace: d.trace,
     outcome: `${lead}: it ${parts.filter(Boolean).join(", then ")}.`,
+    language: {
+      code: langCode,
+      name: langCode ? languageName(langCode) : "",
+      source: langSource,
+      note: langCode
+        ? `Ticket language: ${languageName(langCode)}${langSource && langSource !== "sample" ? ` (${(HD_LANGUAGE_SOURCE_LABEL as Record<string, string>)[langSource]?.toLowerCase() ?? langSource})` : ""}.`
+        : "Ticket language: unknown.",
+    },
   };
 }
 

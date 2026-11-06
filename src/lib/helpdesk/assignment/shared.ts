@@ -8,6 +8,7 @@
 import { wallClock, zonedInstant } from "../sla";
 import { HD_PRIORITIES, HD_PRIORITY_LABEL, HD_SOURCE_LABEL, type HdPriority } from "../types";
 import { HD_ROLES, HD_ROLE_LABEL, HD_ROLE_RANK, type HdRole } from "../roles-shared";
+import { validateSkillCriteria, type HdSkillCriteria } from "../skills/shared";
 
 // --- Team settings ---------------------------------------------------------------------
 
@@ -168,6 +169,8 @@ export const HD_ASSIGN_FIELDS = {
   },
   category: { label: "Category", group: "Ticket", kind: "text", ops: TEXT_OPS },
   tags: { label: "Tags", group: "Ticket", kind: "choice", ops: ["in", "not_in", "is_empty", "not_empty"] },
+  // 1.19.2 (agent W2): the ticket's language (lib/helpdesk/skills); the choices are the workspace's languages.
+  language: { label: "Ticket language", group: "Ticket", kind: "choice", ops: ["equals", "not_equals", "is_empty", "not_empty"] },
   subject: { label: "Subject", group: "Words", kind: "text", ops: ["contains", "not_contains"] },
   body: { label: "First message", group: "Words", kind: "text", ops: ["contains", "not_contains"] },
   text: { label: "Subject or first message", group: "Words", kind: "text", ops: ["contains", "not_contains"] },
@@ -202,16 +205,28 @@ export interface HdAssignConditions {
   rules: HdAssignCondition[];
 }
 
-export const HD_ASSIGN_ACTIONS = ["team_mode", "user", "round_robin_in_team", "load_balanced_in_team", "on_call", "leave_unassigned"] as const;
+export const HD_ASSIGN_ACTIONS = ["team_mode", "skills", "user", "round_robin_in_team", "load_balanced_in_team", "on_call", "leave_unassigned"] as const;
 export type HdAssignActionKind = (typeof HD_ASSIGN_ACTIONS)[number];
 
 export const HD_ASSIGN_ACTION_LABEL: Record<HdAssignActionKind, string> = {
-  team_mode: "Use the team's setting",
+  team_mode: "The team's turn",
+  skills: "An agent with the right skills or language",
   user: "A specific person",
   round_robin_in_team: "Round robin in the team",
   load_balanced_in_team: "Least busy in the team",
   on_call: "Whoever is on call",
   leave_unassigned: "Leave it in the queue",
+};
+
+/** One sentence under each choice in the rule editor. */
+export const HD_ASSIGN_ACTION_HINT: Record<HdAssignActionKind, string> = {
+  team_mode: "Round robin or load balanced, as the team is set up.",
+  skills: "Among available agents of the team, in turn.",
+  user: "Always the same person, if they can work the team's tickets.",
+  round_robin_in_team: "The next person in turn, whatever the team is set to.",
+  load_balanced_in_team: "Whoever has the fewest open tickets right now.",
+  on_call: "The team's on-call person right now.",
+  leave_unassigned: "Nobody is assigned; it waits for someone to take it.",
 };
 
 /** Roles a rule may require (min_role): Agent and up. */
@@ -228,6 +243,8 @@ export interface HdAssignAction {
   /** A priority, or 'from_severity' (the alert's severity: critical → Urgent, high → High, warning → Normal, info → Low). */
   set_priority?: HdPriority | "from_severity" | null;
   add_tags?: string[];
+  /** With assign 'skills' (1.19.2, agent W2): the language and skills the agent needs, and what happens when nobody matching is available. */
+  skills?: HdSkillCriteria;
 }
 
 export interface HdAssignmentRule {
@@ -258,6 +275,7 @@ export const HD_ASSIGN_METHODS = [
   "reassign_away",
   "reassign_unanswered",
   "on_call",
+  "skills",
 ] as const;
 export type HdAssignMethod = (typeof HD_ASSIGN_METHODS)[number];
 
@@ -271,6 +289,7 @@ export const HD_ASSIGN_METHOD_LABEL: Record<HdAssignMethod, string> = {
   reassign_away: "Owner away",
   reassign_unanswered: "No first reply",
   on_call: "On call",
+  skills: "Skills and language",
 };
 
 export interface HdAssignmentLogEntry {
@@ -429,6 +448,11 @@ export function validateAction(raw: unknown): Checked<HdAssignAction> {
     if (!isInt(t, 1, 2 ** 31 - 1)) return { ok: false, error: "team_id must be a team's id." };
     out.team_id = t as number;
   }
+  if (out.assign === "skills") {
+    const c = validateSkillCriteria(a.skills);
+    if (!c.ok) return c;
+    out.skills = c.value;
+  }
   if (out.assign === "user") {
     const u = asNum(a.user_id);
     if (!isInt(u, 1, 2 ** 31 - 1)) return { ok: false, error: "Choose the person the rule assigns to." };
@@ -546,6 +570,8 @@ export interface HdAssignFacts {
   requester: { department: string; office: string; vip: boolean; vip_reason: string } | null;
   /** Is the team's calendar open now. */
   open: boolean;
+  /** The ticket's language (ISO 639-1; 1.19.2, agent W2), null or absent when unknown. */
+  language?: string | null;
 }
 
 const lc = (s: unknown) => String(s ?? "").trim().toLowerCase();
@@ -629,6 +655,8 @@ export function conditionHolds(c: HdAssignCondition, f: HdAssignFacts): boolean 
       return compareText(f.category, c.op, c.value);
     case "tags":
       return compareSet(f.tags, c.op, c.value);
+    case "language":
+      return compareText(f.language ?? "", c.op, c.value);
     case "subject":
       return compareText(f.subject, c.op, c.value);
     case "body":
@@ -835,12 +863,14 @@ export function methodPhrase(method: HdAssignMethod, ruleName?: string | null): 
       return "because the owner is away";
     case "reassign_unanswered":
       return "because the owner had not replied in time";
+    case "skills":
+      return `by rule “${ruleName ?? ""}”`;
   }
 }
 
 /** The name the assignment notice shows as the assigner ("Round robin assigned you #1047"). */
 export function assignerName(method: HdAssignMethod, ruleName?: string | null): string {
-  if (method === "rule") return `Rule “${ruleName ?? ""}”`;
+  if (method === "rule" || method === "skills") return `Rule “${ruleName ?? ""}”`;
   if (method === "sticky") return "Auto-assign";
   if (method === "on_call") return "On-call rota";
   if (method === "load_balanced") return "Load balancing";

@@ -17,6 +17,13 @@ import { HD_IMPORT_SCHEMA } from "./helpdesk/import-schema";
 import { HD_PORTAL_SCHEMA } from "./helpdesk/portal-schema";
 import { HD_SLA_PAUSE_SCHEMA } from "./helpdesk/sla-pause-schema";
 import { HD_RETENTION_SCHEMA } from "./helpdesk/retention-schema";
+import { HD_SKILLS_SCHEMA } from "./helpdesk/skills-schema";
+import { HD_CANNED_SCHEMA } from "./helpdesk/canned-schema";
+import { HD_CHECKLISTS_SCHEMA } from "./helpdesk/checklists-schema";
+import { HD_INCIDENTS_SCHEMA } from "./helpdesk/incidents-schema";
+import { HD_WHATS_NEW_SCHEMA } from "./helpdesk/whats-new-schema";
+import { HD_IMPORT_CHECK_SCHEMA } from "./helpdesk/import-check-schema";
+import { HD_STATUS_TEAMS_SCHEMA } from "./helpdesk/status-teams-schema";
 import { createHash, randomBytes } from "node:crypto";
 import { SEED_SPACES, SEED_DOCS } from "./seed-data";
 import { hashPassword } from "./password";
@@ -2303,6 +2310,20 @@ const SCHEMA_SQL = `
   ${HD_SLA_PAUSE_SCHEMA}
   -- Retention and privacy: legal hold, anonymised tickets (1.19.1, agent V5, lib/helpdesk/retention-schema).
   ${HD_RETENTION_SCHEMA}
+  -- Skills and languages routing (1.19.2, agent W2, lib/helpdesk/skills-schema).
+  ${HD_SKILLS_SCHEMA}
+  -- Canned responses (1.19.2, agent W4, lib/helpdesk/canned-schema).
+  ${HD_CANNED_SCHEMA}
+  -- Checklists on tickets (1.19.2, agent W3, lib/helpdesk/checklists-schema).
+  ${HD_CHECKLISTS_SCHEMA}
+  -- Major incidents (1.19.2, agent W1, lib/helpdesk/incidents-schema).
+  ${HD_INCIDENTS_SCHEMA}
+  -- "New" badges in the desk settings rail (1.19.2, agent W5, lib/helpdesk/whats-new-schema).
+  ${HD_WHATS_NEW_SCHEMA}
+  -- Import checks in the background (1.19.2, agent W5, lib/helpdesk/import-check-schema; after hd_import_jobs).
+  ${HD_IMPORT_CHECK_SCHEMA}
+  -- Status page services per team (1.19.2, agent W6, lib/helpdesk/status-teams-schema; after hd_incidents).
+  ${HD_STATUS_TEAMS_SCHEMA}
   --- end Helpdesk 1.19.0 ---------------------------------------------------
   ${EMAIL_PARTS_SCHEMA}
   ${NOTIFY_POLICY_SCHEMA}

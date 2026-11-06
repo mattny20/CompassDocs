@@ -171,6 +171,7 @@ export const HD_REQUESTER_EVENTS = [
   "hd_solved",
   "hd_workflow_message",
   "hd_merged",
+  "hd_incident_update",
 ] as const;
 
 /** The catalog id of one of the desk's agent events (agent F's names). */
@@ -262,12 +263,16 @@ export const NOTIFY_EVENTS: readonly NotifyEventDef[] = [
   { id: "hd_cc_added", section: "helpdesk", label: "Copied on a request", hint: "Someone adds you as CC on a request", channels: BW, digest: false },
   { id: "hd_workflow_message", section: "helpdesk", label: "Workflow messages", hint: "A step in your request's workflow sends you a message", channels: BWE, digest: true, templates: ["hd_workflow_notify"] },
   { id: "hd_merged", section: "helpdesk", label: "Requests joined", hint: "The desk joins your request with another one about the same thing", channels: BWE, digest: true, templates: ["hd_merged"] },
+  // 1.19.2 (agent W1, lib/helpdesk/incidents): an outage's updates are urgent, so never held for a digest.
+  { id: "hd_incident_update", section: "helpdesk", label: "Major incident updates", hint: "The desk posts an update on an outage your request is part of, or that you said affects you", channels: { bell: true, email: true }, digest: false, templates: ["hd_incident_update"] },
   // Approvals
   { id: "hd_approval_needed", section: "approvals", label: "Approval needed", hint: "A request waits for your approval, and its reminders", channels: { ...BWE, push: true }, digest: true, audience: "Approvers", templates: ["hd_approval_needed"] },
   { id: "hd_approval_decided", section: "approvals", label: "Approval decided", hint: "Your request is approved or declined", channels: BWE, digest: true, templates: ["hd_approval_decided"] },
   // The desk (agent side)
   ...DESK_EVENTS,
   { id: "hd_report_digest", section: "desk", label: "Report digests", hint: "A scheduled summary of a desk dashboard you're on the schedule for", channels: { email: true }, digest: false, audience: "People on a report schedule", templates: ["hd_report_digest"] },
+  // 1.19.2 (agent W5, lib/helpdesk/import-check): a background dry run or rescan finished.
+  { id: "hd_import_ready", section: "desk", label: "Import checks", hint: "A dry run of a ticket import you started is ready, or stopped", channels: { bell: true }, digest: false, audience: "Helpdesk admins" },
   // Training
   { id: "training_assigned", section: "training", label: "Training assigned", hint: "A training deck is assigned to you", channels: BWE, digest: true, templates: ["training_assigned"] },
   { id: "training_due", section: "training", label: "Training due", hint: "An assigned training is due soon or overdue, and manager reminders", channels: BWE, digest: true, templates: ["training_due"] },

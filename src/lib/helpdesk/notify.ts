@@ -77,6 +77,12 @@ export interface NotifyContext {
   /** Who did it: never notified of their own action. */
   actorId?: number | null;
   actorName?: string;
+  /**
+   * 1.19.2 (agent W5): the addresses an inbound email (a reply-all) already
+   * reached directly. The requester and CCs among them get the bell but no
+   * mailed copy of it.
+   */
+  directRecipients?: string[];
 }
 
 
@@ -239,6 +245,7 @@ export const REQUESTER_NOTIFY_EVENTS = [
   "hd_approval_decided",
   "hd_workflow_message",
   "hd_merged",
+  "hd_incident_update",
 ] as const;
 export type RequesterNotifyEvent = (typeof REQUESTER_NOTIFY_EVENTS)[number];
 
@@ -256,6 +263,8 @@ function requesterEvent(template: string, status: HdStatus): RequesterNotifyEven
       return "hd_approval_needed";
     case "hd_merged":
       return "hd_merged";
+    case "hd_incident_update":
+      return "hd_incident_update";
     default:
       return "hd_workflow_message";
   }
@@ -269,7 +278,7 @@ async function toRequester(
   template: string,
   vars: Record<string, string>,
   ctx: NotifyContext,
-  opts: { skipRequester?: boolean; excludeEmail?: string; excludeUserIds?: number[] } = {}
+  opts: { skipRequester?: boolean; excludeEmail?: string; excludeUserIds?: number[]; excludeEmails?: string[] } = {}
 ): Promise<void> {
   // An automated ticket (an alert or an API integration) has no person
   // behind it: no receipt, reply, "waiting on you", CSAT or workflow notice.
@@ -279,7 +288,15 @@ async function toRequester(
   const event = requesterEvent(template, t.status);
   // 1.19.1 (agent V3, lib/helpdesk/ccs): a public reply also reaches the
   // people copied on the request, on Cc of the requester's mail.
-  const ccs = template === "hd_reply" ? await import("./ccs").then((m) => m.planCcNotice(t.id, event, ctx.actorId ?? null, opts.excludeEmail, { excludeUserIds: opts.excludeUserIds })) : null;
+  // 1.19.2 (agent W1): a major incident's update reaches them the same way.
+  // 1.19.2 (agent W5): people the reply-all itself went to get no mailed copy of it (the bell stays).
+  const onMail = new Set((ctx.directRecipients ?? []).map((a) => a.trim().toLowerCase()).filter(Boolean));
+  const ccs = template === "hd_reply" || template === "hd_incident_update" ? await import("./ccs").then((m) => m.planCcNotice(t.id, event, ctx.actorId ?? null, opts.excludeEmail, { excludeUserIds: opts.excludeUserIds, alreadyMailed: onMail })) : null;
+  // 1.19.2 (agent W1): addresses an incident update already reached on another linked ticket.
+  if (ccs && opts.excludeEmails?.length) {
+    const told = new Set(opts.excludeEmails.map((a) => a.toLowerCase()));
+    ccs.cc = ccs.cc.filter((a) => !told.has(a.toLowerCase()));
+  }
   let mailed = false;
   if (opts.skipRequester) {
     // The requester wrote it: only the CCs hear.
@@ -289,10 +306,14 @@ async function toRequester(
       const { shouldNotify, routeEmail } = await import("../notify-policy");
       if ((await shouldNotify(userId, event, "bell")).send) await bell([userId], "hd_request", title, body, link, ctx, event);
       // routeEmail sends now, queues for the person's digest, or skips.
-      await routeEmail(userId, event, { title, body, link }, async () => {
-        mailed = await emailUsers([userId], "hd_request", template, { ...vars, ticket_url: link }, t.number, ctx, ccs?.cc);
-      });
+      if (!onMail.size || !(await requesterOnMail(t, onMail))) {
+        await routeEmail(userId, event, { title, body, link }, async () => {
+          mailed = await emailUsers([userId], "hd_request", template, { ...vars, ticket_url: link }, t.number, ctx, ccs?.cc);
+        });
+      }
     }
+  } else if (t.requester_email && onMail.has(t.requester_email.toLowerCase())) {
+    // 1.19.2 (agent W5): the outside requester or portal contact was on the email itself.
   } else if (t.requester_email && (await (await import("./portal-hooks")).portalRequesterNotice(t.id, template, vars, ctx.origin))) {
     // 1.19.1 (agent V6, lib/helpdesk/portal-hooks): a customer-portal
     // contact's notice went by email from the portal, with a sign-in link.
@@ -305,6 +326,14 @@ async function toRequester(
     const { finishCcNotice } = await import("./ccs");
     await finishCcNotice(ccs, { event, title, body, link, template, vars: { ...vars, ticket_url: link }, thread, mailedWithRequester: mailed, ctx });
   }
+}
+
+/** 1.19.2 (agent W5): is the account requester's address (or the ticket's) among an email's own recipients? */
+async function requesterOnMail(t: TicketCtx, onMail: Set<string>): Promise<boolean> {
+  if (t.requester_email && onMail.has(t.requester_email.toLowerCase())) return true;
+  if (!t.requester_id) return false;
+  const u = await hqOne<{ email: string }>("SELECT email FROM users WHERE id = $1", [t.requester_id]);
+  return !!u?.email && onMail.has(u.email.toLowerCase());
 }
 
 function baseVars(t: TicketCtx): Record<string, string> {
@@ -664,7 +693,12 @@ export const notifySolvedCsat = guarded("solved", async (ticketId: number, ctx: 
   if (!t || t.parent_ticket_id || t.source === "workflow") return;
   ctx = { ...ctx, origin: await helpdeskOrigin(ctx.origin) };
   const settings = await getHelpdeskSettings();
-  const ask = settings.csat_enabled && ctx.csat !== false && t.csat_score == null && t.requester_id != null;
+  const ask =
+    settings.csat_enabled &&
+    ctx.csat !== false &&
+    t.csat_score == null &&
+    // 1.19.2 (agent W5, lib/helpdesk/portal-csat): a customer-portal contact is asked too, with portal links.
+    (t.requester_id != null || (await import("./portal-csat").then((m) => m.portalSurveyApplies(t.id))));
   const block = ask ? await csatBlock(t.id, ctx.origin) : "";
   const by = ctx.actorName || t.assignee_name || "The helpdesk";
   await toRequester(
@@ -829,3 +863,46 @@ export const notifyMerged = guarded("merged", async (ticketId: number, keepNumbe
     ctx
   );
 });
+
+// --- Major incidents (1.19.2, agent W1, lib/helpdesk/incidents) ---------------
+
+/**
+ * An incident's update (or the "we know about this" notice when a ticket is
+ * linked) to one linked ticket's requester and CCs: hd_incident_update
+ * through the notification policy (bell and email, never a digest), the
+ * portal's own mail for a customer-portal contact, the ticket's address
+ * for an outside sender, nothing for an automated ticket. The caller tells
+ * each person once per update across the incident's tickets:
+ * `skipRequester` when this ticket's requester already heard on another,
+ * `excludeUserIds` for CCs who did. Replies to the email land on the ticket.
+ */
+export const notifyIncidentUpdate = guarded(
+  "incident_update",
+  async (
+    ticketId: number,
+    n: { incidentTitle: string; message: string; teamName: string | null },
+    ctx: NotifyContext & { skipRequester?: boolean; excludeUserIds?: number[]; excludeEmails?: string[] } = {}
+  ) => {
+    const t = await loadTicket(ticketId);
+    if (!t || t.source === "workflow") return;
+    ctx = { ...ctx, origin: await helpdeskOrigin(ctx.origin) };
+    const team = n.teamName || t.team_name || "The helpdesk";
+    await toRequester(
+      t,
+      `Update: ${n.incidentTitle}`,
+      excerpt(n.message),
+      "hd_incident_update",
+      {
+        ...baseVars(t),
+        team_name: team,
+        incident_title: n.incidentTitle,
+        message: n.message,
+        request_line: ` (your request #${t.number} is part of it)`,
+        link_label: "Open your request",
+        reply_line: " or reply to this email.",
+      },
+      { actorId: ctx.actorId, actorName: ctx.actorName, origin: ctx.origin },
+      { skipRequester: ctx.skipRequester, excludeUserIds: ctx.excludeUserIds, excludeEmails: ctx.excludeEmails }
+    );
+  }
+);

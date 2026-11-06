@@ -29,6 +29,13 @@ import { HD_RETENTION_SCHEMA } from "../src/lib/helpdesk/retention-schema";
 import { HD_CC_SCHEMA } from "../src/lib/helpdesk/cc-schema";
 import { HD_RECURRING_SCHEMA } from "../src/lib/helpdesk/recurring-schema";
 import { HD_TIME_SCHEMA } from "../src/lib/helpdesk/time-schema";
+import { HD_CANNED_SCHEMA } from "../src/lib/helpdesk/canned-schema";
+import { HD_SKILLS_SCHEMA } from "../src/lib/helpdesk/skills-schema";
+import { HD_CHECKLISTS_SCHEMA } from "../src/lib/helpdesk/checklists-schema";
+import { HD_INCIDENTS_SCHEMA } from "../src/lib/helpdesk/incidents-schema";
+import { HD_WHATS_NEW_SCHEMA } from "../src/lib/helpdesk/whats-new-schema";
+import { HD_IMPORT_CHECK_SCHEMA } from "../src/lib/helpdesk/import-check-schema";
+import { HD_STATUS_TEAMS_SCHEMA } from "../src/lib/helpdesk/status-teams-schema";
 
 /** The schema blocks db.ts interpolates into SCHEMA_SQL (1.19.0). */
 const INTERPOLATED: Record<string, string> = {
@@ -50,6 +57,13 @@ const INTERPOLATED: Record<string, string> = {
   HD_CC_SCHEMA,
   HD_RECURRING_SCHEMA,
   HD_TIME_SCHEMA,
+  HD_CANNED_SCHEMA,
+  HD_SKILLS_SCHEMA,
+  HD_CHECKLISTS_SCHEMA,
+  HD_INCIDENTS_SCHEMA,
+  HD_WHATS_NEW_SCHEMA,
+  HD_IMPORT_CHECK_SCHEMA,
+  HD_STATUS_TEAMS_SCHEMA,
 };
 
 const COLUMN_PREDICATE = (table: string, column: string) =>

@@ -708,6 +708,8 @@ export interface HdTicketListRow {
   source_ref?: Record<string, unknown>;
   /** Why a running clock is stopped now ("Paused for Christmas Day, resumes Mon 09:00"), lib/helpdesk/calendars clockNotes. */
   clock_note?: string | null;
+  /** 1.19.2: a major incident's own ticket, or one linked to it (lib/helpdesk/incidents incidentChips). */
+  incident?: import("./incidents-shared").IncidentChip;
 }
 
 export interface HdCounts {
@@ -955,6 +957,8 @@ export type HdTaskStepDefB = HdTaskStepDef &
     /** "Can't be done": stop the run for the coordinating team (default), or carry on. */
     on_cant_do?: "stop" | "continue";
     outputs?: HdTaskOutputDef[];
+    /** 1.19.2: checklist templates added to the task's ticket when it starts (lib/helpdesk/checklists, agent W3). */
+    checklist_ids?: number[];
   };
 
 export type HdParallelStepDefB = Omit<HdParallelStepDef, "steps"> & HdStepExtrasB & { steps: HdTaskStepDefB[] };

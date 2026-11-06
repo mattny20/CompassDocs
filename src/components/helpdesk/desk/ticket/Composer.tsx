@@ -2,7 +2,9 @@
 
 // The ticket's composer: Reply (public, emailed to the requester) or
 // Internal note (agents only), Markdown text, a macro picker ("/" at the
-// start of an empty box), an article picker ("[[" anywhere, or the
+// start of an empty box), canned responses (";" at the start of a word, or
+// the Canned response button; text only, 1.19.2 CannedPicker), an article
+// picker ("[[" anywhere, or the
 // Article button; the suggestions from your documents first), attachments,
 // and a split Send whose menu sends and sets the status in one step
 // (Waiting on requester, On hold, Solved). Ctrl/⌘+Enter sends. An unsent
@@ -23,6 +25,7 @@ import { itemOf, sendJson } from "../api";
 import { bytesLabel, firstName } from "../ui";
 import { MacroPicker, fillMacro } from "./MacroPicker";
 import { ArticlePicker } from "./ArticlePicker";
+import { CannedButton, useCannedPicker } from "./CannedPicker";
 import type { HdNewerMessage } from "@/lib/helpdesk/presence-shared";
 import { CollisionError, clearTyping, noteTyping, postGuarded } from "../presence/presence";
 import { CollisionDialog } from "../presence/CollisionDialog";
@@ -111,6 +114,8 @@ export const Composer = forwardRef<
   const macroBtn = useRef<HTMLButtonElement>(null);
   const articleBtn = useRef<HTMLButtonElement>(null);
   const thenBtn = useRef<HTMLButtonElement>(null);
+  // Canned responses (1.19.2, agent W4): the ";" picker and its button.
+  const canned = useCannedPicker({ area, number, requesterName, agentName, disabled, setText: change });
   /** Text handed over by fill() across a switch to the public box (1.19.1). */
   const filled = useRef<string | null>(null);
   // 1.19.1 send guard (lib/helpdesk/presence): the newest message id when
@@ -194,6 +199,7 @@ export const Composer = forwardRef<
       return;
     }
     change(v);
+    canned.onInput(v, caret);
   }
 
   async function upload(list: FileList | null) {
@@ -241,7 +247,7 @@ export const Composer = forwardRef<
     setBusy(true);
     try {
       // The send guard (1.19.1): postGuarded throws CollisionError on a 409 { newer }.
-      await postGuarded(
+      const sent = await postGuarded<{ status_unchanged?: string }>(
         `/api/helpdesk/tickets/${number}/messages`,
         {
           kind: mode,
@@ -255,6 +261,8 @@ export const Composer = forwardRef<
       );
       clearTyping(number);
       toast("ok", mode === "public" ? (forReview ? "Sent for review. A lead checks it before it goes out." : "Reply sent.") : "Note added.");
+      // 1.19.2: sent, but a required checklist item was unticked meanwhile, so the status stayed (agent W3).
+      if (sent?.status_unchanged) toast("error", `Sent, but the status didn't change. ${sent.status_unchanged}`);
       writeDraft(number, mode, "");
       setText("");
       setFiles([]);
@@ -299,7 +307,10 @@ export const Composer = forwardRef<
         ref={area}
         value={text}
         onChange={onInput}
+        {...canned.textareaProps}
+        onSelect={canned.onCaret}
         onKeyDown={(e) => {
+          if (canned.onKeyDown(e)) return;
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
             void send(null);
@@ -307,7 +318,7 @@ export const Composer = forwardRef<
         }}
         disabled={disabled}
         aria-label={internal ? "Internal note" : "Reply"}
-        placeholder={internal ? "Write a note for the team… / for a macro, [[ for an article" : "Write a reply… / for a macro, [[ for an article"}
+        placeholder={internal ? "Write a note for the team… / for a macro, ; for a canned response, [[ for an article" : "Write a reply… / for a macro, ; for a canned response, [[ for an article"}
         rows={4}
         maxLength={20000}
         className={controlClass(false, "block min-h-24 w-full resize-y rounded-none border-0 bg-transparent px-3 py-3 text-sm shadow-none")}
@@ -384,6 +395,7 @@ export const Composer = forwardRef<
             }}
           />
         </div>
+        <CannedButton picker={canned} disabled={disabled} />
         <div className="relative">
           <button
             ref={articleBtn}
