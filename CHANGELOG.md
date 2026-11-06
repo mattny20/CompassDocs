@@ -127,7 +127,7 @@ their usual answers with a keystroke.
   customised before get them only if they can already reply to requesters.
 - **New notifications:** Major incident updates (requesters, email and
   bell), A service your team uses is down (desk, bell and push) and Import
-  check ready (bell).
+  checks (bell).
 - **Import API:** `POST /api/helpdesk/admin/import/<id>/dry-run` now answers
   202 and runs in the background; poll the job until it is ready.
 - **Rolling back to 1.19.1 is safe:** it ignores the new tables and columns.
