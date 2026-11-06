@@ -33,6 +33,7 @@ import { LoadingRow } from "@/components/Spinner";
 import { Table, TABLE_HEAD_ROW, TR, Td, Th } from "@/components/Table";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { Tooltip } from "@/components/Tooltip";
+import { ThroughHandbookTag } from "@/components/handbooks/ThroughHandbookTag";
 import { useAction } from "@/lib/use-action";
 import type { TeamPolicyRow, TeamPolicyStatus } from "@/lib/db";
 import type { TeamViewRow } from "@/lib/team-access";
@@ -247,6 +248,8 @@ function GroupCard({
                     <Link href={`/compliance/person/${r.user_id}`} className="font-medium text-slate-800 hover:text-compass-700">
                       {r.user_name}
                     </Link>
+                    {/* Asked through a handbook on this row's policy (1.18.3). */}
+                    <ThroughHandbookTag title={r.via_handbook_title} asked={r.asked_through_handbook} />
                     <span className="block text-xs text-slate-500">@{r.username}</span>
                     {first && r.assignment_id != null && r.hidden_count > 0 && (
                       <span className="block text-xs text-slate-500">and {policies(r.hidden_count)} you can&apos;t view</span>

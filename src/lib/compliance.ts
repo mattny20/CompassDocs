@@ -2,7 +2,7 @@ import "server-only";
 import { notify, notifyPrefAllows } from "./notifications";
 import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { sendMail } from "./mailer";
-import { renderEmail } from "./email-templates";
+import { renderEmail, HANDBOOK_LINE } from "./email-templates";
 import {
   pool,
   getNotifyPrefsFor,
@@ -34,18 +34,32 @@ import {
   getUserById,
   listOwedPoliciesFor,
   ackNoticeIdsFor,
+  ackHandbookRoutes,
+  ackRouteKey,
   RECERT_ACTOR,
 } from "./db";
 // Channel notices (H3, 1.14.0): one webhook event per policy, after the
 // outbox row, never awaited on a request path (lib/compliance-webhooks).
 import { emitPolicyRequested, emitPolicyEscalated, emitPolicyDeadlines } from "./compliance-webhooks";
-import type { AckOutboxInput, AckNoticeInput, AckActor, Queryable, ClaimedAckOutboxRow, AckSweepDefaults, EscalationVia } from "./db";
+import type {
+  AckOutboxInput,
+  AckNoticeInput,
+  AckActor,
+  Queryable,
+  ClaimedAckOutboxRow,
+  AckSweepDefaults,
+  EscalationVia,
+  AckHandbookRoute,
+} from "./db";
 // Reminders and escalation (E2): the cadence words and the notices' copy.
 import { featureEnabled } from "./ee";
 import {
+  ackConfirmHref,
   bundleBody,
   bundleList,
   bundleTitle,
+  handbookSentence,
+  listNote,
   dueLine,
   dueNoticeBody,
   dueNoticeTitle,
@@ -262,7 +276,15 @@ export function noticeCopy(input: {
   /** A 'welcome' notice (D1): how many policies the new account owes and their titles (the first three are named). */
   count?: number;
   titles?: string[];
+  /** The handbook the person reads the policy in, when they cannot open its space (1.18.3): the in-app body ends "It's in {handbook}." */
+  handbook?: string | null;
 }): NoticeCopy {
+  const copy = noticeCopyBase(input);
+  const where = handbookSentence(input.handbook);
+  return where ? { ...copy, body: `${copy.body} ${where}` } : copy;
+}
+
+function noticeCopyBase(input: Parameters<typeof noticeCopy>[0]): NoticeCopy {
   const t = input.docTitle;
   const who = input.actorName || "Someone";
   const by = input.dueText ? ` by ${input.dueText}` : input.dueAt ? ` by ${formatDay(input.dueAt)}` : "";
@@ -425,9 +447,7 @@ export interface NotifyAckResult {
  * the retry resumes from the notice log instead of repeating.
  */
 export async function notifyAckRequest(input: NotifyAckInput): Promise<NotifyAckResult> {
-  const link = `/doc/${input.docId}#confirm-reading`;
   const origin = input.origin || "";
-  const url = `${origin}${link}`;
   const mailer = input.mailer === undefined ? await defaultMailer() : input.mailer;
   const every = Math.max(1, input.heartbeatEvery ?? ACK_NOTICE_HEARTBEAT_EVERY);
   const heartbeat = input.heartbeat ?? (async () => {});
@@ -441,7 +461,15 @@ export async function notifyAckRequest(input: NotifyAckInput): Promise<NotifyAck
   const settings = await getAppSettings();
   const fmtDue = (iso: string) => formatDate(iso, settings);
   const dueOf = (u: { due_at?: string | null }) => u.due_at ?? input.dueAt ?? null;
-  const copyFor = (dueAt: string | null) =>
+  // Where each person reads the policy (1.18.3): someone who cannot open its
+  // space but reads it through a published handbook is sent into that
+  // handbook, at its confirm bar, and their notice names it; everyone else
+  // lands on the document's confirmation card, as before.
+  const routes = await ackHandbookRoutes(
+    [...input.users, ...(input.resumeEmail ?? [])].map((u) => ({ document_id: input.docId, user_id: u.id }))
+  );
+  const routeOf = (u: { id: number }): AckHandbookRoute | null => routes.get(ackRouteKey(input.docId, u.id)) ?? null;
+  const copyFor = (dueAt: string | null, hb: AckHandbookRoute | null) =>
     noticeCopy({
       mode: input.mode,
       source: input.source,
@@ -450,30 +478,33 @@ export async function notifyAckRequest(input: NotifyAckInput): Promise<NotifyAck
       reason: input.reason,
       dueAt,
       dueText: dueAt ? fmtDue(dueAt) : null,
+      handbook: hb?.title ?? null,
     });
+  // One rendering per (due date, handbook): people who share both share a mail.
+  const groupKey = (dueAt: string | null, hb: AckHandbookRoute | null) => `${dueAt ?? ""}|${hb?.id ?? ""}`;
 
-  // One rendering per distinct due date, on first use: people who share a
-  // date share a mail, and a workspace with one rule renders once as
-  // before. A template that will not render is a failure to retry, not a
+  // One rendering per distinct due date and handbook, on first use: people
+  // who share both share a mail, and a workspace with one rule and no
+  // handbook-only readers renders once as before. A template that will not render is a failure to retry, not a
   // reason to skip the inbox: people still see the bell, and the row comes
   // back for the email. The free-text tags (title, names, change note,
   // reason) are rendered as written, never as markdown or HTML: the
   // template marks them as text.
   const mails = new Map<string, { subject: string; text: string; html: string } | null>();
-  const mailFor = async (dueAt: string | null) => {
-    const key = dueAt ?? "";
+  const mailFor = async (dueAt: string | null, hb: AckHandbookRoute | null) => {
+    const key = groupKey(dueAt, hb);
     if (mails.has(key)) return mails.get(key)!;
     let mail: { subject: string; text: string; html: string } | null = null;
     if (mailer) {
       try {
-        const copy = copyFor(dueAt);
+        const copy = copyFor(dueAt, hb);
         const left = dueAt ? daysLeft(dueAt, new Date(), settings.timezone) : null;
         mail = await renderEmail(
           "ack_request",
           {
             requester_name: input.requesterName || "CompassDocs",
             doc_title: input.docTitle,
-            doc_url: url,
+            doc_url: `${origin}${ackConfirmHref(input.docId, hb)}`,
             request_type: copy.requestType,
             request_label: copy.label,
             change_note: copy.changeNote,
@@ -482,6 +513,8 @@ export async function notifyAckRequest(input: NotifyAckInput): Promise<NotifyAck
             due_line: dueLineFor(dueAt, fmtDue),
             due_suffix: dueSuffixFor(dueAt, fmtDue),
             days_left: left === null ? "" : String(Math.max(0, left)),
+            handbook_title: hb?.title ?? "",
+            handbook_line: hb ? HANDBOOK_LINE : "",
           },
           origin
         );
@@ -495,21 +528,24 @@ export async function notifyAckRequest(input: NotifyAckInput): Promise<NotifyAck
   };
 
   // In-app and webhook, for the people not yet reached, one fan-out per
-  // distinct due date (the body says "by {date}"). An inbox that took no
+  // distinct due date and handbook (the body says "by {date}", and names
+  // the handbook a handbook-only reader is sent into). An inbox that took no
   // rows is a delivery failure like a refused mail: the row comes back and
   // these people (their row says nothing reached them) are fed to notify()
   // again on the retry.
   const fresh = input.users;
   for (const u of fresh) channels.set(u.id, []);
-  const byDue = new Map<string, typeof fresh>();
+  const byDue = new Map<string, { dueAt: string | null; hb: AckHandbookRoute | null; users: typeof fresh }>();
   for (const u of fresh) {
-    const key = dueOf(u) ?? "";
+    const dueAt = dueOf(u);
+    const hb = routeOf(u);
+    const key = groupKey(dueAt, hb);
     const group = byDue.get(key);
-    if (group) group.push(u);
-    else byDue.set(key, [u]);
+    if (group) group.users.push(u);
+    else byDue.set(key, { dueAt, hb, users: [u] });
   }
-  for (const [key, group] of byDue) {
-    const copy = copyFor(key || null);
+  for (const { dueAt, hb, users: group } of byDue.values()) {
+    const copy = copyFor(dueAt, hb);
     try {
       const reached = await notify(
         group.map((u) => u.id),
@@ -517,7 +553,7 @@ export async function notifyAckRequest(input: NotifyAckInput): Promise<NotifyAck
           kind: "ack_requested",
           title: copy.title,
           body: copy.body,
-          link,
+          link: ackConfirmHref(input.docId, hb),
           actorName: input.requesterName,
           origin,
         },
@@ -576,7 +612,7 @@ export async function notifyAckRequest(input: NotifyAckInput): Promise<NotifyAck
     for (const target of targets) {
       if (!target.email) continue;
       if (!notifyPrefAllows(prefs.get(target.id), "ack_requested", "email")) continue;
-      const mail = await mailFor(dueOf(target));
+      const mail = await mailFor(dueOf(target), routeOf(target));
       if (!mail) continue;
       try {
         await mailer([target.email], mail.subject, mail.text, mail.html);
@@ -1083,7 +1119,8 @@ async function deliverWelcome(
         "ack_welcome",
         {
           count: String(policies.length),
-          policy_list: policies.map((p) => `- ${p.title}${p.due_at ? ` (due ${fmt(p.due_at)})` : ""}`).join("\n"),
+          // A policy the person reads only through a handbook says where (1.18.3).
+          policy_list: policies.map((p) => `- ${p.title}${listNote(p.via_handbook_title, p.due_at ? `due ${fmt(p.due_at)}` : "")}`).join("\n"),
           portal_url: url,
         },
         origin
@@ -1389,6 +1426,14 @@ async function planDueBundles(rows: ClaimedAckOutboxRow[], ctx: SweepCtx): Promi
     }
   }
 
+  // The bundled people's handbook routes (1.18.3), one query for the batch:
+  // a line of the list names the handbook a policy is read in.
+  const bundledPairs: { document_id: number; user_id: number }[] = [];
+  for (const [userId, items] of perUser) {
+    if (items.length > DUE_BUNDLE_OVER) for (const it of items) bundledPairs.push({ document_id: it.doc.id, user_id: userId });
+  }
+  const routes = await ackHandbookRoutes(bundledPairs);
+
   const charge = (rowId: number, errors: string[]) => {
     if (errors.length === 0) return;
     plan.errors.set(rowId, [...(plan.errors.get(rowId) ?? []), ...errors]);
@@ -1403,7 +1448,12 @@ async function planDueBundles(rows: ClaimedAckOutboxRow[], ctx: SweepCtx): Promi
     // Everything an earlier attempt completed needs nothing more.
     if (items.every((it) => recordDone(it.had))) continue;
     const person = people.get(userId)!;
-    const policies = items.map((it) => ({ title: it.doc.title, due_at: it.due?.due_at ?? null, overdue: it.due?.overdue ?? false }));
+    const policies = items.map((it) => ({
+      title: it.doc.title,
+      due_at: it.due?.due_at ?? null,
+      overdue: it.due?.overdue ?? false,
+      handbook: routes.get(ackRouteKey(it.doc.id, userId))?.title ?? null,
+    }));
     const link = "/compliance";
     const msg: SweepMessage = {
       kind: "ack_due",
@@ -1439,14 +1489,27 @@ async function planDueBundles(rows: ClaimedAckOutboxRow[], ctx: SweepCtx): Promi
   return plan;
 }
 
-/** The words of one person's automatic reminder for one policy (E2). */
-function dueMessage(doc: { id: number; title: string }, dueAt: string | null, overdue: boolean, ctx: SweepCtx): SweepMessage {
-  const link = `/doc/${doc.id}#confirm-reading`;
+/**
+ * The words of one person's automatic reminder for one policy (E2). `hb`
+ * (1.18.3) is the handbook the people of this message read it in when they
+ * cannot open its space: the link goes into the handbook and the notice
+ * names it.
+ */
+function dueMessage(
+  doc: { id: number; title: string },
+  dueAt: string | null,
+  overdue: boolean,
+  ctx: SweepCtx,
+  hb: AckHandbookRoute | null = null
+): SweepMessage {
+  const link = ackConfirmHref(doc.id, hb);
+  const where = handbookSentence(hb?.title);
+  const body = dueNoticeBody(doc.title, dueAt, ctx.fmt);
   return {
     kind: "ack_due",
     noticeKind: "due",
     title: dueNoticeTitle(doc.title, dueAt, overdue),
-    body: dueNoticeBody(doc.title, dueAt, ctx.fmt),
+    body: where ? `${body} ${where}` : body,
     link,
     template: "ack_due",
     vars: {
@@ -1455,14 +1518,18 @@ function dueMessage(doc: { id: number; title: string }, dueAt: string | null, ov
       due_date: dueAt ? ctx.fmt(dueAt) : "",
       due_line: dueLine(dueAt, ctx.fmt),
       status_label: dueStatusLabel(dueAt, overdue),
+      handbook_title: hb?.title ?? "",
+      handbook_line: hb ? HANDBOOK_LINE : "",
     },
   };
 }
 
 /**
  * One 'due' row: everyone it names who is still active, minus the people
- * the batch bundled, grouped by their status and date (people who share
- * both share a message), each group through deliverSweepMessage. The
+ * the batch bundled, grouped by their status, date and handbook (people who
+ * share all three share a message; 1.18.3: a person who reads the policy
+ * only through a handbook is sent into it), each group through
+ * deliverSweepMessage. The
  * bundle's failures for this row are reported with the row's own.
  */
 async function deliverDue(row: ClaimedAckOutboxRow, plan: DueBundlePlan, ctx: SweepCtx): Promise<GroupOutcome> {
@@ -1473,8 +1540,11 @@ async function deliverDue(row: ClaimedAckOutboxRow, plan: DueBundlePlan, ctx: Sw
   const [recipients, already] = await Promise.all([ackNoticeRecipients(doc.id, row.user_ids), ackNoticesForOutbox([row.id])]);
   const bundled = plan.bundled.get(row.id) ?? new Set<number>();
   const errors = [...(plan.errors.get(row.id) ?? [])];
+  const routes = await ackHandbookRoutes(
+    recipients.filter((u) => !bundled.has(u.id)).map((u) => ({ document_id: doc.id, user_id: u.id }))
+  );
 
-  const groups = new Map<string, { dueAt: string | null; overdue: boolean; targets: SweepTarget[] }>();
+  const groups = new Map<string, { dueAt: string | null; overdue: boolean; hb: AckHandbookRoute | null; targets: SweepTarget[] }>();
   for (const u of recipients) {
     if (bundled.has(u.id)) continue;
     const had = already.get(u.id);
@@ -1482,8 +1552,9 @@ async function deliverDue(row: ClaimedAckOutboxRow, plan: DueBundlePlan, ctx: Sw
     const p = payload.get(u.id);
     const dueAt = p?.due_at ?? null;
     const overdue = p?.overdue ?? false;
-    const key = `${overdue ? "overdue" : "due"}|${dueAt ?? ""}`;
-    const g = groups.get(key) ?? { dueAt, overdue, targets: [] };
+    const hb = routes.get(ackRouteKey(doc.id, u.id)) ?? null;
+    const key = `${overdue ? "overdue" : "due"}|${dueAt ?? ""}|${hb?.id ?? ""}`;
+    const g = groups.get(key) ?? { dueAt, overdue, hb, targets: [] };
     g.targets.push({
       ...u,
       records: [{ document_id: doc.id, document_title: doc.title, outbox_id: row.id, noticeId: had?.id, channels: [...(had?.channels ?? [])] }],
@@ -1493,7 +1564,7 @@ async function deliverDue(row: ClaimedAckOutboxRow, plan: DueBundlePlan, ctx: Sw
   let emailed = 0;
   let noticed = 0;
   for (const g of groups.values()) {
-    const r = await deliverSweepMessage(dueMessage(doc, g.dueAt, g.overdue, ctx), g.targets, ctx);
+    const r = await deliverSweepMessage(dueMessage(doc, g.dueAt, g.overdue, ctx, g.hb), g.targets, ctx);
     emailed += r.emailed;
     noticed += r.noticed;
     errors.push(...r.errors);

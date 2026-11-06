@@ -46,6 +46,7 @@ import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { toast } from "@/components/Toasts";
 import { Tooltip } from "@/components/Tooltip";
 import { dayIn, exemptDialog, extendDialog, reaskDialog, today } from "@/components/AckRoster";
+import { ThroughHandbookTag, handbookConfirmHref } from "@/components/handbooks/ThroughHandbookTag";
 import { exemptionText, snoozeText } from "@/lib/ack-assignments";
 import type { AssignmentAction } from "@/lib/ack-assignments";
 import { readTimeLabel, supersededByText } from "@/lib/read-evidence";
@@ -183,12 +184,22 @@ function SignedCell({ row }: { row: PolicyTranscriptRow }) {
   );
 }
 
-/** The policy's title as a link to the document; plain when the policy is gone. */
-function PolicyLink({ row }: { row: PolicyTranscriptRow }) {
+/**
+ * Where a policy on the record opens: the document, or (1.18.3) on the
+ * person's own record, for a policy they read only through a handbook
+ * (`handbook` set), its page in the handbook reader, since /doc/{id} is a
+ * page they cannot open. Anyone else viewing the record can open the space.
+ */
+export function recordPolicyHref(docId: number, handbook: { id: number } | null | undefined, self: boolean): string {
+  return self && handbook ? handbookConfirmHref(handbook.id, docId) : `/doc/${docId}`;
+}
+
+/** The policy's title as a link to the document (or, on the person's own record, the handbook they read it in); plain when the policy is gone. */
+function PolicyLink({ row, self }: { row: PolicyTranscriptRow; self: boolean }) {
   const title = row.title || "(untitled)";
   if (row.document_id === null) return <span className="font-medium text-slate-800">{title}</span>;
   return (
-    <Link href={`/doc/${row.document_id}`} className="font-medium text-slate-800 hover:text-compass-700">
+    <Link href={recordPolicyHref(row.document_id, row.via_handbook, self)} className="font-medium text-slate-800 hover:text-compass-700">
       {title}
     </Link>
   );
@@ -320,6 +331,14 @@ export function PersonRecord({
   const { run, busy } = useAction();
   const { person, current, history, notices, hidden } = transcript;
   const name = person.name || person.username;
+  // The person's own record (1.18.3): a policy they read only through a
+  // handbook links into the handbook, the notices about it too.
+  const self = transcript.viewer_kind === "self";
+  const handbookOf = useMemo(() => {
+    const m = new Map<number, { id: number }>();
+    for (const r of [...current, ...history]) if (r.document_id !== null && r.via_handbook) m.set(r.document_id, r.via_handbook);
+    return m;
+  }, [current, history]);
   // One clock per render of the rows: the snooze text and the menus agree.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => new Date(), [current]);
@@ -561,7 +580,9 @@ export function PersonRecord({
                 {current.map((r) => (
                   <tr key={r.assignment_id ?? `${r.document_id}`} className={TR}>
                     <Td>
-                      <PolicyLink row={r} />
+                      <PolicyLink row={r} self={self} />
+                      {/* Asked through a handbook (1.18.3): they can't open the space, so reminders link to the handbook. */}
+                      <ThroughHandbookTag title={r.via_handbook_title} asked={r.asked_through_handbook} self={self} />
                       {r.space_name && <span className="ml-2 text-xs text-slate-500">{r.space_name}</span>}
                     </Td>
                     <Td className="text-slate-500">{r.set_names.join(", ")}</Td>
@@ -631,7 +652,7 @@ export function PersonRecord({
                 {history.map((r, i) => (
                   <tr key={`${r.record}-${r.assignment_id ?? "a"}-${r.version_id ?? "v"}-${r.acknowledged_at ?? i}`} className={TR}>
                     <Td>
-                      <PolicyLink row={r} />
+                      <PolicyLink row={r} self={self} />
                       {r.space_name && <span className="ml-2 text-xs text-slate-500">{r.space_name}</span>}
                     </Td>
                     <Td className="text-slate-600">
@@ -687,7 +708,10 @@ export function PersonRecord({
                     </Td>
                     <Td>
                       {n.document_id !== null ? (
-                        <Link href={`/doc/${n.document_id}`} className="font-medium text-slate-800 hover:text-compass-700">
+                        <Link
+                          href={recordPolicyHref(n.document_id, handbookOf.get(n.document_id), self)}
+                          className="font-medium text-slate-800 hover:text-compass-700"
+                        >
                           {n.document_title}
                         </Link>
                       ) : (

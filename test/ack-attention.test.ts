@@ -496,7 +496,7 @@ describe("the portal rows (F1)", () => {
 
 describe("the matrix CSV (F1), pure", () => {
   test("the header appends status and set after the 1.13.0 columns", () => {
-    assert.ok(MATRIX_CSV_HEADER.endsWith(`,${EXEMPTION_CSV_COLUMNS},${STANDING_CSV_COLUMNS}`));
+    assert.ok(MATRIX_CSV_HEADER.endsWith(`,${EXEMPTION_CSV_COLUMNS},${STANDING_CSV_COLUMNS},asked_through`));
     assert.equal(STANDING_CSV_COLUMNS, "status,set");
     assert.equal(MATRIX_CSV_HEADER.split(",").filter((c) => c === "due_at").length, 1, "no column is named twice");
   });

@@ -4,6 +4,51 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.18.3] - 2026-11-06
+
+People asked to confirm a policy only through a handbook are now reached
+like everyone else: they see those policies, are reminded about them and
+are counted, and every link takes them into the handbook.
+
+### Changed
+- **My policies, the dashboard and the sidebar count** now include
+  policies a person is asked to confirm only through a published handbook
+  (because they can't open the policy's space). Each such row opens the
+  policy in the handbook, at its confirm bar, and names the handbook
+  instead of the space. Unpublishing the handbook takes the row away.
+- **Requests, reminders, the welcome and bundled mails and the bell**
+  reach these people, with links into the handbook
+  (`/handbooks/{id}/{doc}#confirm-reading`) and a line naming it: "It's in
+  **Employee Handbook**." in the request and due mails, "(in Employee
+  Handbook)" in the welcome and bundled lists. When a policy is in several
+  handbooks a person reads, the oldest one is used. A link never points
+  to a handbook the person can't read, or to a draft one.
+- **Email templates** `ack_request` and `ack_due` gain the tags
+  `{{handbook_line}}` and `{{handbook_title}}`, both blank for people who
+  can open the space. A customised template without them keeps working
+  and simply leaves the line out.
+- **Remind, the hourly sweep, escalations, Team compliance on the
+  dashboard, the team view and the compliance portal** count these
+  people, and a group lead can remind them.
+- **The Record tab, the portal and the team view** mark them **Through a
+  handbook**. The tag names the handbook only to people in its audience
+  or who manage it; anyone else reads "a handbook you can't open". On
+  your own compliance record such a policy links to the handbook, and
+  its space is not named.
+- **The roster, matrix and person-record CSVs** append an
+  `asked_through` column: the handbook a person is asked through ("a
+  handbook" when you can't see which), blank otherwise. Every other
+  column keeps its place.
+
+### Fixed
+- **The Require readers to confirm switch** could ignore a click made
+  while another setting in the Read confirmation popover was saving. It
+  now shows as busy until that save finishes.
+
+### Unchanged
+- Who can read a document. A handbook still opens its published policies
+  only to its own audience.
+
 ## [1.18.2] - 2026-11-05
 
 SOPs in handbooks, and policy handbooks in the Claude connector. A

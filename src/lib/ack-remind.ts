@@ -126,6 +126,35 @@ export interface BundledPolicy {
   title: string;
   due_at: string | null;
   overdue: boolean;
+  /** The handbook the person reads it in when they cannot open its space (1.18.3); the list line adds "(in {handbook})". */
+  handbook?: string | null;
+}
+
+/**
+ * A list line's note in brackets: " (due 29 Oct 2026)", and for a policy
+ * read only through a handbook (1.18.3) " (in Employee Handbook, due 29 Oct
+ * 2026)" or " (in Employee Handbook)"; '' when there is nothing to say.
+ */
+export function listNote(handbook: string | null | undefined, rest: string): string {
+  const parts = [handbook ? `in ${handbook}` : "", rest].filter(Boolean);
+  return parts.length ? ` (${parts.join(", ")})` : "";
+}
+
+/**
+ * Where a read-confirmation notice sends a person (1.18.3): the handbook
+ * reader's page for the policy, at its confirm bar
+ * (`/handbooks/{handbookId}/{docId}#confirm-reading`), for someone who reads
+ * it only through that handbook; the document's confirmation card
+ * (`/doc/{docId}#confirm-reading`) for everyone else. The anchor is the one
+ * both confirm sections carry (lib/use-reached-end CONFIRM_SECTION_ID).
+ */
+export function ackConfirmHref(docId: number, handbook: { id: number } | null | undefined): string {
+  return handbook ? `/handbooks/${handbook.id}/${docId}#confirm-reading` : `/doc/${docId}#confirm-reading`;
+}
+
+/** The in-app body's and the plain notice's sentence naming the handbook (1.18.3): "It's in Employee Handbook."; '' without one. */
+export function handbookSentence(handbook: string | null | undefined): string {
+  return handbook ? `It's in ${handbook}.` : "";
 }
 
 /** One notice instead of four or more: 'You have 5 policies to confirm'. */
@@ -140,10 +169,10 @@ export function bundleBody(items: BundledPolicy[], fmt: DayFormatter = shortDay,
   return rest > 0 ? `${shown.join(" · ")} · +${rest}` : shown.join(" · ");
 }
 
-/** The bundle email's {{policy_list}}: one markdown bullet per policy. */
+/** The bundle email's {{policy_list}}: one markdown bullet per policy, "- Code of Conduct (in Employee Handbook, due 29 Oct 2026)" for one read through a handbook. */
 export function bundleList(items: BundledPolicy[], fmt: DayFormatter = longDay): string {
   return items
-    .map((i) => `- ${i.title}${i.overdue ? " (overdue)" : i.due_at ? ` (due ${fmt(i.due_at)})` : ""}`)
+    .map((i) => `- ${i.title}${listNote(i.handbook, i.overdue ? "overdue" : i.due_at ? `due ${fmt(i.due_at)}` : "")}`)
     .join("\n");
 }
 

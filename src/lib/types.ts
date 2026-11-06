@@ -550,6 +550,16 @@ export interface PolicyAttentionRow {
    * (the policy-level rows). Null only when unknown.
    */
   since: string | null;
+  /**
+   * The handbook through which the person is asked (1.18.3): its title when
+   * they cannot open the policy's space and read it through a published
+   * handbook, for the "Through a handbook" tag; null when they can open the
+   * space, on a policy-level row, and when the viewer may not see that
+   * handbook (outside its audience, not managing it).
+   */
+  via_handbook_title: string | null;
+  /** The person is asked through a handbook (1.18.3), whether or not the viewer may see its title; false on a policy-level row. */
+  asked_through_handbook: boolean;
 }
 
 // --- Policy sets (1.14.0, D3) ------------------------------------------------

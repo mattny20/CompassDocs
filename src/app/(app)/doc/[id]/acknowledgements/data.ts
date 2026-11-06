@@ -27,5 +27,12 @@ export const ackPageContext = cache(async (docId: number) => {
   return { user, doc };
 });
 
-/** The roster, read once: the layout counts it and the Record page lists it. */
-export const cachedAckRows = cache((docId: number) => ackStatusForDocument(docId));
+/**
+ * The roster, read once: the layout counts it and the Record page lists it.
+ * Read as the viewer (ackPageContext, memoised), so a handbook-only person's
+ * handbook is named only to someone who may see it (1.18.3).
+ */
+export const cachedAckRows = cache(async (docId: number) => {
+  const { user } = await ackPageContext(docId);
+  return ackStatusForDocument(docId, user.id);
+});

@@ -61,7 +61,7 @@ const BODY = "## Policy\n\nShort policy text for the portal smoke. Read it and c
 // D2) and the status and set columns (1.14.0, F1 and D3) appended:
 // MATRIX_CSV_HEADER in src/lib/read-evidence.ts.
 const MATRIX_HEADER =
-  "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by,statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at,exempt_reason,exempt_by,exempt_until,snoozed_until,due_at,status,set";
+  "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by,statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at,exempt_reason,exempt_by,exempt_until,snoozed_until,due_at,status,set,asked_through";
 
 /** One CSV line into cells: quoted fields may hold commas and doubled quotes. */
 function cells(line: string): string[] {

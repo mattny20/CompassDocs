@@ -40,6 +40,10 @@
 // questions (Exempt…, Extend due date…, Ask to re-confirm…) are exported as
 // `exemptDialog`, `extendDialog` and `reaskDialog`, so the record page asks
 // them in the same words.
+//
+// 1.18.3: a person asked through a published handbook, because they can't
+// open the policy's space, carries the "Through a handbook" tag after their
+// name (`via_handbook_title`), its tooltip naming the handbook.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -70,6 +74,7 @@ import { formDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
 import { RECONFIRM_REASON_TOO_SHORT } from "@/components/ReconfirmButton";
 import { people } from "@/components/compliance/copy";
+import { ThroughHandbookTag } from "@/components/handbooks/ThroughHandbookTag";
 import { useAction } from "@/lib/use-action";
 import { formatDate, formatDateTime } from "@/lib/format";
 import type { AppSettings } from "@/lib/settings";
@@ -120,6 +125,16 @@ export interface AckRosterRow {
   asked_again_at?: string | null;
   asked_again_reason?: string;
   asked_again_by?: string;
+  /**
+   * The published handbook this person is asked through (1.18.3): set when
+   * they can't open the policy's space, so their reminders link to the
+   * handbook reader; null or absent otherwise, and null when the viewer may
+   * not see that handbook (`asked_through_handbook` alone then). The
+   * "Through a handbook" tag.
+   */
+  via_handbook_title?: string | null;
+  /** Asked through a handbook (1.18.3), whether or not the viewer may see its title. */
+  asked_through_handbook?: boolean;
 }
 
 /** One row of the ledger (the All confirmations view): AckLedgerRow's shape, personal data already blanked by the server. */
@@ -246,8 +261,26 @@ export function SignedCell({ name }: { name: string | null | undefined }) {
   );
 }
 
-/** The person: a link to their compliance record (F3) when the caller may open it, plain text otherwise. */
-function PersonCell({ name, username, email, href }: { name: string; username: string; email?: string; href?: string }) {
+/**
+ * The person: a link to their compliance record (F3) when the caller may
+ * open it, plain text otherwise; the "Through a handbook" tag (1.18.3)
+ * after the name when they are asked through a handbook.
+ */
+function PersonCell({
+  name,
+  username,
+  email,
+  href,
+  viaHandbook,
+  askedThroughHandbook = false,
+}: {
+  name: string;
+  username: string;
+  email?: string;
+  href?: string;
+  viaHandbook?: string | null;
+  askedThroughHandbook?: boolean;
+}) {
   const label = name || username;
   return (
     <>
@@ -258,6 +291,7 @@ function PersonCell({ name, username, email, href }: { name: string; username: s
       ) : (
         <span className="font-medium text-slate-800">{label}</span>
       )}
+      <ThroughHandbookTag title={viaHandbook} asked={askedThroughHandbook} />
       {email && <span className="ml-2 text-xs text-slate-500">{email}</span>}
     </>
   );
@@ -1136,7 +1170,14 @@ function CurrentTable({
                 </Td>
               )}
               <Td>
-                <PersonCell name={r.name} username={r.username} email={r.email} href={recordLinks ? `/compliance/person/${r.id}` : undefined} />
+                <PersonCell
+                  name={r.name}
+                  username={r.username}
+                  email={r.email}
+                  href={recordLinks ? `/compliance/person/${r.id}` : undefined}
+                  viaHandbook={r.via_handbook_title}
+                  askedThroughHandbook={r.asked_through_handbook}
+                />
               </Td>
               <Td className="text-slate-500">{r.role ?? ""}</Td>
               <Td fit>

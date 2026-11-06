@@ -251,7 +251,9 @@ export function AckSettings({
           help={toggleHelp}
           checked={required}
           onChange={(next) => void onToggle(next)}
-          disabled={!isPublished || saving}
+          // Any save in this popover (the edit default too) holds the switch:
+          // onToggle ignores clicks while busy, so it must look it.
+          disabled={!isPublished || busy}
           size="full"
         />
       )}

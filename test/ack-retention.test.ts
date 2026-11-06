@@ -353,11 +353,11 @@ describe("CSV headers and the personal-data rule", () => {
   test("both export headers keep their legacy prefix, then the six 1.12.0 columns, then the five 1.13.0 columns; the matrix then the two of 1.14.0", () => {
     assert.ok(ROSTER_CSV_HEADER.startsWith(ROSTER_1110), "the roster header starts with the 1.11.0 columns");
     assert.ok(ROSTER_CSV_HEADER.startsWith(ROSTER_1110 + SIX), "the 1.12.0 columns are still in place");
-    assert.equal(ROSTER_CSV_HEADER, ROSTER_1110 + SIX + FIVE + ",set", "the 1.14.0 roster appends the policy's sets");
+    assert.equal(ROSTER_CSV_HEADER, ROSTER_1110 + SIX + FIVE + ",set,asked_through", "the 1.14.0 roster appends the policy's sets, 1.18.3 the handbook");
     assert.ok(MATRIX_CSV_HEADER.startsWith(MATRIX_1101), "the matrix header starts with the 1.10.1 columns");
     assert.ok(MATRIX_CSV_HEADER.startsWith(MATRIX_1101 + SIX));
     assert.ok(MATRIX_CSV_HEADER.startsWith(MATRIX_1101 + SIX + FIVE), "the 1.13.0 columns are still in place");
-    assert.equal(MATRIX_CSV_HEADER, MATRIX_1101 + SIX + FIVE + TWO);
+    assert.equal(MATRIX_CSV_HEADER, MATRIX_1101 + SIX + FIVE + TWO + ",asked_through", "1.18.3 appends the handbook a person is asked through");
     assert.equal(`,${ATTESTATION_CSV_COLUMNS}`, SIX);
     assert.equal(`,${EXEMPTION_CSV_COLUMNS}`, FIVE);
   });
@@ -391,8 +391,9 @@ describe("CSV headers and the personal-data rule", () => {
     );
     const header = ROSTER_CSV_HEADER.split(",");
     assert.equal(header.indexOf("exempt_reason"), header.indexOf("next_recert_at") + 1, "the five follow the six");
-    assert.equal(header[header.length - 2], "due_at", "the five close 1.13.0's line");
-    assert.equal(header[header.length - 1], "set", "the policy's sets close the line since 1.14.0 (D3)");
+    assert.equal(header[header.length - 3], "due_at", "the five close 1.13.0's line");
+    assert.equal(header[header.length - 2], "set", "the policy's sets follow since 1.14.0 (D3)");
+    assert.equal(header[header.length - 1], "asked_through", "the handbook a person is asked through closes the line since 1.18.3");
   });
 
   test("the ledger header is the documented one, and a ledger line has one cell per column", () => {

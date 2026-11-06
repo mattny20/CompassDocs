@@ -30,6 +30,7 @@ import {
   ledgerCsvCells,
   exemptionCsvCells,
   matrixStatus,
+  askedThroughCell,
 } from "@/lib/read-evidence";
 import { recertDueWithin } from "@/lib/ack-recert";
 import { RESET_MIN_PCT } from "@/lib/diff";
@@ -154,7 +155,10 @@ export async function GET(req: Request) {
     // which is in no count), snoozed_until and due_at, then (1.14.0) the
     // standing as the portal counts it, status (F1: confirmed | pending |
     // overdue | exempt through matrixStatus with the policy's resolved
-    // grace), and the policy sets the policy belongs to, set (D3). No IP
+    // grace), and the policy sets the policy belongs to, set (D3), then
+    // (1.18.3) asked_through, the handbook a person who cannot open the
+    // space is asked through ("a handbook" when the caller may not see that
+    // one by name, blank otherwise). No IP
     // column here: with_ip is false. Every cell goes through
     // csvCell (quotes doubled, a formula-leading value prefixed with a
     // quote), so a name or a note that starts with = never runs when the
@@ -175,7 +179,7 @@ export async function GET(req: Request) {
     const lines = [MATRIX_CSV_HEADER];
     for (const d of docs) {
       const [rows, former, provenance, policy] = await Promise.all([
-        ackStatusForDocument(d.id),
+        ackStatusForDocument(d.id, user.id),
         ackFormerStaffRows(d.id),
         versionProvenance(d.id),
         getDocument(d.id),
@@ -210,6 +214,7 @@ export async function GET(req: Request) {
             ...exemptionCsvCells(r).map(esc),
             esc(matrixStatus(r, d.overdue_grace_days)),
             esc(d.set_names.join("; ")),
+            esc(askedThroughCell(r)),
           ].join(",")
         );
       }
@@ -238,6 +243,7 @@ export async function GET(req: Request) {
             ...exemptionCsvCells({}).map(esc),
             esc(matrixStatus({ acknowledged_at: r.acknowledged_at }, d.overdue_grace_days)),
             esc(d.set_names.join("; ")),
+            esc(""),
           ].join(",")
         );
       }
@@ -270,7 +276,7 @@ export async function GET(req: Request) {
     workspaceDueDefaults(),
     // The Needs attention queue and the three tile numbers the rows cannot
     // add up (F1, 1.14.0): over the live policies, the same rows as the sums.
-    policyNeedsAttention(),
+    policyNeedsAttention(200, { viewerId: user.id }),
     complianceKpiExtras(),
   ]);
 

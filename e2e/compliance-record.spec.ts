@@ -25,7 +25,7 @@ const BODY = "## Policy\n\nShort policy text for the record page check. Read it 
 
 /** RECORD_CSV_HEADER in src/lib/read-evidence.ts: the 21 columns of a person's record. */
 const RECORD_HEADER =
-  "policy,set,status,source,assigned_at,removed_at,due_at,acknowledged_at,version,version_id,version_source,content_sha256,signed_name,identity_proof,read_seconds,reached_end,ip,exempt_reason,exempt_by,exempt_until,superseded_by";
+  "policy,set,status,source,assigned_at,removed_at,due_at,acknowledged_at,version,version_id,version_source,content_sha256,signed_name,identity_proof,read_seconds,reached_end,ip,exempt_reason,exempt_by,exempt_until,superseded_by,asked_through";
 
 /** The subtitle, the same sentence for every person (no pronoun to get wrong). */
 const SUBTITLE = "every policy this person must confirm, with the evidence and prior cycles.";
@@ -216,7 +216,7 @@ test("a person opens their own record, the admin opens it with the Actions secti
     expect(lines[0]).toBe(RECORD_HEADER);
     const line = lines.slice(1).map(cells).find((c) => c[0] === title);
     expect(line, "the policy's line").toBeTruthy();
-    expect(line!.length).toBe(21);
+    expect(line!.length).toBe(22);
     expect(line![2]).toBe("pending");
     expect(line![3]).toBe("space");
     const exported = await auditRows(
