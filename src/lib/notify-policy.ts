@@ -670,11 +670,11 @@ export async function sendNotificationDigests(opts: DigestRunOptions = {}): Prom
           `UPDATE notify_digest_queue SET claimed_at = now()
             WHERE id IN (SELECT id FROM notify_digest_queue
                           WHERE user_id = $1 AND claimed_at IS NULL AND mode = ANY($2) AND event <> ALL($3::text[])
-                          ORDER BY created_at LIMIT 200 FOR UPDATE SKIP LOCKED)
+                          ORDER BY created_at, id LIMIT 200 FOR UPDATE SKIP LOCKED)
             RETURNING id, event, title, body, link, created_at`,
           [userId, modes, heldEvents]
         )
-      ).rows.sort((a, b) => +a.created_at - +b.created_at);
+      ).rows.sort((a, b) => +a.created_at - +b.created_at || Number(a.id) - Number(b.id));
       if (claimed.length === 0) {
         await markDailyIfDone();
         continue;

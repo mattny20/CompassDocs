@@ -210,6 +210,18 @@ async function person(key: string, agent: boolean): Promise<number> {
 }
 
 before(async () => {
+  // Push keys are sealed with the workspace encryption key. CI has no
+  // writable /uploads key file, so every push test file uses the same fixed
+  // test key; a pair stored under some other key (a local database) is
+  // cleared so it is made afresh under this one.
+  process.env.COMPASSDOCS_SECRET_KEY ||= "7c4f0d5e8a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5";
+  push.resetVapidCache();
+  try {
+    await push.vapidKeys();
+  } catch {
+    await pool().query("DELETE FROM settings WHERE key = 'helpdesk_vapid'");
+    push.resetVapidCache();
+  }
   await person("agent", true);
   await person("agent2", true);
   await person("viewer", false);

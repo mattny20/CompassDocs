@@ -200,6 +200,18 @@ const deviceCount = async (userId: number) =>
   (await pool().query<{ n: number }>("SELECT count(*)::int AS n FROM hd_push_subscriptions WHERE user_id = $1", [userId])).rows[0].n;
 
 before(async () => {
+  // Push keys are sealed with the workspace encryption key. CI has no
+  // writable /uploads key file, so every push test file uses the same fixed
+  // test key; a pair stored under some other key (a local database) is
+  // cleared so it is made afresh under this one.
+  process.env.COMPASSDOCS_SECRET_KEY ||= "7c4f0d5e8a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5";
+  push.resetVapidCache();
+  try {
+    await push.vapidKeys();
+  } catch {
+    await pool().query("DELETE FROM settings WHERE key = 'helpdesk_vapid'");
+    push.resetVapidCache();
+  }
   await getSetting("__schema_bootstrap__");
   for (const [k, n, r] of [
     ["newbie", "Nia Newbie"],
