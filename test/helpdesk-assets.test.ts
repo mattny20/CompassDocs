@@ -153,6 +153,10 @@ function req(url: string, session: string, body?: unknown, method = body === und
   });
 }
 
+// The Snipe-IT key is sealed at rest: give secretbox a key so it never needs
+// the uploads key file (CI has no writable /uploads), as the push tests do.
+process.env.COMPASSDOCS_SECRET_KEY ||= "7c4f0d5e8a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5";
+
 const STAMP = `hdas-${Date.now()}-${process.pid}`;
 const TAGP = `T${Date.now().toString(36)}${process.pid}`.toUpperCase();
 const KEY = `snipe-key-${STAMP}-0123456789abcdefghijklmnop`;
