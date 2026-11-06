@@ -38,9 +38,20 @@ export const ATTESTATION_CSV_COLUMNS = "statement,signed_name,identity_proof,rec
  * the person-record CSVs: the title of the handbook a person is asked
  * through when they cannot open the policy's space (the row's
  * `via_handbook_title`), blank otherwise and on rows without an assignment
- * (former staff, prior confirmations).
+ * (former staff, prior confirmations). When the person downloading may not
+ * see that handbook (outside its audience, not managing it) the cell reads
+ * "a handbook" (ASKED_THROUGH_UNNAMED): asked through one, never which.
  */
 export const ASKED_THROUGH_CSV_COLUMN = "asked_through";
+
+/** The asked_through cell for a handbook the viewer may not see by name. */
+export const ASKED_THROUGH_UNNAMED = "a handbook";
+
+/** The asked_through cell (1.18.3): the handbook's title, "a handbook" when the viewer may not see it, blank otherwise. */
+export function askedThroughCell(row: { via_handbook_title?: string | null; asked_through_handbook?: boolean }): string {
+  if (row.via_handbook_title) return row.via_handbook_title;
+  return row.asked_through_handbook ? ASKED_THROUGH_UNNAMED : "";
+}
 
 /** The roster header as 1.11.0 shipped it: the prefix every later release keeps in place. */
 const ROSTER_CSV_HEADER_1110 =
@@ -401,6 +412,8 @@ export interface RecordCsvRow {
   stopped?: boolean;
   /** The handbook the person is asked through (1.18.3): the asked_through cell; blank when absent or null. */
   via_handbook_title?: string | null;
+  /** Asked through a handbook whose title the viewer may not see (1.18.3): the cell reads "a handbook". */
+  asked_through_handbook?: boolean;
 }
 
 /** The last cell of a row whose policy stopped asking (the page's "No longer required"). */
@@ -445,6 +458,6 @@ export function recordCsvCells(row: RecordCsvRow): (string | number)[] {
     row.exempt ? row.exempt_by_name : "",
     row.exempt ? stampCell(row.exempt_until) : "",
     row.superseded_by ? supersededByText(row.superseded_by) : row.stopped ? RECORD_STOPPED_CELL : "",
-    row.via_handbook_title ?? "",
+    askedThroughCell(row),
   ];
 }

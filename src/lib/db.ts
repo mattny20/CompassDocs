@@ -6192,6 +6192,59 @@ const VIA_HANDBOOK_FIRST = (userExpr: string, cols: string) => `(
 const viaHandbookTitleSql = (userExpr: string) =>
   `CASE WHEN ${ackVisibilitySql(userExpr)} THEN NULL ELSE ${VIA_HANDBOOK_FIRST(userExpr, "ah.title")} END`;
 
+/**
+ * SQL twin of lib/handbooks managesOwner for the handbook alias `h` and the
+ * account `viewerExpr`: handbook.manage held globally (a workspace
+ * handbook), or held globally or on the owning space and that space is one
+ * the viewer can read. The break-glass ladder (legacyAuthzEnforcement, read
+ * here from the environment as that function does: lib/authz imports this
+ * module) is an admin only, as managesOwner says.
+ */
+const managesHandbookSql = (h: string, viewerExpr: string): string => {
+  if (process.env.COMPASSDOCS_AUTHZ_LEGACY === "1") {
+    return `EXISTS (SELECT 1 FROM users hbm WHERE hbm.id = ${viewerExpr} AND hbm.role = 'admin')`;
+  }
+  return `(${HOLDS_GLOBALLY("handbook.manage", viewerExpr)} AND ${h}.space_id IS NULL
+      OR ${h}.space_id IS NOT NULL
+         AND (${HOLDS_GLOBALLY("handbook.manage", viewerExpr)} OR ${HOLDS_ON_SPACE("handbook.manage", `${h}.space_id`, viewerExpr)})
+         AND EXISTS (
+           SELECT 1 FROM spaces hbo
+            WHERE hbo.id = ${h}.space_id
+              AND (hbo.visibility IN ('public', 'internal')
+                   OR ${HOLDS_GLOBALLY("space.read_all", viewerExpr)}
+                   OR ${HOLDS_ON_SPACE("space.member", "hbo.id", viewerExpr)})))`;
+};
+
+/**
+ * May the account `viewerExpr` see the handbook `h` by name? The rule
+ * listHandbooks and readsRow apply (lib/handbooks): they manage its owner,
+ * or it is published and its audience admits them. Callers that name the
+ * handbook a MEMBER is asked through (VIA_HANDBOOK_FIRST) to someone else
+ * test this first, so a lead, a roster reader or the programme never reads
+ * the title of a handbook they cannot open (1.18.3).
+ */
+const handbookSeenBySql = (h: string, viewerExpr: string): string =>
+  `(${h}.status = 'published' AND ${handbookAudienceAdmitsSql(h, viewerExpr)} OR ${managesHandbookSql(h, viewerExpr)})`;
+
+/**
+ * The handbook the member `userExpr` is asked through, as json
+ * `{"id": …, "title": …}`, for the viewer `viewerExpr` (aliases d, s): NULL
+ * when the member can open the space (the space path wins) or reads the
+ * policy through no published handbook; otherwise the member's handbook
+ * (VIA_HANDBOOK_FIRST) with its title only when the viewer may see it
+ * (handbookSeenBySql), else a JSON null title. `viewerExpr` null names no
+ * viewer (titles withheld); the member's own view passes their own
+ * expression and keeps the title (they are in its audience by definition).
+ * Readers take `->>'title'` for `via_handbook_title` and `IS NOT NULL` for
+ * `asked_through_handbook`.
+ */
+const viaHandbookSeenSql = (userExpr: string, viewerExpr: string | null): string => {
+  const title =
+    viewerExpr === userExpr ? "ah.title" : viewerExpr === null ? "NULL::text" : `CASE WHEN ${handbookSeenBySql("ah", viewerExpr)} THEN ah.title END`;
+  return `CASE WHEN ${ackVisibilitySql(userExpr)} THEN NULL
+               ELSE ${VIA_HANDBOOK_FIRST(userExpr, `json_build_object('id', ah.id, 'title', ${title})`)} END`;
+};
+
 // A confirmation (alias a) counts for a document (alias d) while it was made
 // on or after the doc's confirmation marker. The marker — not updated_at — is
 // the single source of currency (1.10.0): metadata-only saves, moves,
@@ -6665,7 +6718,6 @@ const ATTENTION_ROWS_SQL = (graceParam: string, docsParam: string, withView: boo
          GREATEST(d.ack_revision_at, pa.cycle_started_at) AS asked_at,
          ${withView ? "v.viewed_at" : "NULL::timestamptz"} AS last_viewed_at,
          pa.due_at + make_interval(days => ${ATTENTION_GRACE_SQL(graceParam)}) AS overdue_since,
-         ${withView ? viaHandbookTitleSql("u.id") : "NULL::text"} AS via_handbook_title,
          (pa.due_at IS NOT NULL AND pa.due_at + make_interval(days => ${ATTENTION_GRACE_SQL(graceParam)}) < now()) AS overdue
   FROM policy_assignments pa
   JOIN documents d ON d.id = pa.document_id
@@ -6715,6 +6767,7 @@ interface AttentionQueueRow {
   due_at: string | null;
   since: string | null;
   via_handbook_title: string | null;
+  asked_through_handbook: boolean;
 }
 
 /**
@@ -6723,9 +6776,14 @@ interface AttentionQueueRow {
  * overdue people by due date, the escalated, the never-opened and the
  * opened-but-unconfirmed by how long they have been asked, and the standing
  * exemptions by age. `limit` cuts the list; `total` counts before it.
- * `documentIds` scopes every branch (a test, or a space's view).
+ * `documentIds` scopes every branch (a test, or a space's view). `viewerId`
+ * is who reads the queue: a person's handbook is named only to a viewer
+ * who may see it (no viewer: never), `asked_through_handbook` says the rest.
  */
-export async function policyNeedsAttention(limit = 200, opts: { documentIds?: number[] } = {}): Promise<PolicyAttentionQueue> {
+export async function policyNeedsAttention(
+  limit = 200,
+  opts: { documentIds?: number[]; viewerId?: number | null } = {}
+): Promise<PolicyAttentionQueue> {
   const take = Math.min(5000, Math.max(1, Math.floor(limit)));
   const docs = opts.documentIds ?? null;
   const grace = await workspaceOverdueGraceDays();
@@ -6744,15 +6802,13 @@ export async function policyNeedsAttention(limit = 200, opts: { documentIds?: nu
                   ELSE p.last_viewed_at END AS since,
              (p.snoozed_until IS NOT NULL AND p.snoozed_until > now()) AS snoozed,
              CASE WHEN p.overdue THEN 1 WHEN p.escalated_at IS NOT NULL THEN 2
-                  WHEN p.last_viewed_at IS NULL THEN 3 ELSE 4 END AS rank,
-             p.via_handbook_title
+                  WHEN p.last_viewed_at IS NULL THEN 3 ELSE 4 END AS rank
       FROM people p
       WHERE p.overdue OR p.escalated_at IS NOT NULL
          OR p.asked_at < now() - make_interval(days => $3::int)
       UNION ALL
       SELECT pa.id, u.id, u.name, d.id, d.title, d.space_id,
-             'standing_exemption', pa.exempt_reason, NULL::timestamptz, pa.exempt_at, false, 5,
-             ${viaHandbookTitleSql("u.id")}
+             'standing_exemption', pa.exempt_reason, NULL::timestamptz, pa.exempt_at, false, 5
       FROM policy_assignments pa
       JOIN documents d ON d.id = pa.document_id
       JOIN spaces s ON s.id = d.space_id
@@ -6763,14 +6819,26 @@ export async function policyNeedsAttention(limit = 200, opts: { documentIds?: nu
         AND ($2::int[] IS NULL OR d.id = ANY($2::int[]))
     )`;
   const params = [grace, docs, ATTENTION_STALE_DAYS, ATTENTION_EXEMPTION_MONTHS];
+  const viewer = opts.viewerId ?? null;
+  // The handbook a person is asked through is looked up for the rows the
+  // limit keeps only (one LATERAL each, after the cut), and named only to a
+  // viewer who may see it (viaHandbookSeenSql).
   const [people, counts, kept] = await Promise.all([
     q<AttentionQueueRow>(
       `${queue}
-       SELECT assignment_id, user_id, user_name, document_id, title, space_id, reason, detail, due_at, since, via_handbook_title
-       FROM queue WHERE NOT snoozed
-       ORDER BY rank, due_at ASC NULLS LAST, since ASC NULLS LAST, title, user_name
-       LIMIT $5`,
-      [...params, take]
+       SELECT k.assignment_id, k.user_id, k.user_name, k.document_id, k.title, k.space_id, k.reason, k.detail, k.due_at, k.since,
+              vh.via->>'title' AS via_handbook_title, (vh.via IS NOT NULL) AS asked_through_handbook
+       FROM (
+         SELECT assignment_id, user_id, user_name, document_id, title, space_id, reason, detail, due_at, since, rank
+         FROM queue WHERE NOT snoozed
+         ORDER BY rank, due_at ASC NULLS LAST, since ASC NULLS LAST, title, user_name
+         LIMIT $5
+       ) k
+       JOIN documents d ON d.id = k.document_id
+       JOIN spaces s ON s.id = d.space_id
+       CROSS JOIN LATERAL (SELECT ${viaHandbookSeenSql("k.user_id", viewer === null ? null : "$6::int")} AS via) vh
+       ORDER BY k.rank, k.due_at ASC NULLS LAST, k.since ASC NULLS LAST, k.title, k.user_name`,
+      viewer === null ? [...params, take] : [...params, take, viewer]
     ),
     q<{ total: number; snoozed: number }>(
       `${queue}
@@ -6806,6 +6874,7 @@ export async function policyNeedsAttention(limit = 200, opts: { documentIds?: nu
       due_at: null,
       since: k.ack_revision_at,
       via_handbook_title: null,
+      asked_through_handbook: false,
     };
     // The raw drift is compared, as the Drifted tile compares it (the route
     // filters complianceDocs' drift_pct); only the detail rounds.
@@ -6835,6 +6904,7 @@ export async function policyNeedsAttention(limit = 200, opts: { documentIds?: nu
     due_at: r.due_at,
     since: r.since,
     via_handbook_title: r.via_handbook_title,
+    asked_through_handbook: r.asked_through_handbook,
   }));
   return {
     rows: [...policyRows, ...personRows].slice(0, take),
@@ -8825,9 +8895,13 @@ export interface AckStatusRow {
    * The handbook through which the person is asked (1.18.3): its title when
    * they cannot open the policy's space and read it through a published
    * handbook (VIA_HANDBOOK_FIRST, the lowest id), for the Record tab's and
-   * the portal's "Through a handbook" tag; null when they can open the space.
+   * the portal's "Through a handbook" tag; null when they can open the
+   * space, and when the viewer may not see that handbook (handbookSeenBySql;
+   * no viewer passed: always), where `asked_through_handbook` alone says so.
    */
   via_handbook_title: string | null;
+  /** The person is asked through a handbook (1.18.3), whether or not the viewer may see its title. */
+  asked_through_handbook: boolean;
 }
 
 /**
@@ -8839,9 +8913,12 @@ export interface AckStatusRow {
  * cycle start (D4), so a per-person re-ask shows that person pending and
  * nobody else. The re-ask's reason rides along from the ledger: the claim
  * stamps the rows and its decision row with one clock_timestamp(), so the
- * equality join is exact (handoff-reask.md).
+ * equality join is exact (handoff-reask.md). `viewerId` is who reads the
+ * roster: a handbook-only person's `via_handbook_title` names the handbook
+ * only when that viewer may see it (handbookSeenBySql); without a viewer
+ * the title is withheld and `asked_through_handbook` alone says so.
  */
-export async function ackStatusForDocument(docId: number): Promise<AckStatusRow[]> {
+export async function ackStatusForDocument(docId: number, viewerId: number | null = null): Promise<AckStatusRow[]> {
   return q(
     `SELECT u.id, u.name, u.username, u.email, u.role,
             a.acknowledged_at, a.version_id, a.content_sha256,
@@ -8862,7 +8939,7 @@ export async function ackStatusForDocument(docId: number): Promise<AckStatusRow[
                  THEN COALESCE(reask.reason, '') ELSE '' END AS asked_again_reason,
             CASE WHEN pa.cycle_started_at > d.ack_revision_at AND pa.cycle_started_at > pa.assigned_at
                  THEN COALESCE(reask.decided_by_name, '') ELSE '' END AS asked_again_by,
-            ${viaHandbookTitleSql("u.id")} AS via_handbook_title
+            vh.via->>'title' AS via_handbook_title, (vh.via IS NOT NULL) AS asked_through_handbook
      FROM policy_assignments pa
      JOIN users u ON u.id = pa.user_id
      JOIN documents d ON d.id = pa.document_id
@@ -8880,9 +8957,10 @@ export async function ackStatusForDocument(docId: number): Promise<AckStatusRow[
          AND x.decided_at = pa.cycle_started_at
        ORDER BY x.id DESC LIMIT 1
      ) reask ON true
+     CROSS JOIN LATERAL (SELECT ${viaHandbookSeenSql("u.id", viewerId === null ? null : "$2::int")} AS via) vh
      WHERE pa.document_id = $1 AND pa.removed_at IS NULL AND u.status = 'active'
      ORDER BY (pa.exempt_at IS NOT NULL), (a.acknowledged_at IS NULL) DESC, u.name`,
-    [docId]
+    viewerId === null ? [docId] : [docId, viewerId]
   );
 }
 
@@ -10160,8 +10238,12 @@ export interface PolicyTranscriptRow {
    * The handbook through which the person is asked (1.18.3): its title when
    * they cannot open the policy's space and read it through a published
    * handbook, for the record's "Through a handbook" tag; null when they can
-   * open the space, and on 'superseded' rows. On the person's own record
-   * (viewer_kind 'self') such a row's space_name and space_icon are ''.
+   * open the space, on 'superseded' rows, and when the VIEWER may not see
+   * that handbook (someone else's record: outside its audience, not
+   * managing it, handbookSeenBySql), where `asked_through_handbook` alone
+   * says so. The person's own record always names it. On the person's own
+   * record (viewer_kind 'self') such a row's space_name and space_icon are
+   * ''.
    */
   via_handbook_title: string | null;
   /**
@@ -10171,6 +10253,8 @@ export interface PolicyTranscriptRow {
    * of /doc/{docId}, which they cannot open.
    */
   via_handbook: ViaHandbook | null;
+  /** The person is asked through a handbook (1.18.3), whether or not the viewer may see its title. */
+  asked_through_handbook: boolean;
 }
 
 /** One row of the person's notice log (E3), as listAckNotices lists it. */
@@ -10268,7 +10352,9 @@ async function transcriptAccess(userId: number, viewer: SessionUser): Promise<Tr
 }
 
 /** The row as the SQL answers it: PolicyTranscriptRow's columns plus the two successor candidates of a superseded row. */
-type RawTranscriptRow = Omit<PolicyTranscriptRow, "set_names" | "superseded_by" | "via_handbook_title"> & {
+type RawTranscriptRow = Omit<PolicyTranscriptRow, "set_names" | "superseded_by" | "via_handbook_title" | "via_handbook" | "asked_through_handbook"> & {
+  /** The member's handbook, its title null when the viewer may not see it (viaHandbookSeenSql). */
+  via_handbook: { id: number; title: string | null } | null;
   next_at: string | null;
   next_version: number | null;
   dec_at: string | null;
@@ -10308,6 +10394,8 @@ function transcriptParams(ctx: {
     /** The person reads their own record: a space they cannot open is not named on it (1.18.3). */
     self: ctx.access.kind === "self",
     user: () => param("user", ctx.userId),
+    /** Who reads the record, for the handbook titles it may name: the person's own expression on their own record. */
+    viewer: (): string => (ctx.access.kind === "self" ? param("user", ctx.userId) : param("viewer", ctx.viewerId)),
     grace: () => param("grace", ctx.grace, "::int"),
     visible: (): string => {
       const kind = ctx.access.kind;
@@ -10346,8 +10434,7 @@ function transcriptAssignmentSql(
   const space = (col: string) => (p.self ? `CASE WHEN ${sees} THEN s.${col} ELSE '' END` : `s.${col}`);
   return `SELECT '${record}' AS record, d.id AS document_id, d.title, d.space_id,
                  ${space("name")} AS space_name, ${space("icon")} AS space_icon,
-                 CASE WHEN ${sees} THEN NULL
-                      ELSE ${VIA_HANDBOOK_FIRST(user, "json_build_object('id', ah.id, 'title', ah.title)")} END AS via_handbook,
+                 ${viaHandbookSeenSql(user, p.viewer())} AS via_handbook,
                  pa.id AS assignment_id, pa.source, pa.assigned_at, pa.cycle_started_at, pa.due_at,
                  pa.removed_at, COALESCE(pa.removed_reason, '') AS removed_reason, ${opts.stopped ? "true" : "false"} AS stopped,
                  ${status} AS status,
@@ -10449,11 +10536,15 @@ function transcriptRowOf(r: RawTranscriptRow, sets: Map<number, string[]>): Poli
     superseded_by =
       decision && next ? (new Date(decision.at).getTime() <= new Date(next.at).getTime() ? decision : next) : (decision ?? next);
   }
-  const via = row.via_handbook ? { id: Number(row.via_handbook.id), title: String(row.via_handbook.title) } : null;
+  // A handbook whose title the viewer may not see is neither named nor
+  // linked: `asked_through_handbook` alone carries it (1.18.3).
+  const raw = row.via_handbook;
+  const via = raw && raw.title != null ? { id: Number(raw.id), title: String(raw.title) } : null;
   return {
     ...row,
     via_handbook: via,
     via_handbook_title: via?.title ?? null,
+    asked_through_handbook: raw != null,
     set_names: row.document_id != null ? (sets.get(row.document_id) ?? []) : [],
     superseded_by,
   };
@@ -14253,7 +14344,8 @@ export async function listTrainingDigestLeads(): Promise<
 // First to what the member owes (an open or exempt row of a live policy,
 // for an active account who can still read it, in its space or through a
 // published handbook, ACK_DOC_VISIBILITY since 1.18.3: the roster's rows,
-// a handbook-only member's carrying `via_handbook_title`);
+// a handbook-only member's carrying `asked_through_handbook`, and
+// `via_handbook_title` when the viewer may see that handbook);
 // then to what the VIEWER may read (readableSpaceIdsSql: the same predicate
 // the weekly digest and the app use for a private space), applied in SQL so
 // a hidden policy's title, dates and status never leave the database. A
@@ -14285,9 +14377,13 @@ export interface TeamPolicyRow {
    * The handbook through which the member is asked (1.18.3): its title when
    * the member cannot open the policy's space and reads it through a
    * published handbook, for the team view's "Through a handbook" tag; null
-   * when they can open the space, and on a member's empty row.
+   * when they can open the space, on a member's empty row, and when the
+   * VIEWER may not see that handbook (outside its audience, not managing
+   * it: handbookSeenBySql), where `asked_through_handbook` alone says so.
    */
   via_handbook_title: string | null;
+  /** The member is asked through a handbook (1.18.3), whether or not the viewer may see its title. */
+  asked_through_handbook: boolean;
 }
 
 /**
@@ -14304,7 +14400,8 @@ export async function teamPolicyRows(groupIds: number[], viewerId: number): Prom
   return q<TeamPolicyRow>(
     `SELECT g.id AS group_id, g.name AS group_name, u.id AS user_id, u.name AS user_name, u.username,
             x.assignment_id, x.document_id, x.title, x.space_id, x.status, x.due_at, x.acknowledged_at, x.reminded_at,
-            h.n AS hidden_count, x.via_handbook_title
+            h.n AS hidden_count, x.via_handbook->>'title' AS via_handbook_title,
+            (x.via_handbook IS NOT NULL) AS asked_through_handbook
      FROM groups g
      JOIN group_members gm ON gm.group_id = g.id
      JOIN users u ON u.id = gm.user_id AND u.status = 'active'
@@ -14319,7 +14416,7 @@ export async function teamPolicyRows(groupIds: number[], viewerId: number): Prom
      LEFT JOIN LATERAL (
        SELECT pa.id AS assignment_id, d.id AS document_id, d.title, d.space_id,
               pa.due_at, pa.reminded_at, cur.acknowledged_at,
-              ${viaHandbookTitleSql("u.id")} AS via_handbook_title,
+              ${viaHandbookSeenSql("u.id", "$2")} AS via_handbook,
               CASE WHEN pa.exempt_at IS NOT NULL THEN 'exempt'
                    WHEN cur.acknowledged_at IS NOT NULL THEN 'confirmed'
                    WHEN ${paOverdueSql(grace)} THEN 'overdue'
