@@ -7527,6 +7527,9 @@ async function reconcilePolicyOn(
             d.ack_revision_at
      FROM ${AUDIENCE_FROM}, users u
      WHERE d.id = $1 AND ${IN_AUDIENCE}
+     -- An account removed while this runs is skipped, not a foreign-key
+     -- failure: the lock waits for the removal, then drops the row.
+     FOR KEY SHARE OF u
      ${AUDIENCE_REOPEN}
      RETURNING user_id, (xmax = 0) AS inserted,
                -- A re-opened row whose confirmation still counts kept its
@@ -7602,6 +7605,7 @@ async function reconcileUserOn(
      WHERE u.id = $1 AND ${AUDIENCE_POLICY}
        AND ($4::boolean = false OR ${gate})
        AND ${IN_AUDIENCE}
+     FOR KEY SHARE OF u
      ${AUDIENCE_REOPEN_AFRESH}
      RETURNING document_id, due_at, (xmax = 0) AS inserted`,
     [userId, opts.defaults.new_joiner_days, opts.defaults.timeZone, opts.auto]
