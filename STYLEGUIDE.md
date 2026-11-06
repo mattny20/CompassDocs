@@ -230,8 +230,10 @@ its own.
   inline flash; the toast is the announcement, and focus moves to the
   section after success. The done state carries one `link`, **View your
   record** (1.14.0, `/compliance/person/me`), beside the confirmed line;
-  My policies (1.12.0) links the other way, from its rows to this card,
-  and to the same record as **Your record**. The strip at the top keeps **one
+  My policies (1.12.0) links the other way, from its rows to this card
+  (a policy asked through a handbook, 1.18.3, to the reader's
+  `PolicyConfirmBar` instead, §Handbooks), and to the same record as
+  **Your record**. The strip at the top keeps **one
   sentence and one action**: a `secondary` `sm` `<Button
   href="#confirm-reading">` (a real anchor so it works without JS;
   `onClick` adds `scrollIntoView` unless reduced motion, then focuses the
@@ -1322,6 +1324,22 @@ in {handbooks}." with `tabIndex={0}` and `data-tt-wrap`; inside a row or
 card that is one big link it takes `inLink` and is plain text, because a
 focusable tooltip cannot sit inside a link.
 
+**"Through a handbook"** (1.18.3) is an `accent` `sm` chip with a
+`ring-1 ring-inset ring-compass-200` outline (`dark:ring-compass-500/40`,
+because compass-200 does not invert) and the `BookOpen` icon,
+`ThroughHandbookTag` (`components/handbooks`): the person is asked to
+confirm the policy through a published handbook because they can't open
+its space, so their reminders link to the handbook reader. It sits after
+the person's name on every roster of a policy's people (the Record tab's
+`AckRoster`, which the portal's policy expand row mounts; the team page)
+and after the policy's title on a person's record. It carries `data-tt`
+"Asked through {handbook}: they can't open this policy's space, so
+reminders link to the handbook." with `tabIndex={0}` and `data-tt-wrap`,
+and an `sr-only` ": {handbook}" so a screen reader hears where; `inLink`
+drops both inside a row that is one big link. It is a status, never a
+link, and prints as the chip print override's outlined text. One
+component, never a hand-written pill.
+
 **A choice is a pill menu button, not a chip** (1.18.0). When a row
 carries a setting the editor changes in place (the handbook editor's
 "Where people find it", `FindModeMenu`), the control is a `button` with
@@ -2104,6 +2122,23 @@ one (§Print) and, with read confirmation licensed, confirmed as one
   screen wherever Save was pressed; no toast repeats it. Reload asks
   first (`confirmDialog`, `danger`, "Reload and discard your changes?")
   when there are unsaved edits.
+- **A policy asked through a handbook, from the reader's side** (1.18.3).
+  Someone who can't open a policy's space but reads it in a published
+  handbook is asked to confirm it there (`via_handbook` on the My policies
+  and dashboard rows), and every place that lists their policies says so
+  instead of pointing at a space they can't open. On **My policies** the
+  row is otherwise identical (the same status chip, the same groups):
+  the emoji slot holds a `BookOpen` in `text-compass-600`, centred in a
+  `w-7` slot so the titles line up; the subtitle reads "In **{handbook}**
+  · Updated {RelativeTime}" with the handbook's title `font-semibold
+  text-slate-700`; the title links to `handbookConfirmHref` —
+  `/handbooks/{id}/{docId}#confirm-reading`, the reader's confirm bar —
+  never to `/doc`; the filter matches the handbook's title too. On the
+  **dashboard**'s Needs your attention the count includes them, the
+  detail line names one as "{title} (in {handbook}, due {date})" with no
+  space icon, and when it is the only pending policy the row opens the
+  same reader link. The compliance desk sees the other side as the
+  **Through a handbook** chip (§Status chips).
 - **Handbook-only documents in their space.** Readers no longer find
   them there; the people who look after the space still do, each marked
   with `HandbookOnlyChip`, and the space page opens with one

@@ -46,6 +46,7 @@ import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { toast } from "@/components/Toasts";
 import { Tooltip } from "@/components/Tooltip";
 import { dayIn, exemptDialog, extendDialog, reaskDialog, today } from "@/components/AckRoster";
+import { ThroughHandbookTag } from "@/components/handbooks/ThroughHandbookTag";
 import { exemptionText, snoozeText } from "@/lib/ack-assignments";
 import type { AssignmentAction } from "@/lib/ack-assignments";
 import { readTimeLabel, supersededByText } from "@/lib/read-evidence";
@@ -562,6 +563,8 @@ export function PersonRecord({
                   <tr key={r.assignment_id ?? `${r.document_id}`} className={TR}>
                     <Td>
                       <PolicyLink row={r} />
+                      {/* Asked through a handbook (1.18.3): they can't open the space, so reminders link to the handbook. */}
+                      <ThroughHandbookTag title={r.via_handbook_title} />
                       {r.space_name && <span className="ml-2 text-xs text-slate-500">{r.space_name}</span>}
                     </Td>
                     <Td className="text-slate-500">{r.set_names.join(", ")}</Td>

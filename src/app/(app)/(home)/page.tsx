@@ -36,6 +36,7 @@ import { MyTeamTile } from "@/components/dashboard/MyTeamTile";
 import { PeopleThisWeekTile } from "@/components/dashboard/PeopleThisWeekTile";
 import { MyTrainingTile } from "@/components/dashboard/MyTrainingTile";
 import { TeamComplianceTile } from "@/components/dashboard/TeamComplianceTile";
+import { handbookConfirmHref } from "@/components/handbooks/ThroughHandbookTag";
 import {
   Sparkles,
   CalendarClock,
@@ -272,21 +273,30 @@ async function PinnedBlocks({
               // One policy: straight to its confirmation card. More: My
               // policies, which lists them all (B4). The count is the whole
               // list, no longer the first twenty. The label counts the
-              // overdue ones and the detail names each deadline (E1).
+              // overdue ones and the detail names each deadline (E1). A
+              // policy asked through a handbook (1.18.3) is named "{title}
+              // (in {handbook})" with no space icon, and alone it opens the
+              // handbook reader's confirm bar, never /doc.
               <AttentionRow
-                href={pendingAcks.length === 1 ? `/doc/${pendingAcks[0].id}#confirm-reading` : "/compliance"}
+                href={
+                  pendingAcks.length === 1
+                    ? pendingAcks[0].via_handbook
+                      ? handbookConfirmHref(pendingAcks[0].via_handbook.id, pendingAcks[0].id)
+                      : `/doc/${pendingAcks[0].id}#confirm-reading`
+                    : "/compliance"
+                }
                 icon={<ClipboardCheck className="h-4 w-4" aria-hidden />}
                 label={`${pendingAcks.length} ${pendingAcks.length === 1 ? "policy needs" : "policies need"} your read confirmation${
                   overdueAcks > 0 ? ` · ${overdueAcks} overdue` : ""
                 }`}
                 detail={pendingAcks
                   .slice(0, 3)
-                  .map(
-                    (d) =>
-                      `${d.space_icon} ${d.title}${
-                        d.due_at ? ` (due ${formatDate(d.due_at, settingsForUser(appSettings, user))})` : ""
-                      }`
-                  )
+                  .map((d) => {
+                    const due = d.due_at ? `due ${formatDate(d.due_at, settingsForUser(appSettings, user))}` : "";
+                    // "Whistleblowing (in Employee Handbook, due 20 Nov)": one bracket, never two.
+                    if (d.via_handbook) return `${d.title} (in ${d.via_handbook.title}${due ? `, ${due}` : ""})`;
+                    return `${d.space_icon} ${d.title}${due ? ` (${due})` : ""}`;
+                  })
                   .join(" · ")}
               />
             )}

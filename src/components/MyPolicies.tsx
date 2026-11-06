@@ -12,10 +12,17 @@
 // confirmed {date}" (warn) or "Confirmed {date} · v12" (ok). A filter box
 // appears once there are more than ten rows (STYLEGUIDE §Tables). No
 // history, print or CSV here: the person record (F3) holds those.
+//
+// 1.18.3: a policy the person is asked to confirm through a published
+// handbook, because they can't open its space (`via_handbook`), is a row
+// like any other with three differences: BookOpen in the icon slot instead
+// of the space's emoji, "In {handbook} · Updated …" as its subtitle, and a
+// link to the policy's page in the handbook reader at its confirm bar. The
+// filter matches the handbook's title too.
 
 import { useState } from "react";
 import Link from "next/link";
-import { Check, CircleAlert, CircleDashed, ClipboardCheck, ShieldCheck } from "lucide-react";
+import { BookOpen, Check, CircleAlert, CircleDashed, ClipboardCheck, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/Card";
 import { chipClass } from "@/components/Chip";
 import { Eyebrow } from "@/components/Heading";
@@ -24,6 +31,7 @@ import { ListFilter } from "@/components/ListFilter";
 import { RelativeTime } from "@/components/RelativeTime";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { TeamLeadBanner } from "@/components/compliance/TeamLeadBanner";
+import { handbookConfirmHref } from "@/components/handbooks/ThroughHandbookTag";
 import type { MyPolicyRow } from "@/lib/db";
 import { setGroupLabel } from "@/lib/policy-sets";
 
@@ -87,7 +95,7 @@ export function MyPolicies({ rows }: { rows: MyPolicyRow[] }) {
 
   const needle = filter.trim().toLowerCase();
   const shown = needle
-    ? rows.filter((r) => `${r.title} ${r.space_name}`.toLowerCase().includes(needle))
+    ? rows.filter((r) => `${r.title} ${r.space_name} ${r.via_handbook?.title ?? ""}`.toLowerCase().includes(needle))
     : rows;
   const toConfirm = shown.filter((r) => r.state !== "confirmed");
   const done = shown.filter((r) => r.state === "confirmed");
@@ -184,20 +192,36 @@ export function MyPolicies({ rows }: { rows: MyPolicyRow[] }) {
 }
 
 function PolicyRow({ row: r, date }: { row: MyPolicyRow; date: (iso: string | null) => string }) {
+  const book = r.via_handbook;
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
-      <span className="shrink-0 text-lg" aria-hidden>
-        {r.space_icon}
-      </span>
+      {/* The emoji slot: the space's icon, or BookOpen for a policy read in
+          a handbook, centred in the emoji's width so the titles line up. */}
+      {book ? (
+        <span className="inline-grid w-7 shrink-0 place-items-center text-compass-600" aria-hidden>
+          <BookOpen className="h-4.5 w-4.5" />
+        </span>
+      ) : (
+        <span className="shrink-0 text-lg" aria-hidden>
+          {r.space_icon}
+        </span>
+      )}
       <span className="min-w-0 flex-1">
         <Link
-          href={`/doc/${r.id}#confirm-reading`}
+          href={book ? handbookConfirmHref(book.id, r.id) : `/doc/${r.id}#confirm-reading`}
           className="block truncate text-sm font-medium text-slate-800 hover:text-compass-700"
         >
           {r.title}
         </Link>
         <span className="block text-xs text-slate-500">
-          {r.space_name} · Updated <RelativeTime value={r.updated_at} />
+          {book ? (
+            <>
+              In <span className="font-semibold text-slate-700">{book.title}</span>
+            </>
+          ) : (
+            r.space_name
+          )}{" "}
+          · Updated <RelativeTime value={r.updated_at} />
         </span>
       </span>
       <StateChip row={r} date={date} />

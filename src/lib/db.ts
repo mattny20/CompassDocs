@@ -6137,11 +6137,13 @@ export async function setAckEditDefault(
 // space (public/internal, admins, or granted via a group on private spaces).
 // Kept as fragments so the central compliance portal and the per-doc record
 // count the same people.
-const ACK_VISIBILITY = `(
+/** ACK_VISIBILITY for the account `userExpr` (a placeholder or column this module writes, never input) against the space alias `s`. */
+const ackVisibilitySql = (userExpr: string) => `(
     s.visibility IN ('public', 'internal')
-    OR ${HOLDS_GLOBALLY("space.read_all", "u.id")}
-    OR ${HOLDS_ON_SPACE("space.member", "s.id", "u.id")}
+    OR ${HOLDS_GLOBALLY("space.read_all", userExpr)}
+    OR ${HOLDS_ON_SPACE("space.member", "s.id", userExpr)}
   )`;
+const ACK_VISIBILITY = ackVisibilitySql("u.id");
 const ACK_ELIGIBLE = `u.status = 'active' AND ${ACK_VISIBILITY}`;
 // Handbooks 1.18.0: "handbook access opens its policies". A person in the
 // audience of a PUBLISHED handbook that holds the published policy (alias
@@ -6149,16 +6151,46 @@ const ACK_ELIGIBLE = `u.status = 'active' AND ${ACK_VISIBILITY}`;
 // so the policy may ask them to confirm it: ACK_DOC_VISIBILITY is the
 // audience's ceiling (the reconcile, its user-scoped twin and the preview),
 // and POST /api/documents/[id]/ack admits them through the same grant
-// (lib/handbooks documentReadVia). Every rule still narrows within it. The
-// paths that send a person to the document page (compliancePendingUsers'
-// notices, the Remind stamp) keep ACK_VISIBILITY: a notice never links
-// someone to a page they cannot open.
-const ACK_VIA_HANDBOOK = `EXISTS (
+// (lib/handbooks documentReadVia). Every rule still narrows within it.
+//
+// 1.18.3: the people these rows name are reached too. Every person-facing
+// list (My policies, the sidebar badge, the dashboard, the nav gate) ORs
+// the user-scoped twin of ACK_VIA_HANDBOOK (viaHandbookSql) into its space
+// scope; every notice path (compliancePendingUsers, the Remind stamp, the
+// team view, the dashboard's Team compliance) tests ACK_DOC_VISIBILITY; and
+// a notice to someone who cannot open the space links into the handbook
+// (ackHandbookRoutes, VIA_HANDBOOK_FIRST below) instead of the document
+// page, so a notice still never links anyone to a page they cannot open.
+// The arm is an EXISTS served by idx_handbook_items_doc, and the audience
+// test checks only the handbook's owning space (1.18.0 D5).
+const viaHandbookSql = (userExpr: string) => `EXISTS (
     SELECT 1 FROM handbook_items ahi JOIN handbooks ah ON ah.id = ahi.handbook_id
      WHERE ahi.document_id = d.id AND ah.status = 'published' AND d.status = 'published'
-       AND ${handbookAudienceAdmitsSql("ah", "u.id")}
+       AND ${handbookAudienceAdmitsSql("ah", userExpr)}
   )`;
+const ACK_VIA_HANDBOOK = viaHandbookSql("u.id");
 const ACK_DOC_VISIBILITY = `(${ACK_VISIBILITY} OR ${ACK_VIA_HANDBOOK})`;
+/**
+ * The handbook a person who reads the policy (alias d) only through
+ * handbooks is sent to: of the PUBLISHED handbooks holding the published
+ * policy whose audience admits `userExpr`, the one with the LOWEST id (the
+ * oldest, so the link a person was given keeps pointing where it did when
+ * a newer handbook takes the policy in too). `cols` picks what the scalar
+ * subquery answers: `json_build_object('id', ah.id, 'title', ah.title)`
+ * for the `via_handbook` field, `ah.title` for `via_handbook_title`, or
+ * `ah.id`. NULL when no handbook admits them. The caller decides when the
+ * question is asked at all: only for someone who cannot open the space
+ * (the space path wins).
+ */
+const VIA_HANDBOOK_FIRST = (userExpr: string, cols: string) => `(
+    SELECT ${cols} FROM handbook_items ahi JOIN handbooks ah ON ah.id = ahi.handbook_id
+     WHERE ahi.document_id = d.id AND ah.status = 'published' AND d.status = 'published'
+       AND ${handbookAudienceAdmitsSql("ah", userExpr)}
+     ORDER BY ah.id LIMIT 1
+  )`;
+/** `via_handbook_title` over the aliases d, s and the account `userExpr`: the handbook's title when they cannot open the space, else NULL. */
+const viaHandbookTitleSql = (userExpr: string) =>
+  `CASE WHEN ${ackVisibilitySql(userExpr)} THEN NULL ELSE ${VIA_HANDBOOK_FIRST(userExpr, "ah.title")} END`;
 
 // A confirmation (alias a) counts for a document (alias d) while it was made
 // on or after the doc's confirmation marker. The marker — not updated_at — is
@@ -6504,11 +6536,14 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
 
 /**
  * People the policy asks (open assignment rows of active accounts) who have
- * NOT confirmed its current ask and can still see the space: the recipients
- * of every event-driven notice (a request, the edit reset's 'updated'
- * notice, the manual Remind, the recert cycle). The live visibility test is
- * the ceiling between a grant revoked in Roles & permissions (not hooked)
- * and the hourly reconcile that closes the row; the counts stay row-based.
+ * NOT confirmed its current ask and can still read it, in its space or
+ * through a published handbook whose audience holds them
+ * (ACK_DOC_VISIBILITY, 1.18.3): the recipients of every event-driven notice
+ * (a request, the edit reset's 'updated' notice, the manual Remind, the
+ * recert cycle). The drain links each person to where they read it
+ * (ackHandbookRoutes). The live visibility test is the ceiling between a
+ * grant revoked in Roles & permissions (not hooked) and the hourly
+ * reconcile that closes the row; the counts stay row-based.
  */
 export async function compliancePendingUsers(
   docId: number
@@ -6519,7 +6554,7 @@ export async function compliancePendingUsers(
      JOIN users u ON u.id = pa.user_id
      JOIN documents d ON d.id = pa.document_id
      JOIN spaces s ON s.id = d.space_id
-     WHERE pa.document_id = $1 AND ${PA_OWES} AND ${ACK_VISIBILITY}
+     WHERE pa.document_id = $1 AND ${PA_OWES} AND ${ACK_DOC_VISIBILITY}
        AND NOT EXISTS (
          SELECT 1 FROM acknowledgements a
          WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT_PA}
