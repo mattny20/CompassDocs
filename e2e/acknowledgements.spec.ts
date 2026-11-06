@@ -188,9 +188,17 @@ test("admin requires confirmation; the reader is pointed to the card, confirms t
     await jump.click();
     await page.waitForTimeout(700);
     await expect(card).toBeFocused();
-    const top = await card.evaluate((el) => el.getBoundingClientRect().top);
-    expect(top, "the card is near the top of the viewport").toBeGreaterThanOrEqual(0);
-    expect(top).toBeLessThan(200);
+    // Near the top of the viewport, unless the card sits so close to the end
+    // of a short page that the page cannot scroll any further: then it must
+    // be fully on screen with the page scrolled to its end.
+    const geo = await card.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const se = document.scrollingElement ?? document.documentElement;
+      return { top: r.top, bottom: r.bottom, vh: window.innerHeight, atEnd: Math.ceil(se.scrollTop + se.clientHeight) >= se.scrollHeight - 2 };
+    });
+    expect(geo.top, "the card is below the sticky bar, not under it").toBeGreaterThanOrEqual(0);
+    if (!geo.atEnd) expect(geo.top, "the card is near the top of the viewport").toBeLessThan(200);
+    else expect(geo.bottom, "at the page's end, the whole card is on screen").toBeLessThanOrEqual(geo.vh);
 
     // The end has been on screen: the sticky control now says "Confirm now",
     // still a jump link, never a recorder.

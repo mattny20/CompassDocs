@@ -4,6 +4,374 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.19.0] - 2026-11-06
+
+Helpdesk, a new Enterprise feature (`helpdesk`). Employees ask for help in
+**Get help** at `/help`, inside CompassDocs, and agents work tickets in the
+**desk** at `/desk`, a full-screen workspace of its own that stays open in
+its own tab and installs as an app with push notifications. Requests can run
+multi-team workflows with approvals, tasks and hand-offs; each team keeps
+its own office hours, holidays and reply targets; tickets are assigned by
+hand, in turn, by load, by rule or to whoever is on call; monitoring tools
+open tickets of their own; and reports are dashboards you build. Two changes
+reach every workspace: email templates are now built from a header, a body,
+a signature and a footer, with a branded Standard header and footer on by
+default, and notifications gain workspace policies and a full personal
+matrix.
+
+### Added
+- **Get help** (`/help`). A **Get help** item in the sidebar (and the
+  command palette) for everyone with the new **Get help** permission, after
+  Handbooks, with a badge for requests waiting on you and approvals waiting
+  for you. Search your guides before asking: suggestions come from your own
+  documents, within each person's space access, and never show handbook-only
+  policies. Then pick a request type card, fill in its form and follow the
+  request from **My requests**.
+- **Get help: request forms** say what happens next, name your approver from
+  the directory, and prefill answers from your directory entry. A request
+  opens on a step-by-step tracker with every reply, its files and the
+  workflow's progress; replying reopens a solved request. Requests show a
+  notice when the answering team is out of hours, and the card of the agent
+  helping you, with their team and availability.
+- **Get help: Approvals** (`/help/approvals`). Approve, decline with a note
+  (the requester sees it) or ask the requester a question, from Get help,
+  from the email or from two new rows in the dashboard's **Needs your
+  attention**: "N requests need your approval" and "N of your requests are
+  waiting on you".
+- **Get help from where you are.** **Report a problem with this page** on a
+  document, **Ask about this policy** on a handbook policy, **This link is
+  broken** on a quick link, and **Request access** on a private space you
+  can't open each open a request with the page, policy, link or space
+  already filled in.
+- **The desk** (`/desk`), a full-screen workspace for agents with its own
+  top bar (search, a **CompassDocs** link back, the bell and your
+  availability: Available, Away or Offline) and an icon rail: Tickets,
+  Approvals, Workflows, Reports and Settings. It uses the same sign-in as
+  CompassDocs; a **Desk** item in the sidebar opens it in a new tab. Search
+  finds solved and closed tickets too.
+- **Desk: queues and tickets.** Views (Mine, Unassigned, Open, Overdue, In
+  workflow, Waiting, Solved this week) and team queues with live counts, and
+  a split ticket view with deep links. Tickets are numbered from #1001. The
+  ticket pane has public replies and internal notes, macros, article links,
+  attachments (25 MB each by default), **Send and set** a status, inline
+  properties and the SLA clock. Automated tickets open the composer on an
+  internal note. Keyboard shortcuts: `j` and `k` move, `Enter` opens, `r`
+  replies, `n` adds a note, `e` solves, `a` takes the ticket, `/` searches,
+  and Ctrl/Cmd+Enter sends. They follow the account's single-key shortcuts
+  setting.
+- **Desk: install it as an app.** **Install Desk** puts the desk in its own
+  window (CompassDocs Desk, with its own icons and an offline page) on
+  computers and phones: Chrome, Edge and Brave install it, Safari on macOS
+  Sonoma or later adds it to the Dock, iPhone and iPad add it to the Home
+  Screen, and Firefox keeps it in a pinned tab. Each browser gets its own
+  steps.
+- **Desk: push notifications** in Chrome, Edge, Firefox, Brave and Safari
+  (macOS 13 or later, and iOS and iPadOS 16.4 or later from the Home
+  Screen). Send a test, and rename or remove each device. Brave needs **Use
+  Google services for push messaging** turned on; the desk says so. Push
+  stops on a device when you sign out of it, sign out everywhere, are
+  deactivated or are removed from the desk.
+- **Desk: your notifications** (Desk settings → Notifications). Choose push,
+  email or the bell per event (assigned to me, new in my teams, requester
+  replied, mentions and notes, approvals, workflow tasks, a workflow
+  stopped, reopened, replies for review, SLA nearing and breached), new
+  tickets per team, quiet hours with urgent and SLA break-through, private
+  previews, sound, and pause for an hour, until tomorrow or until you
+  resume.
+- **Desk roles: Newbie, Agent, Team lead, Manager and Admin**, assigned in
+  Desk settings → Agents. Each role is a set of capabilities in six sections
+  (tickets, replies, macros, reports, people and teams, configuration) that
+  admins adjust in Desk settings → Roles; Admin always has everything, and a
+  person can only give roles below their own. Team leads manage only the
+  newbies and agents in their own teams.
+- **Reply review.** A newbie's public replies wait for a team lead. Leads
+  approve them (editing the text if they like) or return them with a note
+  from **Reviews**. Files on a held reply stay with the desk until it is
+  approved.
+- **Workflows.** A request type can start a workflow of Approval, Task,
+  parallel Task groups, Wait, Notify and Finish steps, built in the desk's
+  workflow builder. Edits are drafts until you publish them, and requests
+  already running keep the version they started with. **Test run** takes
+  sample answers for every question and a sample requester, and shows who
+  approves, which steps are skipped, the team each task would go to and when
+  tasks fall due, without creating anything.
+- **Workflows: approvals** go to a team, a named person or the requester's
+  manager from the directory. When there is nobody to ask (no manager, a
+  deleted team or approver), the team's leads stand in, and the request says
+  so. One reminder goes out if nobody decides.
+- **Workflows across teams.** Any step can run **Only if** a form answer,
+  the requester's directory entry or an earlier team's hand-off matches.
+  **Route to team by answer** sends a task to, for example, Facilities
+  London or Facilities Paris by the requester's office, with a fallback
+  team. A task can ask for **hand-off fields** (an asset tag, a badge
+  number) that its team fills in when it marks the task done; later steps
+  can check them and quote them in messages. A task can't be solved without
+  its required hand-off, however it is solved.
+- **Workflows: Can't be done.** A task team can mark its task **Can't be
+  done** with a reason. As the step says, the workflow either carries on, or
+  stops and hands the request back to its team to **Retry step**, **Skip and
+  carry on** or **Cancel workflow**. Task tickets show the request they
+  belong to, every team's progress, and a read-only view of the request;
+  internal notes stay hidden. Deleting a task ticket lets its workflow carry
+  on.
+- **Request access** to a private space. The space's owner (or, without one,
+  whoever manages space access) approves, and sees which space it is for;
+  the requester sees only "the people who look after the space". Read access
+  to that space, and only that space, is granted when that same space's
+  approval is given, and the grant is in the audit log. Other request types
+  can't name a space.
+- **Business calendars.** Each team works to its own office hours (split
+  shifts, 24/7, shifts past midnight, any time zone) and observes holiday
+  sets: whole or part days, once or every year. Paste a list or import an
+  .ics file, and copy a year's holidays to the next. **Test a due time**
+  shows when a target would fall due and which closures it skipped. Hours
+  default to the workspace's time zone.
+- **Reply targets.** Reply and resolution targets per priority, counted in
+  business time and paused while a ticket is Waiting on requester or On
+  hold, with nearing and breach warnings. A team can override the workspace
+  target for any priority. Moving a ticket keeps the business time it has
+  used and counts the rest against the new team's target. Queues say when a
+  clock is stopped ("Paused for Christmas Day, resumes Mon 09:00", or "No
+  office hours" for a calendar with none), and editing a calendar, holiday
+  or team target re-times the open tickets it affects.
+- **Assignment** (Desk settings → Assignment), per team: **Manual**, **Round
+  robin** (with a weight per person) or **Load balanced** (fewest open
+  tickets). Choose who takes tickets (available, or away too; which desk
+  roles; a cap on open tickets; office hours only), the same person as last
+  time, and moving tickets on when their owner is away or has not replied in
+  time (at most 3 times per ticket). Team leads set up their own teams.
+  Agents can pause auto-assign from the availability menu.
+- **Assignment rules** run first on every new ticket. Match on channel,
+  alerts and API senders, integration, request type, category, priority,
+  words, tags, form answers, the requester's department, office or VIP
+  status, and office hours; then move the ticket, tag it, set its priority
+  (also from an alert's severity) and assign it to a person, the team's
+  turn, the least busy, a team lead or above, or whoever is on call. **Test
+  a ticket** explains which rule would match and where a ticket would go,
+  and each ticket shows its assignment history.
+- **On call.** On-call rotas per team with one-off cover, a four-week view
+  and who is on call now; handovers keep their local time across clock
+  changes.
+- **Email channel.** Forward your help address to the desk's inbound webhook
+  (Postmark, SendGrid, Mailgun or generic JSON). Known users' mail opens
+  tickets in the team the alias names; replies thread back by a private
+  token in the reply address, subject and Message-ID, with quoted history
+  removed. Mail from outside the workspace is ignored and logged unless you
+  accept it, and no reply is sent to it. Only people who manage the email
+  channel see the webhook address.
+- **Email channel: sender authentication.** A sender's From address counts
+  only when the mail provider confirms the domain (DMARC pass, or SPF or
+  DKIM passing aligned with it). Unverified mail is treated as an outside
+  sender and never added to an existing ticket. For providers that report no
+  results, Desk settings → Email has **Trust sender addresses without SPF or
+  DKIM results** (off by default).
+- **Integrations** (Desk settings → Integrations): Prometheus Alertmanager,
+  Grafana, Datadog, Azure Monitor, PagerDuty-style events, generic webhooks
+  and API bots open tickets. Each has its own key, shown once and stored
+  only as a hash, a team, a severity to priority map and a rate limit.
+  Repeated wrong keys are rate limited before anything is written.
+- **Integrations: alerts dedupe.** A repeat adds a note to the open ticket,
+  a resolved alert solves it (never one a person has replied on), and a
+  repeat after solving reopens it within the window. Retries have one
+  effect. Automated tickets are marked **Automated**, show the alert's links
+  and fields beside the ticket, and send no requester mail, receipts or
+  surveys. A recent deliveries log shows what each alert became.
+- **Integrations: automated mail.** List a tool's sender addresses and its
+  mail opens alert tickets even though it is auto-generated, when the
+  provider's SPF or DKIM checks pass; a subject tagged [RESOLVED] or [OK]
+  solves the ticket. Mail with no sender verdict is refused unless the
+  integration has **Accept mail without SPF or DKIM results** on.
+- **Contact cards** from the directory. Agents see the requester's card
+  beside the ticket and on hover (title, office and local time, manager,
+  desk and cell phone, email, Teams, Webex and Slack, VIP, earlier tickets),
+  with copy buttons. Requesters see who is helping them, with the agent's
+  team and availability; phone numbers are off for them by default. Desk
+  settings → Contact cards maps directory fields to each line and sets what
+  each side sees. Cards follow the directory's visibility rules: a field set
+  to admins only never shows to anyone else.
+- **VIP requesters** from a directory field, a directory export marker or a
+  helpdesk VIP list of people, groups and departments, shown to agents as a
+  **VIP** chip and usable in assignment rules and reports.
+- **Reports and dashboards.** Six built-in dashboards (Overview is the
+  default) and dashboards of your own, from number, line, area, bar,
+  stacked, donut, gauge, heatmap, table and leaderboard widgets and live
+  tiles that refresh each minute. Add widgets from a live gallery, configure
+  them in a side panel, reorder them by drag or keyboard, resize them and
+  set targets.
+- **Reports: over 30 measures**: volume, backlog, first reply and resolution
+  times in each team's business hours, SLA attainment and breaches,
+  satisfaction, one-touch resolution, approvals, workflow time per team and
+  more. Filter by date, team, assignee, request type, priority, channel,
+  status, tag, workflow or VIP, and compare with the previous period or last
+  year. Links keep the view, and every chart opens its tickets in the queue
+  with every filter it used. **Explore** splits any measure by up to two
+  dimensions and adds it to a dashboard. Alerts and API tickets are left out
+  unless included.
+- **Reports: sharing, export and schedules.** Share a dashboard with a team
+  or everyone who reads reports. Export a widget or a dashboard as CSV, or a
+  dashboard as PDF, or email a dashboard's summary daily, weekly or monthly
+  with a CSV or PDF link. Everyone sees only their own scope.
+- **Automations**: when / if / then rules (a ticket is created or updated,
+  the requester writes, an SLA is nearing or breached) on team, category,
+  priority, request type, words or channel, that set fields, add a note,
+  send a macro reply or notify, with loop protection.
+- **Macros** with placeholders and field changes, personal, for a team or
+  for everyone. A macro makes only the changes the agent's desk role allows,
+  and a newbie's macro reply is still held for review.
+- **Satisfaction survey**: one question from 1 to 5 in the solved email,
+  answered signed in, once per request.
+- **Setup checklist** (`/desk/setup`) in five steps (teams, hours and reply
+  targets, email, request form, satisfaction) with a one-click starter set:
+  IT, HR and Facilities teams, starter reply targets (urgent: reply in 1
+  hour; everything else: reply in 4 business hours, resolve in 2 business
+  days), six request types with their workflows, three macros and an example
+  rule.
+- **Helpdesk notices** by bell and email for every request event, with links
+  to Get help for requesters, the desk for agents and Approvals for
+  approvers. New templates under **Email templates**: request received, new
+  reply, ticket assigned, approval needed, approval decided, workflow task,
+  request solved, workflow message, SLA nearing, SLA breached, report digest
+  and internal note. Internal-note emails carry no reply address or thread
+  reference, so an emailed answer can't reach the requester: it is filed as
+  an internal note.
+- **Notification policies** (Settings → Notifications → Policies) set, per
+  event and channel (bell, email, push, chat), the workspace default and
+  whether people may change it (**Locked on**, **Locked off**, **Person
+  chooses**), plus instant, hourly or daily email delivery. People who may
+  only view the policies see them read-only. Changes are audited.
+- **Hourly and daily email digests** gather notices into one email per
+  person. They wait for desk quiet hours, retry a refused send the same day,
+  never send twice and use absolute links. Read confirmation requests,
+  newsletters, announcements and the weekly digest are never held.
+- **Email template parts.** Every email is built from a header, a body, a
+  signature and a footer, chosen per email under Settings → Notifications →
+  Email templates. Headers, signatures and footers are reusable libraries;
+  each email keeps its own body and subject. Built-ins: **Standard header**
+  (logo, workspace name, accent bar), **Standard footer**, **Team
+  signature**, and **No header**, **No signature** and **No footer**.
+  Preview any combination at desktop or phone width, or send a test to
+  yourself.
+- **Branded emails are built for mail clients**: a 600px table layout with
+  inline styles, readable in dark mode, with a plain-text version.
+- **The footer's Manage your notifications link** opens the email's own
+  section of your notification settings. It is left out of mail to people
+  without an account, and of emails that already carry their own link.
+- **Team versions of helpdesk emails.** A helpdesk team can have its own
+  version of any helpdesk email, for example with a team header or
+  signature; anything a team does not set uses the workspace's choice. Desk
+  settings → Email templates edits them in the desk.
+- **Audit actions** for every helpdesk change (`helpdesk.*`), the email
+  template parts (`email_template.*`) and the notification policy
+  (`notification.policy_updated`).
+
+### Changed
+- **Every email is branded by default.** The Standard header and Standard
+  footer frame each message, with no signature, and what each email says is
+  unchanged. Existing emails gain them on upgrade, unless an admin had
+  already chosen a header or footer of their own. Emails with a layout of
+  their own (newsletters, the weekly digest, the directory sync report) are
+  unchanged. To send plain emails as before, make **No header** and **No
+  footer** the defaults.
+- **Your existing template edits carry over** into each email's body, and
+  **Reset to original** restores the built-in wording.
+- **Account → Notifications** is now a full matrix of events and channels in
+  sections, with email frequency per section, quiet hours, and **Pause
+  everything except security** (1 hour, until tomorrow, a week, or until you
+  resume). Choices the workspace locked show "Set by your workspace".
+  Existing personal choices carry over unchanged. If preferences can't be
+  read, only compliance and security mail is sent.
+- Security notices (password, two-factor and new sign-in alerts) are locked
+  on in the catalog, ready for when CompassDocs sends them.
+- The dashboard's **Needs your attention** gains the two Get help rows
+  above, for people with the helpdesk licensed.
+
+### Fixed
+- A private space's name, and a draft or private document's title, no longer
+  show in the browser tab to someone who can't open them.
+- Training rows on **Account → Notifications** could not be saved.
+
+### Security
+- Inbound email and alert text can no longer insert images, embeds, videos
+  or disguised links into a ticket: the desk writes every link itself, and
+  an alert's link targets can't break out of their link.
+- Alert subject patterns that could backtrack without end are refused, and
+  every subject match has a time budget.
+- The inbound email webhook enforces its 40 MB cap on chunked bodies too.
+- Uploads have a per-person quota: files not yet sent are capped at 60 files
+  or 300 MB, and everything one person uploads at 500 files or 2 GB a day.
+  Abandoned drafts older than six hours are cleared first to make room.
+
+### Upgrading
+- **Licence.** The helpdesk needs the Enterprise image and a licence with
+  the new `helpdesk` feature. Without it, Get help and the desk stay out of
+  the sidebar and the palette, `/help` and `/desk` show the licence page,
+  the helpdesk API answers 402, and the helpdesk sweeps do nothing. The
+  email template parts, notification policies and personal preferences are
+  in every edition.
+- **Additive schema, applied on start:** 37 new `hd_*` tables for the
+  helpdesk, `email_template_parts` and `email_template_compositions` for the
+  email parts, and `user_notify_prefs`, `notify_digest_queue` and
+  `notify_digest_state` for notifications. No existing table changes.
+  Helpdesk tables stay empty until someone sets up the helpdesk; the starter
+  set is added only from the setup checklist.
+- **New permissions:** `helpdesk.request` (Get help; every built-in role),
+  `helpdesk.agent`, `helpdesk.agent_all`, `helpdesk.admin` and
+  `helpdesk.reports` (the Administrator role), and
+  `notification.policy_read` and `notification.policy_manage` (the
+  Administrator role). Custom roles get none of them, so add **Get help** to
+  a custom role whose people should raise requests.
+- **New built-in roles:** **Helpdesk agent** (works the queues of the
+  helpdesk teams they belong to) and **Helpdesk manager** (every team,
+  configuration and reports). An agent also needs membership of a team.
+  People who hold helpdesk permissions get the matching desk role until an
+  admin assigns one. A custom role you already named "Helpdesk agent" or
+  "Helpdesk manager" keeps its people and permissions; its key moves to
+  `helpdesk-agent-custom` (or `helpdesk-manager-custom`), and the move is
+  audited.
+- **Push notifications** need HTTPS (localhost aside) and outbound HTTPS
+  (443) to the browsers' push services: `fcm.googleapis.com` (Chrome, Edge
+  on Android, Brave), `updates.push.services.mozilla.com` (Firefox),
+  `web.push.apple.com` and other `*.push.apple.com` hosts (Safari) and
+  `*.notify.windows.com` (Edge on Windows). Push goes through `HTTPS_PROXY`
+  when it is set. The push keys are kept encrypted under the master key:
+  changing `COMPASSDOCS_SECRET_KEY` without migrating it means agents turn
+  push on again.
+- **New environment variables, all optional:** `COMPASSDOCS_PUSH_HOSTS`
+  (more push service hosts, comma-separated), `COMPASSDOCS_PUSH_SUBJECT`
+  (the contact push services see, an `https:` or `mailto:` address;
+  recommended, since Safari needs a valid one; by default the custom domain,
+  then the site's address, then the SMTP sender) and
+  `COMPASSDOCS_HD_ATTACHMENT_MAX_MB` (the largest helpdesk attachment, 25 by
+  default) and `DATABASE_POOL_WAIT_MS` (how long a request waits for a free
+  database connection before failing, 30000 by default; before 1.19.0 it
+  waited forever). Attachments are kept in the uploads volume.
+- **Inbound endpoints.** The email webhook
+  (`/api/helpdesk/inbound/<secret>`) and the integrations endpoint
+  (`/api/helpdesk/intake/<id>`) must be reachable from your mail provider
+  and monitoring tools. Treat the email address's secret like a password;
+  rotating it stops the old address at once.
+- **Check your mail provider's sender results.** Inbound mail is linked to
+  an account only when the provider reports SPF, DKIM or DMARC results that
+  pass. Postmark and SendGrid report them; on Mailgun, turn on spam
+  filtering. Without results, colleagues' mail is treated as outside mail
+  until you turn on **Trust sender addresses without SPF or DKIM results**,
+  which lets anyone send mail that looks like a colleague's.
+- **Emails look different.** Every email gains the Standard header and
+  footer on upgrade (see Changed) unless an admin chose otherwise. Check
+  Settings → Notifications → Email templates after upgrading if your mail
+  must stay plain.
+- **Minute-tick sweeps.** Every minute each instance runs the helpdesk's
+  sweeps: SLA warnings and breaches, workflow waits, task dues and approval
+  reminders, assignment retries and reassignment, scheduled report emails,
+  and the clean-up of unused uploads. Each sweep claims its own rows, so
+  several instances never double up. The hourly tick also sends the hourly
+  and daily email digests.
+- **Rolling back to 1.18.4 is safe:** it ignores the new tables. Personal
+  notification choices are also written to the old place, so they survive.
+  Emails go back to 1.18's layout and to the template wording saved before
+  the upgrade, which 1.19.0 reads but never changes; edits made in 1.19.0
+  come back when you upgrade again.
+
 ## [1.18.4] - 2026-11-06
 
 The document editor moves to Tiptap 3. Nothing changes in how documents
