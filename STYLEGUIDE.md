@@ -1338,7 +1338,13 @@ the person rows of the portal's Needs attention queue, where the row's
 "Asked through {handbook}: they can't open this policy's space, so
 reminders link to the handbook." with `tabIndex={0}` and `data-tt-wrap`,
 and an `sr-only` ": {handbook}" so a screen reader hears where; `inLink`
-drops both inside a row that is one big link. It is a status, never a
+drops both inside a row that is one big link. On the person's own record
+(`self`) the tooltip says "you can't open". The handbook is named only to
+a viewer in its audience or managing it: for anyone else the row carries
+`asked_through_handbook` with a null title, the chip takes `asked` and
+its tooltip reads "Asked through a handbook you can't open: they can't
+open this policy's space, so reminders link to the handbook.", and the
+CSVs' `asked_through` cell reads "a handbook". It is a status, never a
 link, and prints as the chip print override's outlined text. One
 component, never a hand-written pill.
 

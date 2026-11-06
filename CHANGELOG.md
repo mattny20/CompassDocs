@@ -31,11 +31,14 @@ are counted, and every link takes them into the handbook.
   dashboard, the team view and the compliance portal** count these
   people, and a group lead can remind them.
 - **The Record tab, the portal and the team view** mark them **Through a
-  handbook**. On your own compliance record such a policy links to the
-  handbook, and its space is not named.
+  handbook**. The tag names the handbook only to people in its audience
+  or who manage it; anyone else reads "a handbook you can't open". On
+  your own compliance record such a policy links to the handbook, and
+  its space is not named.
 - **The roster, matrix and person-record CSVs** append an
-  `asked_through` column: the handbook a person is asked through, blank
-  otherwise. Every other column keeps its place.
+  `asked_through` column: the handbook a person is asked through ("a
+  handbook" when you can't see which), blank otherwise. Every other
+  column keeps its place.
 
 ### Unchanged
 - Who can read a document. A handbook still opens its published policies
