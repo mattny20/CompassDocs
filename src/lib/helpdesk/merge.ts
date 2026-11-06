@@ -232,7 +232,7 @@ export async function mergeTickets(user: MergeActor, input: MergeInput, ctx: { o
       moved.timers += (await client.query("UPDATE hd_timers SET ticket_id = $2 WHERE ticket_id = $1", [m.id, k.id])).rowCount ?? 0;
       // 1.19.2: its checklists carry on on the kept ticket (agent W3, lib/helpdesk/checklists moveChecklistsTx).
       await (await import("./checklists")).moveChecklistsTx(client, m.id, k.id);
-      // 1.19.3: its linked assets too (lib/helpdesk/assets moveAssetLinksTx).
+      // 1.19.3: its linked assets too, every one, even past ten (lib/helpdesk/assets moveAssetLinksTx).
       await (await import("./assets")).moveAssetLinksTx(client, m.id, k.id);
       moved.ccs += await moveCcs(m.id, k.id, client);
       moved.followers += await moveFollowers(m.id, k.id, client);

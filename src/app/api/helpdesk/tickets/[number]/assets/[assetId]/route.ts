@@ -1,5 +1,7 @@
 // DELETE /api/helpdesk/tickets/[number]/assets/[assetId] → the ticket's HdTicketAssetsView.
-// Unlinks the asset (404 when it was not linked; 409 on a merged or closed ticket). Audited
+// Unlinks the asset (404 when it was not linked; 409 on a merged or closed ticket). It touches
+// no source, so it works while Snipe-IT isn't connected too (the card keeps Unlink then, from
+// can_unlink), and a wrong or personal device link stays removable. Audited
 // (helpdesk.asset.unlinked); the timeline says who. Helpdesk 1.19.3 (lib/helpdesk/assets).
 // Agents who work the ticket only.
 

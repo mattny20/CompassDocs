@@ -30,6 +30,13 @@
 //   privacy    merge moves links, anonymising drops them, the personal
 //              export lists tag + name; requesters' Device picker shows
 //              only their own; connector read + lookup
+//   limits     merge moves every link (13 on the kept ticket is fine), an
+//              11th by hand is refused; solving it: the offer lists all
+//              13, a record for the first ten logs ten, 11 ids give 400
+//   offline    after a disconnect the cache is history only: no link,
+//              picker (connected: false), Device picker or maintenance; unlinking still works;
+//              search and the asset page keep linked assets readable;
+//              reconnecting the same address keeps the cache
 //
 // Parallel-safe: teams, people, tickets and asset rows are this file's own
 // (STAMP; the cache rows live under provider "snipeit:<STAMP>"). Asset
@@ -1140,6 +1147,292 @@ describe("privacy and the rest of the helpdesk", () => {
     const asReq = await hdTools.callHelpdeskTool(reqUser, "hd_asset_lookup", { query: `${TAGP}-MON` }, ctx);
     assert.equal(asReq.isError, true);
     assert.ok(!hdTools.HELPDESK_TOOL_DEFS.find((d) => d.name === "hd_asset_lookup")!.write, "read only");
+  });
+});
+
+// --- Merge and the ten-asset limit --------------------------------------------------------------------
+
+describe("merge and the ten-asset limit", () => {
+  const actor = () => ({ id: P.agent.id, role: "viewer" as never, name: P.agent.name });
+  const linksOf = async (ticketId: number) =>
+    (await pool().query("SELECT a.external_id FROM hd_ticket_assets l JOIN hd_assets a ON a.id = l.asset_id WHERE l.ticket_id = $1 ORDER BY l.linked_at, l.asset_id", [ticketId])).rows.map((r) => Number(r.external_id));
+  /** Link source assets `ext` to the ticket, the first the oldest link (a minute apart, a day back). */
+  async function linkAll(ticketId: number, ext: number[]) {
+    for (const [i, e] of ext.entries()) {
+      const id = await cacheId(e);
+      assert.ok(id, `asset ${e} cached`);
+      await pool().query("INSERT INTO hd_ticket_assets (ticket_id, asset_id, linked_at) VALUES ($1, $2, now() - interval '1 day' + make_interval(mins => $3))", [ticketId, id, i]);
+    }
+  }
+
+  before(async () => {
+    assets.setAssetSettingsForTests(SETTINGS());
+    await assets.syncProvider(PROVIDER, { force: true });
+  });
+
+  test("merging 6 + 7 links: all 13 move to the kept ticket (the limit is for linking by hand); an 11th by hand is refused", async () => {
+    const keep = await ticket("Keep six");
+    const dup = await ticket("Dup seven");
+    const keepExt = [300, 301, 302, 303, 304, 305];
+    const dupExt = [306, 307, 308, 309, 310, 311, 312];
+    await linkAll(keep.id, keepExt);
+    await linkAll(dup.id, dupExt);
+    const r = await merge.mergeTickets(actor(), { keep: keep.number, merge: [dup.number], notify: false });
+    assert.equal(r.already, false);
+    const kept = await linksOf(keep.id);
+    assert.equal(kept.length, 13);
+    assert.deepEqual([...kept].sort((a, b) => a - b), [...keepExt, ...dupExt]);
+    assert.deepEqual(await linksOf(dup.id), [], "nothing stays on the merged ticket");
+    assert.ok(!(await lines(keep.id)).some((l) => / stayed on #/.test(l.body)), "no note naming devices");
+    // The card lists all 13; Link is for a connected source on an open ticket, the card disables it at ten.
+    const v = await assets.ticketAssetsView((await ticketOf(keep.id))!);
+    assert.equal(v.assets.length, 13);
+    assert.equal(v.can_unlink, true);
+    assert.equal(v.assets.length, shared.ASSET_LIMITS.perTicket + 3, "three past the limit");
+    // Linking one more by hand is refused with the limit's sentence, and nothing is added.
+    const err = await assets.linkAsset({ id: P.agent.id, role: "viewer" } as never, (await ticketOf(keep.id))!, (await cacheId(313))!, { id: P.agent.id, name: "A" }).catch((e) => e);
+    assert.ok(err instanceof assets.AssetError);
+    assert.equal(err.status, 409);
+    assert.equal(err.message, "A ticket can have up to 10 assets.");
+    assert.equal((await linksOf(keep.id)).length, 13);
+    // Unlinking still works on a ticket over the limit, and it stays over ten until it drops below.
+    const first = (await cacheId(300))!;
+    assert.ok(await assets.unlinkAsset((await ticketOf(keep.id))!, first, { id: P.agent.id, name: "A" }));
+    assert.equal((await linksOf(keep.id)).length, 12);
+    await assert.rejects(assets.linkAsset({ id: P.agent.id, role: "viewer" } as never, (await ticketOf(keep.id))!, first, { id: P.agent.id, name: "A" }), /up to 10/);
+  });
+
+  test("a link already on both tickets is not duplicated", async () => {
+    const keep = await ticket("Keep nine");
+    const dup = await ticket("Dup with a shared one");
+    await linkAll(keep.id, [320, 321, 322, 323, 324, 325, 326, 327, 328]);
+    await linkAll(dup.id, [320, 329, 330]);
+    await merge.mergeTickets(actor(), { keep: keep.number, merge: [dup.number], notify: false });
+    const kept = await linksOf(keep.id);
+    assert.deepEqual([...kept].sort((a, b) => a - b), [320, 321, 322, 323, 324, 325, 326, 327, 328, 329, 330]);
+    assert.equal(new Set(kept).size, kept.length, "one link per asset");
+    assert.deepEqual(await linksOf(dup.id), []);
+  });
+
+  test("moveAssetLinksTx on the merge's client moves every link and returns how many were added", async () => {
+    const keep = await ticket("Over the limit");
+    const dup = await ticket("Two more");
+    await linkAll(keep.id, [340, 341, 342, 343, 344, 345, 346, 347, 348, 349, 350]);
+    await linkAll(dup.id, [350, 351, 352]);
+    const n = await withTx((c) => assets.moveAssetLinksTx(c, dup.id, keep.id));
+    assert.equal(n, 2, "the shared one isn't added again");
+    assert.equal((await linksOf(keep.id)).length, 13);
+    assert.deepEqual(await linksOf(dup.id), []);
+  });
+
+  test("solving a merged ticket with 13 links: the offer lists all 13, a record for the first ten logs ten, eleven is refused", async () => {
+    const keep = await ticket("Keep six, then solve");
+    const dup = await ticket("Dup seven, then solve");
+    const keepExt = [360, 361, 362, 363, 364, 365];
+    const dupExt = [366, 367, 368, 369, 370, 371, 372];
+    await linkAll(keep.id, keepExt);
+    await linkAll(dup.id, dupExt);
+    // The duplicate's links are the newer ones, so oldest first is the kept ticket's six, then the duplicate's.
+    await pool().query("UPDATE hd_ticket_assets SET linked_at = linked_at + interval '1 hour' WHERE ticket_id = $1", [dup.id]);
+    await merge.mergeTickets(actor(), { keep: keep.number, merge: [dup.number], notify: false });
+    assert.deepEqual(await linksOf(keep.id), [...keepExt, ...dupExt]);
+    const solved = await call(ticketRoute.PATCH, req(`/tickets/${keep.number}`, P.agent.session, { status: "solved" }, "PATCH"), { number: String(keep.number) });
+    assert.equal(solved.status, 200, solved.text);
+
+    // The offer: all 13, oldest link first (the dialog ticks the first ten).
+    const extOf = new Map<number, number>();
+    for (const e of [...keepExt, ...dupExt]) extOf.set((await cacheId(e))!, e);
+    const offer = await assets.solveOffer((await ticketOf(keep.id))!);
+    assert.ok(offer);
+    assert.equal(offer.assets.length, 13);
+    assert.deepEqual(offer.assets.map((a) => extOf.get(a.id)), [...keepExt, ...dupExt]);
+    const viaRoute = await call(solveRoute.GET, req(`/tickets/${keep.number}/assets/solve`, P.agent.session), { number: String(keep.number) });
+    assert.equal(viaRoute.body.offer.assets.length, 13);
+
+    // Eleven distinct assets: refused before anything is sent or claimed.
+    const ids = offer.assets.map((a) => a.id);
+    const before = fake.maintenances.length;
+    const eleven = await call(solveRoute.POST, req(`/tickets/${keep.number}/assets/solve`, P.agent.session, { asset_ids: ids.slice(0, 11), type: "Repair", supplier_id: null, note: "" }), {
+      number: String(keep.number),
+    });
+    assert.equal(eleven.status, 400, eleven.text);
+    assert.equal(eleven.body.error, "Choose up to 10 assets.");
+    assert.equal(fake.maintenances.length, before);
+    assert.equal((await pool().query("SELECT 1 FROM hd_asset_maintenance_log WHERE ticket_id = $1", [keep.id])).rowCount, 0);
+
+    // The first ten, as the dialog sends them: all ten logged on the fake, one record each.
+    const seenBefore = fake.seen.length;
+    const ten = await call(solveRoute.POST, req(`/tickets/${keep.number}/assets/solve`, P.agent.session, { asset_ids: ids.slice(0, 10), type: "Repair", supplier_id: null, note: "Docking stations swapped." }), {
+      number: String(keep.number),
+    });
+    assert.equal(ten.status, 200, ten.text);
+    assert.deepEqual(ten.body.failed, []);
+    assert.deepEqual(ten.body.skipped, []);
+    assert.deepEqual(ten.body.logged.map((l: any) => l.asset_id), ids.slice(0, 10));
+    assert.equal(fake.maintenances.length, before + 10);
+    const posted = fake.seen.slice(seenBefore).filter((s) => s.method === "POST" && s.path === "/api/v1/maintenances");
+    assert.deepEqual(
+      posted.map((s) => s.body!.asset_id),
+      [...keepExt, ...dupExt].slice(0, 10)
+    );
+    assert.ok(posted.every((s) => s.body!.title === `CompassDocs #${keep.number}: Repair`));
+    assert.equal((await pool().query("SELECT 1 FROM hd_asset_maintenance_log WHERE ticket_id = $1", [keep.id])).rowCount, 10);
+  });
+
+  test("a maintenance record for more than ten assets: 'Choose up to 10 assets.'; none or a bad id keeps the old sentence", () => {
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
+    assert.deepEqual(assets.checkMaintenanceRequest({ asset_ids: ids(11), type: "Repair" }), { ok: false, error: "Choose up to 10 assets." });
+    assert.deepEqual(assets.checkMaintenanceRequest({ asset_ids: [], type: "Repair" }), { ok: false, error: "Choose the assets to log it for." });
+    assert.deepEqual(assets.checkMaintenanceRequest({ asset_ids: [1, "x"], type: "Repair" }), { ok: false, error: "Choose the assets to log it for." });
+    assert.deepEqual(assets.checkMaintenanceRequest({ asset_ids: [...ids(10), 1], type: "Repair" }).ok, true, "ten, once duplicates are dropped");
+  });
+});
+
+// --- Disconnected: the cache is history only ------------------------------------------------------------
+
+describe("after Snipe-IT is disconnected", () => {
+  let t: { id: number; number: number };
+  let solved: { id: number; number: number };
+  let linkedId = 0;
+  let unlinkedId = 0;
+  let wrongId = 0;
+  const agent = () => ({ id: P.agent.id, role: "viewer" }) as never;
+
+  before(async () => {
+    // As stored after a first save: the cache remembers its address, so reconnecting it is no new source.
+    assets.setAssetSettingsForTests({ ...SETTINGS(), cache_source: "https://snipe.test" });
+    await assets.syncProvider(PROVIDER, { force: true });
+    linkedId = (await cacheId(400))!;
+    unlinkedId = (await cacheId(401))!;
+    wrongId = (await cacheId(402))!;
+    assert.ok(linkedId && unlinkedId && wrongId);
+    t = await ticket("Disconnected later");
+    await assets.linkAsset(agent(), (await ticketOf(t.id))!, linkedId, { id: P.agent.id, name: P.agent.name });
+    // Linked by mistake; removed after the disconnect.
+    await assets.linkAsset(agent(), (await ticketOf(t.id))!, wrongId, { id: P.agent.id, name: P.agent.name });
+    // Solved while connected, so the maintenance record is due when Snipe-IT goes away.
+    solved = await ticket("Solved just before the disconnect");
+    await assets.linkAsset(agent(), (await ticketOf(solved.id))!, linkedId, { id: P.agent.id, name: P.agent.name });
+    const s = await call(ticketRoute.PATCH, req(`/tickets/${solved.number}`, P.agent.session, { status: "solved" }, "PATCH"), { number: String(solved.number) });
+    assert.equal(s.status, 200, s.text);
+    const off = await assets.saveAssetSettings({ disconnect: true });
+    assert.deepEqual(off.changed, ["disconnected"]);
+    assert.equal(await assets.assetsConnected(), false);
+    assert.ok(await assets.getAsset(unlinkedId), "the cache is kept");
+  });
+
+  after(() => {
+    assets.setAssetSettingsForTests(SETTINGS());
+  });
+
+  test("linkAsset refuses with 409 and says how to connect it; so does the route", async () => {
+    const err = await assets.linkAsset(agent(), (await ticketOf(t.id))!, unlinkedId, { id: P.agent.id, name: P.agent.name }).catch((e) => e);
+    assert.ok(err instanceof assets.AssetError);
+    assert.equal(err.status, 409);
+    assert.equal(err.message, "Snipe-IT isn't connected. An admin can connect it in Desk settings, Assets.");
+    assert.equal(err.message, assets.NOT_CONNECTED);
+    const r = await call(ticketAssetsRoute.POST, req(`/tickets/${t.number}/assets`, P.agent.session, { asset_id: unlinkedId }), { number: String(t.number) });
+    assert.equal(r.status, 409);
+    assert.equal(r.body.error, assets.NOT_CONNECTED);
+    assert.deepEqual((await assets.linkedAssets(t.id)).map((a) => a.id).sort((a, b) => a - b), [linkedId, wrongId].sort((a, b) => a - b));
+  });
+
+  test("the ticket card keeps its history; no Link, but Unlink stays: a wrong link is removed, audited, while disconnected", async () => {
+    const v = await assets.ticketAssetsView((await ticketOf(t.id))!);
+    assert.equal(v.configured, true);
+    assert.equal(v.can_edit, false, "no Link without a source");
+    assert.equal(v.can_unlink, true, "Unlink needs no source");
+    assert.equal(v.assets.length, 2);
+    const before = (await auditRows("helpdesk.asset.unlinked")).filter((x) => x.details.asset_id === wrongId).length;
+    const r = await call(ticketAssetRoute.DELETE, req(`/tickets/${t.number}/assets/${wrongId}`, P.agent.session, undefined, "DELETE"), { number: String(t.number), assetId: String(wrongId) });
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual(r.body.assets.map((a: any) => a.id), [linkedId]);
+    assert.equal(r.body.can_unlink, true);
+    assert.equal(r.body.can_edit, false);
+    const rows = (await auditRows("helpdesk.asset.unlinked")).filter((x) => x.details.asset_id === wrongId);
+    assert.equal(rows.length, before + 1, "the route audits it as before");
+    assert.equal(rows.at(-1).actor_id, P.agent.id);
+    assert.ok((await lines(t.id)).some((l) => l.kind === "internal" && /^Unlinked asset .*00402/.test(l.body)), "the timeline says who");
+    assert.deepEqual((await assets.linkedAssets(t.id)).map((a) => a.id), [linkedId]);
+    // Not linked any more: 404, as when connected.
+    const again = await call(ticketAssetRoute.DELETE, req(`/tickets/${t.number}/assets/${wrongId}`, P.agent.session, undefined, "DELETE"), { number: String(t.number), assetId: String(wrongId) });
+    assert.equal(again.status, 404);
+  });
+
+  test("the link picker offers nothing, with the notice", async () => {
+    const o = await assets.assetOptions(agent(), (await ticketOf(t.id))!, `${TAGP}-00401`);
+    assert.deepEqual(o.assigned, []);
+    assert.deepEqual(o.results, []);
+    assert.equal(o.connected, false, "the picker shows only the notice");
+    assert.equal(o.notice, assets.NOT_CONNECTED);
+    const r = await call(optionsRoute.GET, req(`/tickets/${t.number}/assets/options?q=${TAGP}-00401`, P.agent.session), { number: String(t.number) });
+    assert.equal(r.status, 200);
+    assert.deepEqual([r.body.assigned, r.body.results], [[], []]);
+    assert.equal(r.body.connected, false);
+  });
+
+  test("search (the desk's and hd_asset_lookup) finds linked assets only, and says why", async () => {
+    const linked = await assets.searchAssets(agent(), `${TAGP}-00400`);
+    assert.deepEqual(linked.rows.map((x) => x.id), [linkedId]);
+    assert.match(linked.notice!, /isn't connected, so only assets linked to tickets are listed/);
+    assert.deepEqual((await assets.searchAssets(agent(), `${TAGP}-00401`)).rows, [], "an unlinked row of the stale cache");
+    const r = await call(searchRoute.GET, req(`/assets?q=${TAGP}-0040`, P.agent.session));
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.assets.map((x: any) => x.id), [linkedId]);
+    const mcp = await assets.assetLookupForMcp(agent(), `${TAGP}-0040`);
+    assert.deepEqual(mcp.assets.map((x: any) => x.id), [linkedId]);
+    assert.ok(mcp.notice);
+  });
+
+  test("the asset page: a linked asset's history stays readable (with the notice); an unlinked one is not found", async () => {
+    const page = await assets.assetPage(agent(), linkedId);
+    assert.ok(page);
+    assert.match(page.notice!, /isn't connected now, so this is what was synced last/);
+    assert.ok(page.tickets.some((x) => x.number === t.number));
+    assert.equal(await assets.assetPage(agent(), unlinkedId), undefined);
+    assert.equal((await call(assetRoute.GET, req(`/assets/${unlinkedId}`, P.agent.session), { id: String(unlinkedId) })).status, 404);
+    assert.equal((await call(assetRoute.GET, req(`/assets/${linkedId}`, P.agent.session), { id: String(linkedId) })).status, 200);
+  });
+
+  test("Get help: no Device picker; a stale form's device is dropped and the request still goes in", async () => {
+    const own = (await cacheId(REQ_ASSET))!;
+    assert.deepEqual(await assets.myAssets({ id: P.req.id }), []);
+    assert.equal(await assets.isRequesterAsset({ id: P.req.id }, own), false);
+    const ok = await call(requestsRoute.POST, req("/requests", P.req.session, { subject: `After the disconnect ${STAMP}`, body: "Laptop again.", asset_id: own }));
+    assert.equal(ok.status, 201, ok.text);
+    const row = (await pool().query("SELECT id FROM hd_tickets WHERE number = $1", [ok.body.ticket.number])).rows[0];
+    ticketIds.push(row.id);
+    assert.equal((await pool().query("SELECT 1 FROM hd_ticket_assets WHERE ticket_id = $1", [row.id])).rowCount, 0, "nothing linked");
+    assert.equal(await assets.linkRequesterAsset(row.id, own, { id: P.req.id, name: P.req.name }), false);
+    assert.equal((await pool().query("SELECT 1 FROM hd_ticket_assets WHERE ticket_id = $1", [row.id])).rowCount, 0);
+    assert.equal((await pool().query("SELECT 1 FROM audit_log WHERE action = 'helpdesk.asset.linked' AND target_id = $1", [String(row.id)])).rowCount, 0, "no link audited");
+  });
+
+  test("solving: no maintenance offer, and a record sent anyway is refused with the same sentence", async () => {
+    assert.equal(await assets.solveOffer((await ticketOf(solved.id))!), null);
+    const r = await call(solveRoute.POST, req(`/tickets/${solved.number}/assets/solve`, P.agent.session, { asset_ids: [linkedId], type: "Repair", note: "" }), { number: String(solved.number) });
+    assert.equal(r.status, 409, r.text);
+    assert.equal(r.body.error, assets.NOT_CONNECTED);
+  });
+
+  test("reconnected to the same address (saveAssetSettings): nothing retired, the links keep their source, linking works", async () => {
+    const on = await assets.saveAssetSettings({ url: "https://snipe.test", api_key: KEY });
+    assert.equal(on.retired, 0);
+    assert.ok(!on.changed.includes("source_changed"), on.changed.join());
+    assert.ok(on.changed.includes("url") && on.changed.includes("api_key"));
+    assert.equal(await assets.assetsConnected(), true);
+    const row = (await pool().query("SELECT provider, gone_at FROM hd_assets WHERE id = $1", [linkedId])).rows[0];
+    assert.equal(row.provider, PROVIDER);
+    assert.equal(row.gone_at, null);
+    const card = await assets.ticketAssetsView((await ticketOf(t.id))!);
+    assert.equal(card.assets[0].gone, false);
+    assert.equal(card.can_edit, true);
+    const o = await assets.assetOptions(agent(), (await ticketOf(t.id))!, `${TAGP}-00401`);
+    assert.equal(o.connected, true, "the picker's groups are back");
+    assert.deepEqual(o.results.map((x) => x.id), [unlinkedId]);
+    const a = await assets.linkAsset(agent(), (await ticketOf(t.id))!, unlinkedId, { id: P.agent.id, name: P.agent.name });
+    assert.equal(a.id, unlinkedId);
+    assert.deepEqual((await assets.linkedAssets(t.id)).map((x) => x.id).sort((x, y) => x - y), [linkedId, unlinkedId].sort((x, y) => x - y));
   });
 });
 

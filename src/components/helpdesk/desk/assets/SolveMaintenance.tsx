@@ -100,13 +100,17 @@ export function SolveMaintenanceHost() {
 function SolveMaintenanceDialog({ ask, onDone }: { ask: Ask; onDone: (v: MaintenancePlan | null | false) => void }) {
   const { offer } = ask;
   const [log, setLog] = useState(true);
-  const [ids, setIds] = useState<number[]>(offer.assets.map((a) => a.id));
+  // A record goes to at most ASSET_LIMITS.perTicket assets. A merge moves every link, so a ticket may hold more.
+  const [ids, setIds] = useState<number[]>(offer.assets.slice(0, ASSET_LIMITS.perTicket).map((a) => a.id));
   const [type, setType] = useState(offer.types.some((t) => t.value === DEFAULT_MAINTENANCE_TYPE) ? DEFAULT_MAINTENANCE_TYPE : offer.types[0]?.value ?? "");
   const [supplier, setSupplier] = useState("0");
   const [note, setNote] = useState(offer.note);
   const titleId = useId();
   const checkId = useId();
   const many = offer.assets.length > 1;
+  const capped = offer.assets.length > ASSET_LIMITS.perTicket;
+  const full = ids.length >= ASSET_LIMITS.perTicket;
+  const capId = useId();
   const going = log && ids.length > 0;
 
   function submit(e: React.FormEvent) {
@@ -138,11 +142,18 @@ function SolveMaintenanceDialog({ ask, onDone }: { ask: Ask; onDone: (v: Mainten
                     type="checkbox"
                     className="h-4 w-4"
                     checked={ids.includes(a.id)}
-                    onChange={(e) => setIds((cur) => (e.target.checked ? [...cur, a.id] : cur.filter((x) => x !== a.id)))}
+                    aria-disabled={(full && !ids.includes(a.id)) || undefined}
+                    aria-describedby={capped ? capId : undefined}
+                    onChange={(e) => setIds((cur) => (e.target.checked ? (cur.length >= ASSET_LIMITS.perTicket ? cur : [...cur, a.id]) : cur.filter((x) => x !== a.id)))}
                   />
                   {[a.name, a.tag].filter(Boolean).join(" · ")}
                 </label>
               ))}
+              {capped && (
+                <p id={capId} className="mt-1 text-xs text-slate-500">
+                  Choose up to {ASSET_LIMITS.perTicket} assets.
+                </p>
+              )}
             </fieldset>
           ) : (
             <p className="mt-1 text-sm text-slate-600">{[offer.assets[0].name, offer.assets[0].tag].filter(Boolean).join(" · ")}</p>

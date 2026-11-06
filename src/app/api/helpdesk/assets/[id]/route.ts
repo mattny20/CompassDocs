@@ -1,7 +1,8 @@
 // GET /api/helpdesk/assets/[id] → HdAssetPage: the asset's details (refreshed from the source when
 // it answers), the tickets on it the viewer may open (the rest only counted) and its maintenance
 // records from the source. 404 for an asset the agent may not see (not one of their people's,
-// with "Agents can search all assets" off) or that does not exist.
+// with "Agents can search all assets" off), that does not exist, or, while its source isn't
+// connected, that no ticket links.
 // Helpdesk 1.19.3 (lib/helpdesk/assets; mock-up i2). Agents only.
 
 import { NextResponse } from "next/server";

@@ -86,7 +86,10 @@ export interface HdTicketAssetsView {
   /** A source is set up (or assets are already linked). */
   configured: boolean;
   assets: HdLinkedAsset[];
+  /** May link more: a source is connected and the ticket is neither merged nor closed. */
   can_edit: boolean;
+  /** May unlink: the ticket is neither merged nor closed (no source needed, so a wrong link stays removable). */
+  can_unlink: boolean;
   requester: { name: string; email: string } | null;
   /** Agents may search every asset (Desk settings → Assets). */
   search_all: boolean;
@@ -120,7 +123,9 @@ export interface HdAssetOptions {
   assigned: HdAssetOption[];
   results: HdAssetOption[];
   search_all: boolean;
-  /** A live lookup in the source failed (the cached list is shown). */
+  /** A source is connected. When false both lists are empty and the picker shows only the notice. */
+  connected: boolean;
+  /** A live lookup in the source failed (the cached list is shown), or why nothing is offered. */
   notice: string | null;
 }
 

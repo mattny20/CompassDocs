@@ -1,8 +1,11 @@
 // GET  /api/helpdesk/tickets/[number]/assets → HdTicketAssetsView (the linked assets, each with its
-//      earlier tickets; whether the agent may link more; the requester's name and address).
+//      earlier tickets; can_edit, whether the agent may link more, which needs a connected
+//      source; can_unlink, whether they may unlink, which doesn't; the requester's name and address).
 // POST /api/helpdesk/tickets/[number]/assets   { asset_id } → the view (201). The agent must see the
 //      asset (the requester's own, one of their people's, or any with "Agents can search all
-//      assets"). 409 when already linked, the ticket holds ten, or it is merged or closed.
+//      assets"). 409 when already linked, the ticket holds ten or more (a merge
+//      moves every link, so it may hold more), it is merged or closed, or
+//      Snipe-IT isn't connected (the cache stays for history but is never linked from).
 //      Audited (helpdesk.asset.linked); the timeline says who linked it.
 // Helpdesk 1.19.3 (lib/helpdesk/assets; mock-up i1). Agents who work the ticket only: a requester,
 // CC or portal customer gets 404 like any ticket outside their queues.

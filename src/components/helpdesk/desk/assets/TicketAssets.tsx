@@ -10,7 +10,13 @@
 // the requester's own assets first ("Assigned to <requester>", looked up in
 // Snipe-IT when the cache has none), then what the search matches, each
 // with its source chip; a linked one says so and can't be picked again.
-// Arrow keys walk the options, Enter links.
+// Arrow keys walk the options, Enter links. When the options say no source
+// is connected (`connected: false`), it shows only that notice.
+//
+// "+ Link" shows while a source is connected and the ticket is open
+// (can_edit); at ten linked (a merge can bring more) it is disabled inside a
+// Tooltip saying why. Unlink shows on an open ticket whether or not a
+// source is connected (can_unlink), so a wrong device link stays removable.
 //
 // Agents who work the ticket only (the routes answer 404 to anyone else);
 // the card stays away when no asset source is set up and nothing is linked.
@@ -28,7 +34,9 @@ import { Popover } from "@/components/Popover";
 import { LoadingRow } from "@/components/Spinner";
 import { SectionEmpty, controlClass } from "@/components/form";
 import { toast } from "@/components/Toasts";
+import { Tooltip } from "@/components/Tooltip";
 import {
+  ASSET_LIMITS,
   assetIcon,
   earlierTicketsLabel,
   statusText,
@@ -82,6 +90,15 @@ export function TicketAssetsCard({ number, canWork, refreshKey }: { number: numb
     if (canWork) load();
   }, [canWork, load, refreshKey]);
 
+  // Ten linked by hand is the limit; a merge may have brought more.
+  const full = !!view && view.assets.length >= ASSET_LIMITS.perTicket;
+  const canEdit = !!view?.can_edit;
+  // The picker lives in the live Link branch only: close it when that branch goes, so an
+  // Unlink back under ten (or Link coming back) doesn't reopen it and take focus.
+  useEffect(() => {
+    if (full || !canEdit) setOpen(false);
+  }, [full, canEdit]);
+
   if (!canWork || !view || !view.configured) return null;
 
   async function link(o: HdAssetOption) {
@@ -112,7 +129,15 @@ export function TicketAssetsCard({ number, canWork, refreshKey }: { number: numb
         <h3 id={headingId} className={`${EYEBROW_TEXT} flex items-center gap-1.5`}>
           <Package className="h-3.5 w-3.5" aria-hidden /> Assets
         </h3>
-        {view.can_edit && (
+        {view.can_edit && full && (
+          <Tooltip label={`A ticket can have up to ${ASSET_LIMITS.perTicket} assets.`} className="ml-auto">
+            <button type="button" disabled className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-medium text-slate-400">
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              Link
+            </button>
+          </Tooltip>
+        )}
+        {view.can_edit && !full && (
           <div className="relative ml-auto">
             <button
               ref={linkBtn}
@@ -146,7 +171,7 @@ export function TicketAssetsCard({ number, canWork, refreshKey }: { number: numb
                     {a.gone ? " · no longer in the source" : ""}
                   </p>
                 </div>
-                {view.can_edit && (
+                {view.can_unlink && (
                   <button type="button" className={iconButtonClass("quiet", "sm")} aria-label={`Unlink ${a.tag || a.name}`} data-tt="Unlink" onClick={() => unlink(a)}>
                     <X aria-hidden />
                   </button>
@@ -311,7 +336,9 @@ function AssetPicker({
       <div id={listId} role="listbox" aria-label="Assets" className="max-h-80 overflow-y-auto p-1.5">
         {error && <p className="px-2.5 py-3 text-sm ink-warn">{error}</p>}
         {!error && !data && <LoadingRow className="py-4" />}
-        {data && view.requester && (
+        {/* No source connected: nothing can be linked, so only the reason shows, not two empty groups. */}
+        {data && !data.connected && <SectionEmpty className="px-2.5 py-3">{data.notice}</SectionEmpty>}
+        {data?.connected && view.requester && (
           <div role="group" aria-label={`Assigned to ${view.requester.name}`}>
             <p className={`${EYEBROW_TEXT} px-2.5 pb-1 pt-1.5`} aria-hidden>
               Assigned to {view.requester.name}
@@ -319,7 +346,7 @@ function AssetPicker({
             {data.assigned.length ? data.assigned.map(row) : <SectionEmpty className="px-2.5 py-1.5">Nothing assigned to them in the asset list.</SectionEmpty>}
           </div>
         )}
-        {data && q.trim() !== "" && (
+        {data?.connected && q.trim() !== "" && (
           <div role="group" aria-label="Matching assets">
             <p className={`${EYEBROW_TEXT} px-2.5 pb-1 pt-2.5`} aria-hidden>
               Matching assets
@@ -328,15 +355,17 @@ function AssetPicker({
           </div>
         )}
       </div>
-      <p className="border-t border-slate-100 px-3 py-2 text-xs text-slate-500">
-        {data?.notice
-          ? data.notice
-          : view.search_all
-            ? "Or search every asset by tag or serial."
-            : "Search finds the assets of people whose tickets you work."}
-      </p>
+      {data?.connected !== false && (
+        <p className="border-t border-slate-100 px-3 py-2 text-xs text-slate-500">
+          {data?.notice
+            ? data.notice
+            : view.search_all
+              ? "Or search every asset by tag or serial."
+              : "Search finds the assets of people whose tickets you work."}
+        </p>
+      )}
       <p className="sr-only" aria-live="polite">
-        {data ? `${all.length} ${all.length === 1 ? "asset" : "assets"}` : ""}
+        {data ? (data.connected ? `${all.length} ${all.length === 1 ? "asset" : "assets"}` : data.notice) : ""}
       </p>
     </Popover>
   );

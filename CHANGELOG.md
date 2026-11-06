@@ -18,7 +18,9 @@ ticket. Requesters can pick their own device when they ask for help.
   looked up live. Every change is in the audit log.
 - **Assets card on each ticket:** link devices, with the requester's own
   listed first, and see each one's status, warranty and earlier tickets.
-  **Open in Snipe-IT** opens the asset there.
+  **Open in Snipe-IT** opens the asset there. Up to 10 assets can be linked
+  by hand; merging moves every link to the kept ticket, so it may hold more,
+  and the maintenance record then covers the 10 you choose.
 - **An asset's page** lists its tickets and its maintenance records in
   Snipe-IT. A ticket or record from a queue you don't work is counted but
   not shown.
@@ -52,6 +54,10 @@ ticket. Requesters can pick their own device when they ask for help.
   source connected.
 - **A Snipe-IT server on a private network** needs
   `COMPASSDOCS_FETCH_ALLOW_PRIVATE=1`, like other outbound connections.
+- **Disconnecting Snipe-IT** stops new links, lookups, the Get help device
+  picker and maintenance records. Assets already linked stay on their
+  tickets and can still be unlinked, and reconnecting to the same address
+  keeps them.
 - **Rolling back to 1.19.2 is safe:** it ignores the new tables.
 
 ## [1.19.2] - 2026-11-06

@@ -4038,6 +4038,11 @@ components live in `components/helpdesk/desk/assets`, the server in
   an `sr-only` "(opens in a new tab)"). Nothing linked is a
   `SectionEmpty`. The card is absent when no source is set up and
   nothing is linked; a closed or merged ticket's links are read-only.
+  **+ Link** shows only while a source is connected; at ten linked (a
+  merge may bring more, the list just grows) it is disabled inside
+  `Tooltip` ("A ticket can have up to 10 assets."). Unlink needs no
+  source: it stays on an open ticket after Snipe-IT is disconnected, so
+  a wrong or personal device link can always be removed.
 - **The link picker** is a `Popover` (`role="dialog"`, `align="end"`,
   26rem) whose first row is a borderless search input with `Search`
   ("Asset tag, serial or name") as a combobox over a listbox. Groups have
@@ -4048,7 +4053,13 @@ components live in `components/helpdesk/desk/assets`, the server in
   `aria-disabled`. The footer line says what the search reaches ("Or
   search every asset by tag or serial.", or the narrower sentence when
   "Agents can search all assets" is off), or the source's error when a
-  live lookup failed. Arrow keys walk the pickable rows; Enter links.
+  live lookup failed. With no source connected (the options answer
+  `connected: false`, say after a disconnect in another tab) the listbox
+  holds only a `SectionEmpty` with the notice ("Snipe-IT isn't
+  connected. An admin can connect it in Desk settings, Assets."), with no
+  groups and no footer line. The picker closes when the card reaches ten
+  or loses **+ Link**, so an Unlink back under ten never reopens it.
+  Arrow keys walk the pickable rows; Enter links.
 - **The asset page** (`/desk/assets/[id]`) has a trail ("`Package`
   Assets › TAG", `ChevronRight` separators) instead of a back link, then
   the masthead: the 48px tile beside the `h1` (the device is the thing
@@ -4088,7 +4099,13 @@ components live in `components/helpdesk/desk/assets`, the server in
   Snipe-IT** (ticked; one checkbox per asset when several are linked),
   the asset line, Type and Supplier `Select`s side by side (stacked on a
   phone; Supplier starts at "In house") and a Note `Textarea` that starts
-  "CompassDocs #N.". The primary reads **Solve and log**, or **Solve**
+  "CompassDocs #N.". A record covers at most ten assets. With more than
+  ten linked (a merge moves every link), the first ten (oldest link
+  first) start ticked; once ten are ticked the other boxes are
+  `aria-disabled` (not `disabled`, so they stay focusable) and don't
+  tick, and a visible `text-xs text-slate-500` line "Choose up to 10
+  assets." under the boxes is linked from each box with
+  `aria-describedby`. The primary reads **Solve and log**, or **Solve**
   once unticked; Cancel keeps the ticket open. The record is posted only
   after the solve committed; a failure is a toast ("Solved, but the
   maintenance record wasn't logged: …") and an internal note, and the

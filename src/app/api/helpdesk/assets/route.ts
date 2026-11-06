@@ -1,6 +1,7 @@
 // GET /api/helpdesk/assets?q= → { assets: HdAsset[], search_all, notice }: the desk's asset search
 // (tag, serial, name, model or person). Every asset with "Agents can search all assets" on, else
-// only the agent's people's. Helpdesk 1.19.3 (lib/helpdesk/assets). Agents only.
+// only the agent's people's. While Snipe-IT isn't connected, only assets linked to tickets
+// (with a notice). Helpdesk 1.19.3 (lib/helpdesk/assets). Agents only.
 
 import { NextResponse } from "next/server";
 import { helpdeskGate } from "@/lib/helpdesk/access";

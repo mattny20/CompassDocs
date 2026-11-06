@@ -32,8 +32,13 @@
 //               their own, in Get help's Device picker. Nobody else.
 //   links       hd_ticket_assets: an agent who works the ticket links and
 //               unlinks (internal timeline line; the routes audit). Up to
-//               ten a ticket. Merge moves them to the kept ticket;
+//               ten linked by hand a ticket. Merge moves every link to the
+//               kept ticket (so they share its retention, legal hold and
+//               anonymising), which may leave it with more than ten;
 //               anonymising removes them; deleting a ticket cascades.
+//               Without a connected source nothing links (NOT_CONNECTED):
+//               the cache is history only. Unlinking touches no source, so
+//               it works connected or not (a wrong device stays removable).
 //   solving     with "Offer to log a maintenance record" on and a linked
 //               asset from a source that takes maintenance, the desk's
 //               solve flow offers the record (solveOffer); the desk posts
@@ -293,6 +298,19 @@ export async function activeProviders(s?: AssetSettings): Promise<AssetProvider[
   const sn = await build(snipeKey(), settings);
   if (sn) out.push(sn);
   return out;
+}
+
+/**
+ * Without a connected source the cache is history only: links on tickets,
+ * the pages of linked assets and search over them stay readable, while
+ * linking, the picker, Get help's Device picker and maintenance on solve
+ * refuse or come back empty (as the ticket card does). Unlinking still works.
+ */
+export const NOT_CONNECTED = "Snipe-IT isn't connected. An admin can connect it in Desk settings, Assets.";
+
+/** Is any asset source set up (an address and a key)? */
+export async function assetsConnected(s?: AssetSettings): Promise<boolean> {
+  return (await activeProviders(s)).length > 0;
 }
 
 /** The source that caches under `key`, when it is set up. */
@@ -693,6 +711,7 @@ export async function ticketAssetsView(ticket: HdTicket): Promise<HdTicketAssets
     configured: providers.length > 0 || assets.length > 0,
     assets,
     can_edit: providers.length > 0 && assetsEditable(ticket),
+    can_unlink: assetsEditable(ticket),
     requester: email ? { name: ticket.requester_name || email, email } : null,
     search_all: s.agents_search_all,
   };
@@ -750,12 +769,15 @@ export async function searchAssets(user: U & { id: number }, q: string, opts: { 
   if (!term) return { rows: [], notice: null };
   const limit = Math.min(50, Math.max(1, opts.limit ?? ASSET_LIMITS.results));
   const teams = s.agents_search_all ? ("all" as const) : await agentTeamIds(user);
+  // Disconnected: only assets a ticket links (history), never the rest of a stale cache.
+  const connected = await assetsConnected(s);
+  const linkedOnly = connected ? "" : "AND EXISTS (SELECT 1 FROM hd_ticket_assets l WHERE l.asset_id = a.id)";
   const run = () => {
     const params: unknown[] = [term.toLowerCase(), `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`, limit];
     const scope = visibleSql(teams, user.id, params);
     return hq<Row>(
       `SELECT ${COLS} FROM hd_assets a
-        WHERE a.gone_at IS NULL AND ${scope}
+        WHERE a.gone_at IS NULL AND ${scope} ${linkedOnly}
           AND (lower(a.tag) = $1 OR lower(a.serial) = $1 OR a.tag ILIKE $2 OR a.serial ILIKE $2 OR a.name ILIKE $2
                OR a.model ILIKE $2 OR a.assigned_name ILIKE $2 OR a.assigned_email = $1)
         ORDER BY (lower(a.tag) = $1 OR lower(a.serial) = $1) DESC, a.name, a.id
@@ -764,6 +786,7 @@ export async function searchAssets(user: U & { id: number }, q: string, opts: { 
     );
   };
   let rows = await run();
+  if (!connected) return { rows, notice: "Snipe-IT isn't connected, so only assets linked to tickets are listed." };
   let notice: string | null = null;
   const exact = rows.some((r) => r.tag.toLowerCase() === term.toLowerCase() || r.serial.toLowerCase() === term.toLowerCase());
   if (!exact && TOKEN.test(term)) {
@@ -786,6 +809,8 @@ export async function searchAssets(user: U & { id: number }, q: string, opts: { 
 export async function assetOptions(user: U & { id: number }, ticket: HdTicket, q: string): Promise<HdAssetOptions> {
   const s = await getAssetSettings();
   const providers = await activeProviders(s);
+  // Nothing to offer for linking without a source (the card hides Link then).
+  if (!providers.length) return { assigned: [], results: [], search_all: s.agents_search_all, connected: false, notice: NOT_CONNECTED };
   const linked = new Set((await hq<{ asset_id: number }>("SELECT asset_id FROM hd_ticket_assets WHERE ticket_id = $1", [ticket.id])).map((r) => r.asset_id));
   const email = await requesterMatchEmail(ticket);
   const mine = email ? await assetsOfEmail(email, providers) : { rows: [], notice: null };
@@ -795,6 +820,7 @@ export async function assetOptions(user: U & { id: number }, ticket: HdTicket, q
     assigned: mine.rows.map((r) => option(r, linked)),
     results: found.rows.filter((r) => !theirs.has(r.id)).map((r) => option(r, linked)),
     search_all: s.agents_search_all,
+    connected: true,
     notice: found.notice ?? mine.notice,
   };
 }
@@ -814,6 +840,8 @@ const assetLine = (a: Pick<HdAsset, "name" | "tag">) => (a.tag && a.name && a.ta
  */
 export async function linkAsset(user: U & { id: number }, ticket: HdTicket, assetId: number, actor: AssetActor): Promise<HdAsset> {
   if (!assetsEditable(ticket)) throw new AssetError(ticket.merged_into ? "This ticket was merged. Link the asset on the ticket it joined." : "This ticket is closed.", 409);
+  // The cache outlives a disconnect (for the tickets' history); it is never linked from then.
+  if (!(await assetsConnected())) throw new AssetError(NOT_CONNECTED, 409);
   const asset = await getAsset(assetId);
   if (!asset) throw new AssetError("That asset isn't in the list any more. Search again.", 404);
   const requesterEmail = await requesterMatchEmail(ticket);
@@ -834,7 +862,7 @@ export async function linkAsset(user: U & { id: number }, ticket: HdTicket, asse
   });
 }
 
-/** Unlink; false when it was not linked. */
+/** Unlink; null when it was not linked. Touches no source, so it works while disconnected too (a wrong or personal device link stays removable). */
 export async function unlinkAsset(ticket: HdTicket, assetId: number, actor: AssetActor): Promise<HdAsset | null> {
   if (!assetsEditable(ticket)) throw new AssetError(ticket.merged_into ? "This ticket was merged." : "This ticket is closed.", 409);
   return withTx(async (client) => {
@@ -861,6 +889,8 @@ export async function assetPage(user: U & { id: number }, assetId: number): Prom
   let asset = (await getAsset(assetId))!;
   const ext = await hqOne<{ external_id: string }>("SELECT external_id FROM hd_assets WHERE id = $1", [assetId]);
   const provider = await providerFor(asset.provider, s);
+  // Its source not connected: the page is a linked asset's history; an unlinked row is only a stale copy.
+  if (!provider && !(await hqOne("SELECT 1 FROM hd_ticket_assets WHERE asset_id = $1 LIMIT 1", [assetId]))) return undefined;
   let notice: string | null = null;
   let maintenance: HdAssetPage["maintenance"] = null;
   if (provider && ext) {
@@ -982,7 +1012,8 @@ export interface MaintenanceRequest {
 export function checkMaintenanceRequest(b: Record<string, unknown> | null): { ok: true; value: MaintenanceRequest } | { ok: false; error: string } {
   if (!b) return { ok: false, error: "Send the maintenance record as JSON." };
   const ids = Array.isArray(b.asset_ids) ? [...new Set(b.asset_ids)] : [];
-  if (!ids.length || ids.length > ASSET_LIMITS.perTicket || !ids.every((i) => Number.isInteger(i) && (i as number) > 0)) return { ok: false, error: "Choose the assets to log it for." };
+  if (!ids.length || !ids.every((i) => Number.isInteger(i) && (i as number) > 0)) return { ok: false, error: "Choose the assets to log it for." };
+  if (ids.length > ASSET_LIMITS.perTicket) return { ok: false, error: `Choose up to ${ASSET_LIMITS.perTicket} assets.` };
   const type = SNIPEIT_MAINTENANCE_TYPES.find((t) => t.value === b.type)?.value;
   if (!type) return { ok: false, error: "Choose the type of maintenance." };
   const sup = b.supplier_id === null || b.supplier_id === undefined || b.supplier_id === 0 ? null : Number(b.supplier_id);
@@ -1026,7 +1057,7 @@ export async function logMaintenance(ticket: HdTicket, req: MaintenanceRequest, 
   const s = await getAssetSettings();
   if (s.snipeit.on_solve !== "offer_maintenance") throw new AssetError("Logging maintenance on solve is switched off in Desk settings, Assets.", 409);
   const provider = await providerFor(snipeKey(), s);
-  if (!provider?.maintenance) throw new AssetError("Snipe-IT isn't connected.", 409);
+  if (!provider?.maintenance) throw new AssetError(NOT_CONNECTED, 409);
   const linked = (await linkedAssets(ticket.id)).filter((a) => a.provider === provider.key);
   const out: MaintenanceOutcome = { logged: [], failed: [], skipped: [] };
   for (const id of req.asset_ids) {
@@ -1083,7 +1114,13 @@ export async function logMaintenance(ticket: HdTicket, req: MaintenanceRequest, 
 
 // --- Merge, retention, export ------------------------------------------------------------------
 
-/** Merge: the duplicate's links move to the kept ticket (one link per asset). */
+/**
+ * Merge (on the merge's own client, inside its transaction): every one of the
+ * duplicate's links moves to the kept ticket (one link per asset), so links
+ * live with the conversation and its retention, legal hold and anonymising.
+ * The ten-a-ticket limit is for linking by hand (linkAsset); a merge may
+ * leave the kept ticket with more.
+ */
 export async function moveAssetLinksTx(client: PoolClient, fromTicketId: number, toTicketId: number): Promise<number> {
   const moved = await client.query(
     `INSERT INTO hd_ticket_assets (ticket_id, asset_id, linked_by, linked_by_name, linked_at)
@@ -1140,23 +1177,26 @@ export async function myAssets(user: { id: number }): Promise<{ id: number; name
   return rows.map((r) => ({ id: r.id, name: r.name, tag: r.tag, category: r.category, model: r.model }));
 }
 
-/** Is this asset the requester's own (their confirmed address, still in the source)? */
+/** Is this asset the requester's own (their confirmed address, still in the source, and the source connected)? */
 export async function isRequesterAsset(user: { id: number }, assetId: number): Promise<boolean> {
   if (!Number.isInteger(assetId) || assetId <= 0) return false;
+  if (!(await assetsConnected())) return false;
   const email = await confirmedEmailOf(user.id);
   if (!email) return false;
   return !!(await hqOne("SELECT 1 FROM hd_assets WHERE id = $1 AND assigned_email = $2 AND gone_at IS NULL", [assetId, email]));
 }
 
-/** Link the device the requester picked when raising the request (already checked as theirs). */
-export async function linkRequesterAsset(ticketId: number, assetId: number, actor: AssetActor): Promise<void> {
-  await withTx(async (client) => {
+/** Link the device the requester picked when raising the request (already checked as theirs). False when nothing was linked (no source connected). */
+export async function linkRequesterAsset(ticketId: number, assetId: number, actor: AssetActor): Promise<boolean> {
+  if (!(await assetsConnected())) return false;
+  return withTx(async (client) => {
     const ins = await client.query(
       `INSERT INTO hd_ticket_assets (ticket_id, asset_id, linked_by, linked_by_name) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
       [ticketId, assetId, actor.id, actor.name.slice(0, 200)]
     );
     const a = ins.rowCount ? await getAsset(assetId, client) : undefined;
     if (a) await timeline(client, ticketId, null, `The requester picked their device ${assetLine(a)} when raising the request.`);
+    return !!ins.rowCount;
   });
 }
 
