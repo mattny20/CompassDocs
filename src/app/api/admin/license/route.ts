@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
 import { setSetting, getDatabaseStats } from "@/lib/db";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
-import { licenseState, licenseSource, parseLicense } from "@/lib/license";
+import { licenseState, licenseSource, parseLicense, effectiveFeatures } from "@/lib/license";
 import type { EntitlementFeature } from "@/lib/license";
 import { ee, eePresent } from "@/lib/ee";
 
@@ -29,7 +29,7 @@ async function state() {
   ]);
   const bundled = ee().features;
   const licensed =
-    s.status === "active" || s.status === "grace" ? s.license.features : [];
+    s.status === "active" || s.status === "grace" ? effectiveFeatures(s.license) : [];
 
   const license =
     "license" in s

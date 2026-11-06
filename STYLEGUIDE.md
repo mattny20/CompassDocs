@@ -1438,9 +1438,17 @@ text-slate-500` before them ("Notary · Phoenix").
   real button with `aria-sort` and a lucide icon (never a typed arrow);
   `<Th fit>` / `<Td fit>` shrink a column to its content (dates, counts,
   actions) so the primary column takes the slack; `TR` carries the hover
-  band. Row actions: rare destructive actions keep text buttons (Users,
-  Trash); dense admin lists use icon buttons with a separator before
-  Delete (People admin).
+  band. Row actions: rare destructive actions keep text buttons (Trash);
+  dense admin lists use icon buttons with a separator before Delete
+  (People admin). When a row's actions would push the table past its
+  column, keep the frequent ones inline (at most three) and fold the rest
+  into one quiet `MoreHorizontal` button (`iconButtonClass("quiet",
+  "sm")`, `aria-label` "More actions for {name}", `data-tt` "More", one
+  word as §Tooltips asks of a control at a card's right edge) opening a `Popover role="menu"` of `MenuItem`s, each with its
+  `data-tt` where it needs explaining, Delete… last after a separator
+  (Users, 1.19.1: Email…, Reset password and Disable inline; Reset 2FA,
+  Compliance record, Anonymise, Download personal data and Delete… in the
+  menu).
 - **A measurement in a cell is ink, never a chip** (1.11.0, the Record
   tab's Read time in `doc/[id]/acknowledgements/page.tsx` is the worked
   example). A value that fails a threshold renders in `ink-warn` on a
@@ -2753,6 +2761,122 @@ open in its own tab beside CompassDocs. Components live in
   label escapes it and widens a phone page into a sideways scroll (J's
   lesson from the matrix at 390px).
 
+## Helpdesk: CCs and followers
+
+People copied on a request and agents following a ticket (1.19.1, mock-up
+#3). Shared pieces live in `components/helpdesk/ccs/AddPeople.tsx`; the desk
+rows in `desk/ticket/TicketPeople.tsx`; Get help's card in
+`help/RequestPeopleCard.tsx`.
+
+- **A CC is a neutral chip** (`chipClass("neutral")`): the name, an outside
+  address marked with `Mail` (plus an `sr-only` "outside the workspace"),
+  and, for whoever may remove it, a 20px round quiet `X` button with
+  `aria-label` "Remove {name} from CC" and `data-tt="Remove"`. Agents see
+  every address as the chip's `data-tt`; requesters and CCs see outside
+  addresses only.
+- **The desk rows** sit under the ticket subject: `Users` "CC" eyebrow-ink
+  label (`text-xs text-slate-500`), the chips, then **+ Add** (an inline
+  `text-compass-700` chip-height button, `print:hidden`); beside it `Eye`
+  "Following" with neutral chips, the viewer first as **You**. Each row is a
+  `role="group"` named CC / Following. No rows render until the people load.
+- **Follow / Unfollow** is a `secondary` button in the ticket header beside
+  Solve (`Eye` / `EyeOff`), with a `data-tt` saying what following does.
+  The label changes; it carries no `aria-pressed`.
+- **Add people** is one panel: an `EntityPicker` over the directory's
+  active accounts (disabled, "Loading people…", until they arrive) and,
+  only while outside senders are on, an email box with its own visible
+  label and an inline `text-xs text-red-600` error; otherwise one muted
+  line says outside addresses need outside senders. The desk's **+ Add**
+  opens it in a `Popover` (`role="dialog"`, "Add people") hung from
+  whichever edge keeps it on screen. In Get help and the new-request form
+  the trigger is a bordered `sm` button "+ Add people" (`aria-expanded`,
+  `aria-controls`) and the panel opens **inline** beneath it, full width
+  (`basis-full`), closing on Escape, so a phone never floats a panel
+  beside a narrow column.
+- **Get help's "People on this request"** is a side-column card under
+  "Who's helping you": `Users` eyebrow, the requester as an `accent` chip
+  ("You · requester"), the CCs, one muted sentence on what CCs see, then
+  **Add people** (requester) or **Leave** (a CC, `ghost` `sm` with
+  `LogOut`, confirmed in a dialog).
+- **The composer's public tab** reads "Reply to Daniel + 2 CC"
+  (`replyLabel()` in `lib/helpdesk/ccs-shared`).
+- **Desk notification settings** gain a **Following** card (`Eye`) with one
+  `Toggle`, "Follow tickets I reply to"; the matrix row is "Tickets I
+  follow".
+
+## Helpdesk: presence and collision warnings
+
+Who else has a ticket open, and the warning before a reply that crossed
+someone else's (1.19.1, mock-ups #3 and #5). Components live in
+`components/helpdesk/desk/presence`; the rules in `lib/helpdesk/presence`.
+
+- **The presence line** (`TicketPresence`) sits under the ticket subject,
+  before the VIP and CC rows: up to three overlapping 28px initials avatars
+  (`bg-compass-100 text-compass-700`, `-space-x-1.5`) with the **emerald
+  presence ring** (`ring-2 ring-emerald-500 ring-offset-2
+  ring-offset-surface`), then "**Sam Lee** is viewing" in `text-xs
+  text-slate-600` with the name `font-semibold`. Several people read "Sam
+  and Ana" or "Sam and 2 others ... are viewing"; anyone replying makes it
+  "is replying" plus three 6px `bg-compass-500` **typing dots**
+  (`motion-safe:animate-bounce`, staggered, `aria-hidden`). The avatars'
+  `data-tt` lists everyone and their state. The line is a polite
+  `role="status"` that renders nothing while nobody else is there, so the
+  header does not jump. Presence is never shown to requesters.
+- **Heartbeat, not a socket.** The desk POSTs every 10 s while the tab is
+  visible (paused while hidden); a row unseen for 30 s counts as gone.
+  Typing in the composer flips the state to replying at once and back
+  after 20 s without a keystroke.
+- **The collision dialog** (`CollisionDialog`) is a `Modal` (`max-w-lg`):
+  the title is what happened, with `CircleAlert` in `text-amber-600`
+  ("Sam Lee replied while you were typing", "... added a note ..."); the
+  message(s) that landed as `rounded-lg` boxes (`bg-slate-50`, or the
+  internal-note amber with its `warn` chip), initials, name and relative
+  time, the body clamped to six lines; one sentence on why it matters
+  ("Your reply hasn't been sent. Read Sam's first so Daniel doesn't get two
+  different answers."); then **Keep editing** (secondary, focused first),
+  **Discard mine** (secondary) and **Send anyway** (primary; "Add anyway"
+  for a note). Keep editing marks those messages seen, so Send does not
+  warn about them twice. The conversation reloads behind the dialog.
+
+## Helpdesk: saved views
+
+Personal and team queue views (1.19.1, mock-up #1). Components live in
+`components/helpdesk/desk/views`; the rules in `lib/helpdesk/saved-views`.
+
+- **In the views column**, after the built-ins and Reviews and before
+  Teams: a **My views** eyebrow with a quiet `Plus` icon button ("Save this
+  list as a view"), then one **"{Team} views"** eyebrow per team that has
+  any. Each row is a house rail link with `Bookmark` and its count
+  (`tabular-nums`), `aria-current="page"` when open. Empty My views is a
+  `SectionEmpty` with a "Save this list" action.
+- **Row actions** on a view you may change: a quiet `MoreHorizontal` button
+  over the count, shown on hover and on keyboard focus (`opacity-0
+  group-hover:opacity-100 focus-within:opacity-100`; the count hides while
+  it shows), opening a `Popover role="menu"`: Rename..., Edit filters...,
+  Use the current list (when it differs), a separator, and Delete...
+  (danger, confirmed). Folded into the list title's menu under `xl`, rows
+  are plain menu items without actions.
+- **The list header** gains a quiet `Filter` icon button before Sort
+  (`iconButtonClass("quiet", "sm")`, `data-tt` "Filter", or "Edit view" on
+  a saved view you may change; the 23rem header has no room for a label). It opens the **filter dialog**, a `Modal`
+  with a two-column grid of labelled `Select`s and `TextInput`s (Start
+  from, Contains, Status with "Not solved", Priority, Team, Owner, Tag,
+  Created), report-only filters listed as "Also filtered by: ... Remove",
+  and a live summary line. The primary says what happens: **Show list**,
+  or **Save to view** beside a secondary Show list when editing a view.
+- **A filtered list** shows the drill-down strip with "Filtered: {summary}"
+  (Reports' keeps "Filtered from Reports") and a **Save view** link button
+  (`BookmarkPlus`) before Clear.
+- **Save this view** is a `Modal`: `Bookmark` title, one muted sentence
+  ("Saved views sit under Views with their own count. Filters: Contains
+  "VPN" · Created in the last 7 days · Not solved."), the Name field, and
+  **Who sees it** as stacked `RadioCards` (Only me, "Under My views."; each
+  team you lead, "Everyone in the team sees it under the team's views. Team
+  leads can change or remove it."). With more than two teams to share with
+  (a manager) the second card is **A team**, with a Team `Select` under its
+  description while chosen. Without a team to share with, one line says
+  only you see it. Cancel and **Save view**.
+
 ## Workflow conditions and hand-offs
 
 Multi-team workflows (1.19.0, Enterprise `helpdesk`): a step that runs
@@ -3030,6 +3154,63 @@ holidays each team's reply targets count in. Components live in
   "resumes Mon 09:00", "We'll reply from Mon 09:00". Times are 24-hour
   wall-clock times in the calendar's zone; the zone is named next to them.
 
+## Business-time counting, shortcuts and retention
+
+Helpdesk 1.19.1 (agent V5): workflow time that can count business days,
+Desk settings → Shortcuts, and Desk settings → Retention and privacy.
+
+- **"Count" is a `RadioCards` choice** under the delay or offset it
+  governs (`workflows/CountSetting.tsx`): **Calendar days / Business days**
+  for an offset from a form date, **Calendar hours / Business hours** for a
+  delay. The business card's description names the calendar ("Uses the
+  office hours and holidays of IT Service Desk."); its extra holds the
+  **Whose calendar** select, whose first option is the default in words
+  ("The task's team", "The request type's team"). Calendar is the default
+  and stores nothing, so an older step is unchanged.
+- **The worked example** is an invitation-strip tint under the choice
+  (`rounded-lg border border-compass-200 bg-compass-50/70 px-3 py-2
+  text-sm text-slate-700`, a `CalendarDays` icon in `text-compass-600`),
+  computed from the real calendar by the server, one sentence: "Start date
+  Mon Jan 4 → moves on Tue Dec 29 (Dec 31 and Jan 1 are holidays)." Never
+  a `notice-*` class: it is an explanation, not a state.
+- **Delay words say how they count**: `countedHoursLabel` reads "1
+  business day" only for business time (8 business hours) and "8 hours" for
+  calendar time; offsets read "2 business days before the start date". A
+  step that counts business time carries a neutral **Business days** /
+  **Business hours** chip in `StepBadges`, its tooltip naming the calendar.
+  The test run adds one `text-xs` line with `CalendarDays` naming the
+  calendar and the holidays skipped.
+- **A settings list that must stack on a phone** (Shortcuts) is a grid
+  list, not a `<table>`: a header row `hidden sm:grid` in `TABLE_HEAD_ROW`
+  (`aria-hidden`), then `<ul aria-label>` rows that are one column under
+  `sm` (name in `font-semibold`, the "where" line in `text-slate-500`, the
+  control full width) and the header's columns from `sm` up. Each control's
+  `aria-label` repeats its row ("Report a broken link opens").
+- **A choice that can switch a feature off** offers "Hidden" as the last
+  option of the same select, and "Automatic: …" first, naming what the
+  automatic rule picks today, so the reader never guesses.
+- **A destructive automatic rule is off until switched on** (1.19.1 owner
+  decision: nothing destructive happens on upgrade). Each retention rule
+  is a full-width `Toggle` whose help starts "Off until you turn it on";
+  its sentence inputs appear under it only while it is on, and a rule that
+  is off neither blocks Save with its field errors nor counts in the
+  preview ("Both rules are off, so nothing is closed, anonymised or
+  deleted.").
+- **Retention's sentence inputs**: a number `TextInput` (`w-20`) inside the
+  sentence it completes ("After [7] days without a reply."), labelled by
+  its first words (`<label>After</label>`, `<label>Keep closed tickets
+  for</label>`); units and outcomes are `Segmented`
+  (months | years, Anonymise | Delete). An irreversible choice asks with
+  `confirmDialog({ danger: true })` when it is saved, naming tonight's
+  count: choosing Delete, or switching anonymising on while tickets are
+  due. The dry run is one live sentence ("Tonight: 41 tickets close, 312
+  are anonymised (closed before Nov 2023). Nothing is deleted.") with **See
+  the list** opening a `Modal` of tickets (number, subject, team, date, a
+  `sm` chip: Closes `neutral`, Anonymised `warn`, Deleted `error`).
+- **Legal hold** is a side-panel card (`ticket/LegalHoldCard.tsx`) with a
+  `Lock` eyebrow: a `Toggle` for settings.manage, a sentence for other
+  agents while it is on, nothing otherwise.
+
 ## Desk reports and charts
 
 `/desk/reports` and `/desk/reports/explore` (1.19.0,
@@ -3071,7 +3252,12 @@ Explore, schedules) is one step further.
   sub-heading tier that wraps to two lines (never truncates on a phone),
   an optional `text-xs` line ("Own filters: 1", "Top values only"), and
   one ⋯ `iconButtonClass` menu: Show as table / chart, Download CSV (only
-  with Export tickets), Open in Explore. States in order: a skeleton the
+  with Export tickets), Open in Explore. A **Time logged** widget (1.19.1)
+  also carries a `Button variant="ghost" size="sm"` **Export** with the
+  lucide `Download` icon, a `data-tt` naming what is downloaded and which
+  filters apply, and an `aria-label` naming the widget: the raw time
+  entries for the widget's dates (one row per entry), only with Export
+  tickets, hidden in edit mode and in print. States in order: a skeleton the
   chart's shape (`Skeleton`, `aria-busy` on the card); the server's
   sentence in `text-red-600` with "Try again"; `SectionEmpty` — "Nothing
   matches these filters in this period." with **Clear filters** when the
@@ -3241,3 +3427,259 @@ for Rules).
 - **Pause auto-assign** lives in the top bar's availability menu as a
   `menuitemcheckbox` under the three availability rows, with a hint line
   like theirs; it only appears for someone in at least one team.
+
+## Helpdesk: customer portal
+
+The customer portal (1.19.1, Enterprise `helpdesk`) is where people
+outside the organisation, with no CompassDocs account, raise and follow
+requests: `/support` and its pages, `app/(portal)/support`, components in
+`components/helpdesk/portal`. It is the third standalone surface beside
+the share and public pages (§Standalone link pages): the person has no
+account, so there is no preference to honour and no app shell.
+
+- **No CompassDocs chrome, no way into the app.** `PortalHeader` is the
+  whole frame: the portal's logo (or its initials in a 32px
+  `bg-compass-50 text-compass-700` tile) and name, linking to the portal's
+  own home; when signed in, the address and **Sign out** (the address
+  hides below `sm`, Sign out keeps its place). Never a sidebar, the bell,
+  the palette, a link to `/`, `/help` or `/desk`, or the workspace's name
+  where the portal's brand belongs. The portal's own 404
+  (`support/not-found`) links nowhere.
+- **One column, the mock's widths.** The sign-in and link pages are one
+  `max-w-md` `rounded-2xl` card; Your requests, a request and New request
+  are a `max-w-3xl` column with the h1 at `text-2xl font-bold`, no page
+  icon (the h1 is the thing itself, as on the other standalone pages).
+- **Asking for a link always answers the same sentence**
+  (`PORTAL_LINK_SENT`), shown in place of the form as "Check your email"
+  with "Use a different address". Never a message that depends on whether
+  the address is known, allowed or blocked. The link page shows who it
+  signs in and one **Continue** button: opening it spends nothing.
+- **Status chips** are Get help's words and tones (§Helpdesk: Get help):
+  **In progress**, **Open**/**New** `accent`, **Waiting on you** `warn`,
+  **On hold** `neutral`, **Solved**/**Closed** `ok`, computed on the server
+  (`portalStatus`). Rows are one link each, the chip at the end.
+- **A request joined with another** (an agent merged it) reads
+  **Joined with #N** `neutral` in the list and on its page, which shows one
+  bordered `bg-surface` card with a lucide `GitMerge` icon in
+  `text-compass-600`: "This request was joined with #N so one person can
+  help with both. Its conversation is there, and so are replies." and an
+  **Open #N** link, in place of the reply box. The kept request is in the
+  customer's list too (they reach it as a CC does).
+- **The conversation** is Get help's recipe: cards, someone else's with
+  the `border-l-3 border-l-compass-500` edge, the customer's own as
+  "You", plain text bodies. Agents show by **first name and team** only
+  ("Priya · Support team"): never a surname, email, photo or contact card.
+  No system lines (they name people). Files are neutral chips that
+  download from `/support/api/files/[id]`.
+- **Files travel with the message** (`PortalFiles`): a bordered `md`
+  paperclip icon button (`aria-label` and `data-tt` "Attach files") and
+  neutral chips with a remove `X`; nothing uploads ahead. A refusal is the
+  `FormError` above Send, never only a toast (the portal has no toast host).
+- **Dates** render in the reader's own zone (`PortalTime`, "4 Nov,
+  09:12"); the app's `RelativeTime` needs the app's settings and is not
+  used here.
+- **In the desk**, a portal ticket carries `OutsideCustomerChip`: a
+  `neutral` chip with `Globe`, "Outside customer", in the ticket header
+  (`md`, with a `data-tt` explaining it) and on queue rows (`sm`,
+  `inLink`). Its contact card is minimal (name and email): a portal
+  contact is never matched to a directory entry.
+- **Desk settings → Customer portal** (`PortalSettings`, nav `Globe`,
+  `settings.manage`): the on/off `Toggle` in a card whose action is
+  **Open portal** (secondary, `ExternalLink`, a new tab); two cards side by
+  side from `lg`: *What customers can ask for* (a checkbox per request
+  type, "Title · Team", the team `Select` under a ticked one; a type that
+  needs the directory is disabled and muted with "(internal only)" whose
+  `data-tt` names why) and *Who can use it* (a `Segmented` Anyone with an
+  email / Approved domains only, Brand, Protection); then the lock
+  banner (`border-compass-200 bg-compass-50 text-compass-800`,
+  `dark:border-compass-500/40`, a 16px `Lock`) and the Customers card
+  (search, a `sm` **Blocked** `error` chip, Block behind a danger
+  `confirmDialog`). A `notice-warn` asks for the workspace domain when the
+  portal is on without one.
+
+## Helpdesk: drafts from Claude and the Claude connector
+
+1.19.1 (agent V1). The Claude connector's helpdesk tools never send a
+reply: `hd_draft_reply` saves a draft, and a person sends it.
+
+- **The draft card** (`ClaudeDraftCard`, above the composer in the ticket
+  pane, agents who work the ticket only): a `section` labelled by its
+  heading "Draft from Claude", `rounded-xl` with a **dashed** 1.5px
+  `border-compass-300` on `bg-compass-50` (dark: `border-compass-500/50`,
+  `bg-compass-500/10`). The dashed edge is the house sign for "not sent
+  yet": never use it for a message that went out. The avatar is a 28px
+  `bg-slate-900 text-slate-50` circle with a lucide `Bot` (both tokens
+  flip in dark, so it stays legible); the meta line is `text-xs
+  text-slate-500` "asked by {person} · {RelativeTime} · not sent" (plus "·
+  N older drafts waiting" when several are pending; the newest shows).
+  The body is `MarkdownView` indented under the name like a message.
+  Actions: primary **Use as reply** (`Pencil`), secondary **Discard**,
+  then the fixed line "Claude can only draft. A person sends." Use as
+  reply puts the text into the public reply box after anything already
+  typed there (`ComposerHandle.fill`), never sends; Discard has no
+  confirm (the draft can be asked for again). `print:hidden`.
+- **Messages and timeline lines written through the connector** say "via
+  Claude": a message's meta line (`Conversation` VIA map, via `mcp`) and
+  the end of each ticket-change line ("… changed the priority from Normal
+  to High via Claude").
+- **Desk settings → Claude connector** (`ClaudeConnectorSettings`, nav
+  `Bot`, `settings.manage`): the level as `RadioCards` in a card titled
+  "Claude can" (Read only / Read, add internal notes and save reply
+  drafts / Also update tickets, one sentence each); a card "Never,
+  whatever the setting" listing the three never-rules, each with a muted
+  16px `Ban`; and "Recent activity via Claude" (`Card padding="none"`), a
+  row per write: initials avatar and name (`sm:w-56`), the summary
+  ("Saved a reply draft on #1047"), the `RelativeTime` at the end; under
+  `sm` the summary drops to its own line under the name.
+  `SectionEmpty` when there is none. The copy lives in
+  `lib/helpdesk/claude-connector-shared` so the page, the tools and the
+  tests read the same words.
+
+## Helpdesk: merge and bulk edit
+
+Merging duplicate tickets and changing many at once from the queue
+(1.19.1, Enterprise `helpdesk`; components in
+`components/helpdesk/desk/merge`).
+
+- **Row checkboxes** sit beside each queue row's link, never inside it
+  (a click on the box must not open the ticket): a native checkbox
+  inheriting the accent, `absolute left-4` on the row's subject line,
+  `aria-label="Select #1052 {subject}"`, `print:hidden`; the link takes
+  `pl-11`. A selected row is `bg-compass-50/60`; the open ticket keeps its
+  band. Click toggles, **shift-click** sets the range from the last row
+  clicked to that row's state, and **x** toggles the row under keyboard
+  focus (through `useDeskKeys`, so the single-key preference covers it).
+  Selection is per list: rows that leave the list leave the selection. A
+  role without `tickets.bulk` or `tickets.merge` sees no checkboxes.
+- **The queue's bulk bar** is the house bulk bar (§Tables) as a strip
+  under the list header, the drill-down strip's tint (`border-b
+  border-compass-200 bg-compass-50/70 px-3 py-2`), wrapping on a phone:
+  a select-all checkbox (indeterminate while some rows are selected),
+  "{n} selected" in `text-sm font-semibold text-compass-800`, then one
+  `secondary` `sm` menu button per field the role may change (Status,
+  Priority, Team, Assignee as `PickMenu`s; Tags as a `Popover` menu of
+  "Add a tag…" / "Remove a tag…", each a `promptDialog`), the `primary`
+  `sm` **Merge…** (two or more selected, `GitMerge`), and a ghost
+  **Clear** last, as mock-up #1 has it. A field the role lacks is left
+  out. It mounts with the list so its result dialog outlives the
+  selection.
+- **Results** are one toast: "3 tickets set to High priority." When the
+  server skipped some, "2 tickets … 1 skipped." with a **See why** action
+  opening a dialog that lists each skipped ticket (number, subject) with
+  the server's own sentence ("You can't change the priority of this
+  ticket.", "Merged into another ticket. Change that one instead."). A
+  successful edit clears the selection; one where every ticket was
+  skipped keeps it.
+- **The merge dialog** (mock-up #2) follows §Overlays "Choice dialog":
+  the title "Merge 3 tickets" with `GitMerge`, one lede sentence, stacked
+  radio cards for the ticket to keep (oldest first and chosen first; the
+  line under each: requester · status · "oldest" · "SLA overdue 25m"), a
+  **What happens** card (`bg-canvas`, eyebrow) listing exactly what the
+  server will do, the "Tell the requesters" checkbox quoting the note
+  they get (`mergedNote` in `lib/helpdesk/merge-shared`, which the server
+  writes), and a primary that says it: **Merge into #1049**. From a
+  ticket's **…** menu ("Merge into another ticket…") the same dialog first
+  shows a search over the agent's queues; the found ticket is chosen to
+  keep. Refusals show in the dialog's `FormError`, one line per ticket.
+- **On the tickets**: the kept ticket's side column has a **Related** card
+  (eyebrow, `GitMerge` lines: "Merged in: #1051, #1052", each a link in
+  the same queue view, the subject as `data-tt`); a moved message's meta
+  line ends "· from #1051". A merged ticket shows "Merged into #1049" in
+  the same card and in a tint strip above its conversation, with the link.
+- **A merged ticket is read-only** (`MergedComposerLock`): the composer
+  and the Claude draft card are replaced by one neutral read-only strip
+  (`rounded-lg border border-slate-200 bg-slate-50`, `Lock`, never a
+  `notice-*`): "**Read-only** · This ticket was merged into #1049. Reply
+  and change its status there." with a `secondary` `sm` **Open #1049**
+  (`ArrowUpRight`). The status menu becomes the plain status chip. The
+  messages route and PATCH status answer 409 with the same sentence.
+
+## Helpdesk: recurring tickets and time tracking
+
+Recurring tickets and the Time card (1.19.1, agent V8). Components live in
+`components/helpdesk/desk/recurring` and `components/helpdesk/desk/time`.
+
+- **Recurring tickets** (`/desk/settings/recurring`, rail icon `Repeat`)
+  is the two-pane settings recipe: the schedules in a `padding="none"`
+  card holding a `table-fixed` house table (Schedule · Next), each row one
+  `button` stretched over the row (`after:absolute after:inset-0`,
+  `aria-current`), the chosen row `bg-compass-50`; the title is the
+  subject without its placeholders and the second line `text-xs
+  text-slate-500` "Team · first Monday". A paused schedule's Next is a
+  `neutral` `sm` chip **Paused**. **New schedule** is the page header's one
+  action. Under `lg` the editor stacks below the list and a row click
+  scrolls it into view.
+- **The editor** is one card (`id="recurring-editor"`): Subject (the
+  placeholders as help), Description, Team and Assign to, then
+  **Repeats** as a `Segmented` (Daily, Weekly, Monthly, Custom; never tabs)
+  with the pattern row under it as plain words and controls ("First
+  Monday at 09:00", "Every 2 weeks from … at …"). Weekday picks reuse the
+  bordered checkbox labels of §Helpdesk: desk notifications (short day
+  visible, full name `sr-only`); months are behind a checkbox "Only in
+  some months" and use the same labels at `text-xs`. The holiday choice is
+  the mock's checkbox ("…open it on the next working day"); unticked, a
+  select offers Skip that date / Open it anyway.
+- **The preview** is one `text-xs text-slate-500` line under Priority and
+  due, `aria-live="polite"`: "Next three: Mon Dec 7 · Tue Jan 5 (moved
+  from Mon Jan 4, New Year closure) · Mon Feb 1", computed by the server
+  with the team calendar's holidays. While a changed pattern loads it says
+  "Working out the next dates…", never the old dates.
+- The action row is right-aligned as in the approved mock: Delete (ghost,
+  `hover-danger`, pushed left with `mr-auto`), the amber "Unsaved changes"
+  state, **Open one now** (secondary; it saves first when there are
+  changes) and **Save** (primary). Hidden in print.
+- **The Time card** sits in the ticket's side column above Related: the
+  `Timer` eyebrow "Time", the clock in `text-2xl font-bold tabular-nums`
+  (`role="timer"`, `text-slate-500` while stopped) with a secondary `sm`
+  **Stop** (`Square`) or **Start** (`Play`) beside it, one `text-xs` line
+  ("Timer running · you", or a link to the ticket the agent's timer runs
+  on), then the entries as hairline rows ("You · today", "Ana Kowalski ·
+  investigation", the minutes `font-bold tabular-nums` on the right), the
+  total, and a full-width secondary **Log time** (`Plus`). Durations read
+  "45m", "1h", "1h 25m" (`formatMinutes`).
+- **Entry controls** (Edit `Pencil`, Delete `Trash2`, quiet 24px icon
+  buttons with `aria-label` and `data-tt`) appear only on entries the
+  person may change. Where a pointer hovers they are `w-0` until the row
+  is hovered or a control inside it has focus, so names keep their room;
+  on touch they always show. Log time and Edit use `formDialog` (Hours,
+  Minutes, Note); Delete asks with `confirmDialog({ danger: true })`.
+- **Ask for time on solve** is a `Toggle` on the team's card in Desk
+  settings → Teams. Solve then opens a `formDialog` "Log your time before
+  solving?" (the running timer prefilled); Cancel keeps the ticket open,
+  empty fields solve without logging. Requesters never see time.
+
+## Helpdesk: import
+
+Desk settings → Import (1.19.1, `components/helpdesk/desk/settings/import`):
+tickets from a Zoho Desk export or a CSV file, in a fixed sequence of
+steps. The first wizard in the desk; reuse it for any flow where nothing
+may be written until the person has seen what will happen.
+
+- **Step indicator.** An `<ol aria-label="… steps">` of `li` rows above the
+  step's card, never tabs: a 24px circle and the label. Done steps are an
+  emerald circle with `Check` (`bg-emerald-100 text-emerald-700`, dark
+  `emerald-500/15` / `emerald-300`) and an `sr-only` "(done)"; the current step
+  is `bg-compass-600 text-white` with a `font-semibold` label and
+  `aria-current="step"`; later steps are `bg-slate-100` numbers. It wraps on
+  a phone and is `print:hidden`. Steps are not links: the flow moves with
+  its own buttons ("Back to mapping", "Run the dry run").
+- **One card per step.** The step's card opens with the file name
+  (`text-base font-semibold`) and a `text-slate-500` summary line
+  ("Zoho Desk export · 4,812 tickets · …"). Mapping rows are a divided list:
+  the source value and its ticket count on the left, the control on the
+  right (`sm:w-80`), stacking under `sm`.
+- **Dry-run tiles.** Four count tiles (`rounded-xl` bordered, `text-2xl
+  font-bold tabular-nums` number, `text-sm` label), two per row on a phone
+  and four from `xl`. A skipped count links "see why" to the CSV download.
+  Under them, one `text-slate-500` line of the smaller counts.
+- **The reassurance strip** ("Safe to run again… No emails are sent") is an
+  info tint, not a notice class: `rounded-lg border border-compass-200
+  bg-compass-50` with a `text-compass-600` lucide icon. It states a promise,
+  so it is never amber.
+- **A background job** shows a `role="progressbar"` bar (`h-2`, compass;
+  emerald when done, red when failed) under an `aria-live="polite"` line
+  ("Importing tickets: 1,240 of 4,812"), the status as a chip, and
+  **Stop import** (`danger`) while it runs, **Resume import** after a stop
+  or failure. The page polls; the job id travels in the address (`?job=12`)
+  so a reload returns to it, and the page loads the job before its first
+  render so step 1 never flashes.

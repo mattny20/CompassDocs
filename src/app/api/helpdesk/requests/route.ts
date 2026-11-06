@@ -1,5 +1,5 @@
 // GET  /api/helpdesk/requests?status=open|solved   the caller's own requests
-// POST /api/helpdesk/requests  { request_type_id?, subject, body, answers?, source?, source_ref?, attachments? }
+// POST /api/helpdesk/requests  { request_type_id?, subject, body, answers?, source?, source_ref?, attachments?, cc? }
 //        → 201 { ticket } (requester-safe)
 // Helpdesk 1.19.0 (helpdesk.request). A request of a type with a published
 // workflow starts its run once the ticket has committed (lib/helpdesk/events).
@@ -13,6 +13,7 @@ import { attachToMessage, pendingAttachments } from "@/lib/helpdesk/attachments"
 import { badRequest, cleanSourceRef, originOf, textField } from "@/lib/helpdesk/routes";
 import { hq } from "@/lib/helpdesk/db-core";
 import { checkRequesterSource } from "@/lib/helpdesk/space-access";
+import { addCcs, parseCcInput } from "@/lib/helpdesk/ccs";
 import type { HdFormAnswers, HdSource } from "@/lib/helpdesk/types";
 
 export const dynamic = "force-dynamic";
@@ -26,11 +27,12 @@ export async function GET(req: Request) {
   const s = new URL(req.url).searchParams.get("status");
   const status = s === "open" || s === "solved" ? s : undefined;
   const [requests, counts] = await Promise.all([
-    listMyRequests(gate.id, { status, limit: 100 }),
+    listMyRequests(gate.id, { status, limit: 100, includeCopied: true }),
     hq<{ open: number; solved: number }>(
       `SELECT count(*) FILTER (WHERE status IN ('new', 'open', 'pending', 'on_hold'))::int AS open,
               count(*) FILTER (WHERE status IN ('solved', 'closed'))::int AS solved
-         FROM hd_tickets WHERE requester_id = $1 AND parent_ticket_id IS NULL`,
+         FROM hd_tickets
+        WHERE (requester_id = $1 OR id IN (SELECT ticket_id FROM hd_ticket_ccs WHERE user_id = $1)) AND parent_ticket_id IS NULL`,
       [gate.id]
     ),
   ]);
@@ -74,6 +76,9 @@ export async function POST(req: Request) {
 
   const attachments = await pendingAttachments(b.attachments, { userId: gate.id, ticketId: 0 });
   if (!attachments) return badRequest("One of the files is not available. Upload it again.");
+  // "Add people" (1.19.1, lib/helpdesk/ccs): copied on the request once it exists.
+  const ccPeople = parseCcInput(b.cc);
+  if (!ccPeople) return badRequest("Choose up to 20 people to add.");
 
   const ticket = await createTicket(
     {
@@ -93,5 +98,6 @@ export async function POST(req: Request) {
     const first = (await hq<{ id: number }>("SELECT id FROM hd_messages WHERE ticket_id = $1 ORDER BY id LIMIT 1", [ticket.id]))[0];
     if (first) await attachToMessage(attachments.map((a) => a.id), ticket.id, first.id, { userId: gate.id });
   }
+  if (ccPeople.length) await addCcs(ticket.id, ccPeople, { userId: gate.id, name: gate.name || gate.username, role: gate.role, via: "portal" });
   return NextResponse.json({ ticket: requesterSafe(ticket, []).summary }, { status: 201 });
 }

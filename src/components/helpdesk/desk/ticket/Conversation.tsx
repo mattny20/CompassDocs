@@ -17,19 +17,22 @@ import { initialsOf } from "@/components/UserAvatar";
 import type { HdMessage } from "@/lib/helpdesk/types";
 import { bytesLabel } from "../ui";
 
-const VIA: Record<string, string> = { email: "by email", portal: "in Get help", desk: "", system: "" };
+const VIA: Record<string, string> = { email: "by email", portal: "in Get help", desk: "", system: "", mcp: "via Claude", customer_portal: "in the customer portal" };
 
 export function Conversation({
   messages,
   requesterId,
   meId,
   ticketNumber,
+  origins,
 }: {
   /** With it, authors' names open their contact card on hover (agent O). */
   ticketNumber?: number;
   messages: HdMessage[];
   requesterId: number | null;
   meId: number;
+  /** Message id → the ticket a merge moved it from ("from #1051", 1.19.1). */
+  origins?: Record<number, number>;
 }) {
   return (
     <ol className="flex flex-col gap-3" aria-label="Conversation">
@@ -40,6 +43,7 @@ export function Conversation({
               <RotateCw className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
               <span className="min-w-0">
                 {m.body} · <RelativeTime value={m.created_at} />
+                {origins?.[m.id] && ` · from #${origins[m.id]}`}
               </span>
             </li>
           );
@@ -88,6 +92,7 @@ export function Conversation({
               <span className="text-xs text-slate-500">
                 <RelativeTime value={m.created_at} />
                 {via && ` · ${via}`}
+                {origins?.[m.id] && ` · from #${origins[m.id]}`}
               </span>
             </div>
             {review.review_state === "returned" && review.review_note && (

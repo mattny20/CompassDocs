@@ -9,7 +9,7 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { pool, createDocument, setAckRequired, reconcilePoliciesForUser } from "../src/lib/db";
+import { pool, createDocument, setAckRequired, reconcilePoliciesForUser, reconcilePolicyAssignments } from "../src/lib/db";
 
 const STAMP = `ackrace-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 let spaceId = 0;
@@ -107,4 +107,32 @@ test("enrolling one account that is removed at the same moment does not throw", 
 
   const rows = await pool().query("SELECT 1 FROM policy_assignments WHERE user_id = $1", [leaves]);
   assert.equal(rows.rowCount, 0, "nothing is written for an account that no longer exists");
+});
+
+test("a reconcile locks only the accounts it writes a row for, not everyone already enrolled (the hourly sweep)", async () => {
+  const a = await member("steady-a");
+  const b = await member("steady-b");
+  const docId = await policy(`Race steady policy ${STAMP}`);
+  await setAckRequired(docId, true, { editDefault: null, recertMonths: null });
+  const fresh = await member("steady-new");
+  const tx = await pool().connect();
+  const probe = await pool().connect();
+  try {
+    await tx.query("BEGIN");
+    const r = await reconcilePolicyAssignments(tx, docId);
+    assert.equal(r.added, 1, "the new member is enrolled");
+    // FOR UPDATE NOWAIT conflicts with a key-share lock: the enrolled members are free.
+    await probe.query("BEGIN");
+    await probe.query("SELECT id FROM users WHERE id = ANY($1::int[]) FOR UPDATE NOWAIT", [[a, b]]);
+    await probe.query("ROLLBACK");
+    // The one it inserted for is still held until the reconcile commits (the 23503 race guard).
+    await probe.query("BEGIN");
+    await assert.rejects(probe.query("SELECT id FROM users WHERE id = $1 FOR UPDATE NOWAIT", [fresh]), (e: { code?: string }) => e.code === "55P03");
+    await probe.query("ROLLBACK");
+  } finally {
+    await tx.query("ROLLBACK").catch(() => {});
+    await probe.query("ROLLBACK").catch(() => {});
+    tx.release();
+    probe.release();
+  }
 });

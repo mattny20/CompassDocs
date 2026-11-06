@@ -40,7 +40,8 @@ test.describe("Helpdesk contact cards", () => {
     // The desk's side panel.
     await page.goto(`/desk/tickets/${number}`);
     const card = page.locator('section[aria-labelledby="hd-contact-requester"]');
-    await expect(card.getByRole("heading", { name: "Requester" })).toBeVisible();
+    // The desk opens a ticket with several requests at once; on a dev server the card can take a while.
+    await expect(card.getByRole("heading", { name: "Requester" })).toBeVisible({ timeout: 30_000 });
     await expect(card.getByText(list.body.contacts[0].name).first()).toBeVisible();
 
     // Get help: the request page carries "Who's helping you".

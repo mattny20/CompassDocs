@@ -24,6 +24,7 @@ import { toast } from "@/components/Toasts";
 import type { HdMessage, HdRequestDetail } from "@/lib/helpdesk/types";
 import { AssignedAgentCard } from "../contacts/AssignedAgentCard";
 import { ProgressTracker } from "./ProgressTracker";
+import { RequestPeopleCard } from "./RequestPeopleCard";
 import { TeamClosedNotice } from "./TeamClosedNotice";
 import { AttachButton, AttachmentChips, AttachmentLinks, useUploads } from "./attachments";
 import { RequestStatusChip, fetchJson, formatAnswer } from "./shared";
@@ -130,6 +131,8 @@ export function RequestDetail({
         <div className="flex min-w-0 flex-col gap-4">
         {/* Contact cards (agent O): the agent working on it, or the team it is with. */}
         {!closed && <AssignedAgentCard request={req.number} teamName={req.team_name} refreshKey={req.updated_at} />}
+        {/* CCs (1.19.1, agent V3): the requester and the people copied. */}
+        <RequestPeopleCard number={req.number} viewerId={viewerId} requesterName={req.requester_name} onChanged={() => void load()} />
         {answers.length > 0 && (
           <aside aria-labelledby="hd-answers" className={`${CARD_CLASS} px-4 py-3`}>
             <Eyebrow as="h2" className="mb-1 py-1">

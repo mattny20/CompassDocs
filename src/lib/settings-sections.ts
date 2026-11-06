@@ -48,6 +48,13 @@ export interface SettingsPageEntry {
   label: string;
   icon?: LucideIcon;
   keywords?: string;
+  /**
+   * The permission that opens this page when it is not the section's own
+   * (1.19.1). Holders of it reach the page, see its tab and find it in the
+   * rail search even without the section's permission; the page enforces
+   * it itself. Absent = the section's permission.
+   */
+  permission?: PermissionKey;
 }
 
 /** A card inside a page, reachable by anchor (/admin/workspace#trash). */
@@ -184,7 +191,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
           { href: "/admin/notifications", label: "Webhooks", icon: Webhook, keywords: "webhook slack teams webex channel events" },
           { href: "/admin/notifications/email", label: "Email", icon: Share2, keywords: "smtp mail server host port from" },
           { href: "/admin/notifications/templates", label: "Email templates", icon: MailPlus, keywords: "email templates subject body tags" },
-          { href: "/admin/notifications/policies", label: "Policies", icon: ListChecks, keywords: "notification policy defaults lock locked digest hourly daily quiet hours preferences who decides" },
+          { href: "/admin/notifications/policies", label: "Policies", icon: ListChecks, keywords: "notification policy defaults lock locked digest hourly daily quiet hours preferences who decides", permission: "notification.policy_read" },
           { href: "/admin/notifications/chat", label: "Ask in chat", icon: MessageSquare, keywords: "ask chat slack teams bot" },
         ] },
       { href: "/admin/backups", label: "Backups", icon: DatabaseBackup, description: "Schedules, destinations, and restores.", keywords: "restore s3 azure destination encrypted schedule", permission: "system.backup_read", docs: "https://docs.compassdocs.io/self-hosting/backups/", topics: [
@@ -206,6 +213,39 @@ export function settingsSection(href: string): SettingsSection | undefined {
 /** The routed pages of a section, for its SubNav (empty when it has none). */
 export function settingsPages(href: string): SettingsPageEntry[] {
   return settingsSection(href)?.pages ?? [];
+}
+
+/** The permission that opens a page of a section: its own, else the section's. */
+export function pagePermission(section: SettingsSection, page: SettingsPageEntry): PermissionKey {
+  return page.permission ?? section.permission;
+}
+
+/** Every permission that opens some part of a section (the section's first). */
+export function sectionPermissions(section: SettingsSection): PermissionKey[] {
+  return [...new Set([section.permission, ...(section.pages ?? []).map((p) => pagePermission(section, p))])];
+}
+
+/**
+ * Reachability as the layouts hand it to the client (`reachable`): section
+ * hrefs the viewer opens with the section's permission, plus the href of
+ * every page they open by its own permission. These helpers read it.
+ */
+export function canOpenSection(reachable: Iterable<string>, section: SettingsSection): boolean {
+  const set = reachable instanceof Set ? (reachable as Set<string>) : new Set(reachable);
+  return set.has(section.href) || (section.pages ?? []).some((p) => set.has(p.href));
+}
+
+/** Where a section's rail entry goes: the section itself, else its first page the viewer may open. */
+export function sectionLanding(reachable: Iterable<string>, section: SettingsSection): string {
+  const set = reachable instanceof Set ? (reachable as Set<string>) : new Set(reachable);
+  if (set.has(section.href)) return section.href;
+  return (section.pages ?? []).find((p) => set.has(p.href))?.href ?? section.href;
+}
+
+/** May the viewer open this page of the section? */
+export function canOpenPage(reachable: Iterable<string>, section: SettingsSection, page: SettingsPageEntry): boolean {
+  const set = reachable instanceof Set ? (reachable as Set<string>) : new Set(reachable);
+  return page.permission ? set.has(page.href) : set.has(section.href);
 }
 
 /** One searchable row: a section, a page in it, or a card in it. */

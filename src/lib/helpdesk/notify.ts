@@ -55,7 +55,8 @@ export type HdAgentEvent =
   | "sla_breach"
   | "approval_needed"
   | "task_assigned"
-  | "reopened";
+  | "reopened"
+  | "followed_update";
 
 export interface HdAgentPayload {
   ticketNumber: number;
@@ -141,18 +142,21 @@ async function emailUsers(
   template: string,
   vars: Record<string, string>,
   ticketNumber: number | null,
-  ctx: NotifyContext
-): Promise<void> {
+  ctx: NotifyContext,
+  cc: string[] = []
+): Promise<boolean> {
   const ids = [...new Set(userIds.filter((id) => id !== ctx.actorId))];
-  if (!ids.length) return;
+  if (!ids.length) return false;
+  let mailed = false;
   const [emails, prefs] = await Promise.all([userEmails(ids), getNotifyPrefsFor(ids).catch(() => new Map())]);
   const thread = ticketNumber ? await threadFor(ticketNumber) : null;
   for (const id of ids) {
     const u = emails.get(id);
     if (!u?.email) continue;
     if (!notifyPrefAllows(prefs.get(id), kind, "email")) continue;
-    await sendHelpdeskTemplate(u.email, template, vars, thread, ctx.origin);
+    if (await sendHelpdeskTemplate(u.email, template, vars, thread, ctx.origin, { cc })) mailed = true;
   }
+  return mailed;
 }
 
 async function threadFor(number: number): Promise<HelpdeskThread | null> {
@@ -234,6 +238,7 @@ export const REQUESTER_NOTIFY_EVENTS = [
   "hd_approval_needed",
   "hd_approval_decided",
   "hd_workflow_message",
+  "hd_merged",
 ] as const;
 export type RequesterNotifyEvent = (typeof REQUESTER_NOTIFY_EVENTS)[number];
 
@@ -249,6 +254,8 @@ function requesterEvent(template: string, status: HdStatus): RequesterNotifyEven
       return "hd_approval_decided";
     case "hd_approval_needed":
       return "hd_approval_needed";
+    case "hd_merged":
+      return "hd_merged";
     default:
       return "hd_workflow_message";
   }
@@ -261,7 +268,8 @@ async function toRequester(
   body: string,
   template: string,
   vars: Record<string, string>,
-  ctx: NotifyContext
+  ctx: NotifyContext,
+  opts: { skipRequester?: boolean; excludeEmail?: string; excludeUserIds?: number[] } = {}
 ): Promise<void> {
   // An automated ticket (an alert or an API integration) has no person
   // behind it: no receipt, reply, "waiting on you", CSAT or workflow notice.
@@ -269,19 +277,33 @@ async function toRequester(
   const link = hdLinks.request(t.number);
   const thread = { ticketId: t.id, number: t.number, teamId: t.team_id };
   const event = requesterEvent(template, t.status);
-  if (t.requester_id) {
+  // 1.19.1 (agent V3, lib/helpdesk/ccs): a public reply also reaches the
+  // people copied on the request, on Cc of the requester's mail.
+  const ccs = template === "hd_reply" ? await import("./ccs").then((m) => m.planCcNotice(t.id, event, ctx.actorId ?? null, opts.excludeEmail, { excludeUserIds: opts.excludeUserIds })) : null;
+  let mailed = false;
+  if (opts.skipRequester) {
+    // The requester wrote it: only the CCs hear.
+  } else if (t.requester_id) {
     const userId = t.requester_id;
-    if (userId === ctx.actorId) return;
-    const { shouldNotify, routeEmail } = await import("../notify-policy");
-    if ((await shouldNotify(userId, event, "bell")).send) await bell([userId], "hd_request", title, body, link, ctx, event);
-    // routeEmail sends now, queues for the person's digest, or skips.
-    await routeEmail(userId, event, { title, body, link }, () =>
-      emailUsers([userId], "hd_request", template, { ...vars, ticket_url: link }, t.number, ctx)
-    );
+    if (userId !== ctx.actorId) {
+      const { shouldNotify, routeEmail } = await import("../notify-policy");
+      if ((await shouldNotify(userId, event, "bell")).send) await bell([userId], "hd_request", title, body, link, ctx, event);
+      // routeEmail sends now, queues for the person's digest, or skips.
+      await routeEmail(userId, event, { title, body, link }, async () => {
+        mailed = await emailUsers([userId], "hd_request", template, { ...vars, ticket_url: link }, t.number, ctx, ccs?.cc);
+      });
+    }
+  } else if (t.requester_email && (await (await import("./portal-hooks")).portalRequesterNotice(t.id, template, vars, ctx.origin))) {
+    // 1.19.1 (agent V6, lib/helpdesk/portal-hooks): a customer-portal
+    // contact's notice went by email from the portal, with a sign-in link.
   } else if (t.requester_email) {
     // An outside sender (no account): the address the ticket came from. No
     // Get help link works for them, so the link is the reply address's job.
-    await sendHelpdeskTemplate(t.requester_email, template, { ...vars, ticket_url: link }, thread, ctx.origin);
+    mailed = await sendHelpdeskTemplate(t.requester_email, template, { ...vars, ticket_url: link }, thread, ctx.origin, { cc: ccs?.cc });
+  }
+  if (ccs) {
+    const { finishCcNotice } = await import("./ccs");
+    await finishCcNotice(ccs, { event, title, body, link, template, vars: { ...vars, ticket_url: link }, thread, mailedWithRequester: mailed, ctx });
   }
 }
 
@@ -363,8 +385,8 @@ export const notifyReply = guarded(
     const t = await loadTicket(ticketId);
     // review_state (agent J's desk roles) is read through to_jsonb so this
     // works on a database that predates the column.
-    const m = await hqOne<{ author_id: number | null; author_name: string; author_email: string; kind: string; body: string; review_state: string | null }>(
-      `SELECT author_id, author_name, author_email, kind, body, to_jsonb(m) ->> 'review_state' AS review_state
+    const m = await hqOne<{ author_id: number | null; author_name: string; author_email: string; kind: string; body: string; via: string; review_state: string | null }>(
+      `SELECT author_id, author_name, author_email, kind, body, via, to_jsonb(m) ->> 'review_state' AS review_state
          FROM hd_messages m WHERE id = $1 AND ticket_id = $2`,
       [messageId, ticketId]
     );
@@ -399,7 +421,9 @@ export const notifyReply = guarded(
       );
       return;
     }
-    if (fromRequester) {
+    // 1.19.1 (agent V3): someone copied on the request writes as the requester does.
+    const fromCc = !fromRequester && m.via !== "desk" && (await import("./ccs").then((c) => c.isCcAuthor(t.id, m.author_id, m.author_email)));
+    if (fromRequester || fromCc) {
       const targets = t.assignee_id ? [t.assignee_id] : await teamMemberIds(t.team_id);
       for (const id of targets) {
         if (id === m.author_id) continue;
@@ -417,6 +441,13 @@ export const notifyReply = guarded(
           ctx
         );
       }
+      // The requester and the people copied hear each other's replies (agent V3).
+      await toRequester(t, `${author} replied on #${t.number}`, excerpt(m.body), "hd_reply", vars, ctx, {
+        skipRequester: fromRequester,
+        excludeEmail: m.author_email,
+        // An agent who is also a CC already had the desk notice above.
+        excludeUserIds: targets,
+      });
       return;
     }
     await toRequester(t, `${author} replied on #${t.number}`, excerpt(m.body), "hd_reply", vars, ctx);
@@ -776,3 +807,25 @@ export const notifyFromAutomation = guarded(
     }
   }
 );
+
+/**
+ * 1.19.1 (agent V2, lib/helpdesk/merge): a request was merged into another
+ * ticket and the agent chose to tell the requester. Bell and hd_merged by
+ * email through the policy (event hd_merged), threaded on the merged
+ * ticket so a reply lands on the kept one (inbound follows merged_into).
+ * The link is the merged request's own page, which the requester can
+ * always open.
+ */
+export const notifyMerged = guarded("merged", async (ticketId: number, keepNumber: number, ctx: NotifyContext = {}) => {
+  const t = await loadTicket(ticketId);
+  if (!t || t.parent_ticket_id || t.source === "workflow") return;
+  ctx = { ...ctx, origin: await helpdeskOrigin(ctx.origin) };
+  await toRequester(
+    t,
+    `#${t.number} was joined with #${keepNumber}`,
+    `Your request has been joined with #${keepNumber} so one person can help with both.`,
+    "hd_merged",
+    { ...baseVars(t), target_number: String(keepNumber) },
+    ctx
+  );
+});

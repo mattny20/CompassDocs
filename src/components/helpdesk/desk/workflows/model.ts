@@ -4,11 +4,13 @@
 // (and tested) on their own.
 
 import type {
+  HdCountDef,
   HdFormField,
   HdTaskStepDef,
   HdWorkflowDefinition,
   HdWorkflowStep,
 } from "@/lib/helpdesk/types";
+import { countedHoursLabel, countedOffsetLabel, countMode } from "@/lib/helpdesk/business-waits-shared";
 
 export type AddKind = "approval" | "task" | "parallel" | "wait" | "notify" | "finish";
 
@@ -181,27 +183,47 @@ function fieldLabel(form: HdFormField[], key: string): string {
   return form.find((f) => f.key === key)?.label?.toLowerCase() || key.replace(/_/g, " ");
 }
 
-/** The card's sub-line ("Any member of HR · reminder after 1 business day"). */
-export function stepSummary(s: HdWorkflowStep, names: { team: (id: number) => string; user: (id: number) => string }, form: HdFormField[]): string {
+/**
+ * The card's sub-line ("Any member of HR · reminder after 1 business day").
+ * Delays and offsets say how they count (1.19.1): "1 business day" only
+ * when the step counts business time, "8 hours" when it counts the clock.
+ * `opts.rtTeamId` (the request type's team) names whose calendar a wait
+ * counts when it names none.
+ */
+export function stepSummary(
+  s: HdWorkflowStep,
+  names: { team: (id: number) => string; user: (id: number) => string },
+  form: HdFormField[],
+  opts: { rtTeamId?: number | null } = {}
+): string {
+  const mode = countMode(s as HdCountDef);
   switch (s.kind) {
     case "approval": {
       const a = s.approver as { kind: string; team_id?: number; user_id?: number };
       const who =
         a.kind === "team" ? `Any member of ${names.team(a.team_id ?? 0)}` : a.kind === "manager" ? "The requester's manager" : a.kind === "user" ? names.user(a.user_id ?? 0) : "The space's owner";
-      const remind = s.remind_after_hours ? ` · reminder after ${hoursLabel(s.remind_after_hours)}` : "";
+      const remind = s.remind_after_hours ? ` · reminder after ${countedHoursLabel(s.remind_after_hours, mode)}` : "";
       return `${who}${remind}`;
     }
     case "task": {
       if (!s.due) return names.team(s.team_id);
-      if ("after_hours" in s.due) return `Due ${hoursLabel(s.due.after_hours)} after it starts`;
+      if ("after_hours" in s.due) return `Due ${countedHoursLabel(s.due.after_hours, mode)} after it starts`;
       const off = s.due.offset_days ?? 0;
       const f = fieldLabel(form, s.due.field);
-      return off === 0 ? `Due on the ${f}` : `Due ${Math.abs(off)} ${Math.abs(off) === 1 ? "day" : "days"} ${off < 0 ? "before" : "after"} the ${f}`;
+      return off === 0 ? `Due on the ${f}` : `Due ${countedOffsetLabel(off, mode)} the ${f}`;
     }
     case "parallel":
       return `${s.steps.length} tasks; moves on when all are done`;
-    case "wait":
-      return "field" in s.until ? `Until the ${fieldLabel(form, s.until.field)}, then move on` : `For ${hoursLabel(s.until.after_hours)}, then move on`;
+    case "wait": {
+      const off = "field" in s.until ? s.until.offset_days ?? 0 : 0;
+      const until =
+        "field" in s.until
+          ? `Until ${off ? `${countedOffsetLabel(off, mode)} ` : ""}the ${fieldLabel(form, s.until.field)}`
+          : `For ${countedHoursLabel(s.until.after_hours, mode)}`;
+      if (mode !== "business") return `${until}, then move on`;
+      const team = s.count_team_id ?? opts.rtTeamId ?? null;
+      return `${until} · counts ${team ? `${names.team(team)}'s` : "the default calendar's"} office hours and holidays`;
+    }
     case "notify": {
       const to = s.to === "requester" ? "The requester" : "user_id" in s.to ? names.user(s.to.user_id) : names.team(s.to.team_id);
       return `${to} · email and bell`;

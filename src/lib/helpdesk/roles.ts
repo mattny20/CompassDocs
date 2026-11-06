@@ -35,6 +35,7 @@ import { hq, hqOne } from "./db-core";
 import {
   HD_CAP_SCOPE,
   HD_CAP_KEYS,
+  HD_MATRIX_VERSION,
   assignableRolesFor,
   resolveMatrix,
   resolveRole,
@@ -88,7 +89,8 @@ export async function getRoleMatrix(): Promise<HdRoleMatrix> {
 
 /** Store a checked matrix (roles-shared checkMatrix) as overrides. */
 export async function saveRoleMatrix(m: HdRoleMatrix): Promise<HdRoleMatrix> {
-  await setSetting(HD_ROLE_CAPS_KEY, JSON.stringify(toOverrides(m)));
+  // `v`: the catalog version these lists are complete for (roles-shared HD_MATRIX_VERSION).
+  await setSetting(HD_ROLE_CAPS_KEY, JSON.stringify({ ...toOverrides(m), v: HD_MATRIX_VERSION }));
   matrixCache = null;
   return getRoleMatrix();
 }

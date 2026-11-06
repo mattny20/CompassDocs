@@ -13,7 +13,7 @@
 // task would go to.
 
 import { useEffect, useId, useState } from "react";
-import { CircleAlert, CircleSlash, FlaskConical, Signpost, X } from "lucide-react";
+import { CalendarDays, CircleAlert, CircleSlash, FlaskConical, Signpost, X } from "lucide-react";
 import { Modal } from "@/components/Modal";
 import { Button, iconButtonClass } from "@/components/Button";
 import { Field, FormError, Select, TextInput } from "@/components/form";
@@ -197,6 +197,13 @@ export function TestRunModal({
                     <p className="mt-1 text-xs text-slate-500">
                       {s.due_at && `Due ${fmt.dateTime(s.due_at)}`}
                       {s.wait_until && `Waits until ${fmt.dateTime(s.wait_until)}`}
+                    </p>
+                  )}
+                  {/* Business counting (1.19.1): whose calendar counted and the holidays it passed over. */}
+                  {!s.skipped && s.count_note && (
+                    <p className="mt-1 flex items-start gap-1.5 text-xs text-slate-600" data-testid="count-note">
+                      <CalendarDays className="mt-px h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                      {s.count_note}
                     </p>
                   )}
                   {s.warnings.map((w, j) => (

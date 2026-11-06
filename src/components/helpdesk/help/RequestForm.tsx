@@ -14,6 +14,8 @@
 // and a refusal from the server is a FormError above the buttons.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CcPick } from "../ccs/AddPeople";
+import { NewRequestPeople } from "./NewRequestPeople";
 import { useRouter } from "next/navigation";
 import {
   Bell,
@@ -102,6 +104,8 @@ export function RequestForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const uploads = useUploads();
+  // People copied on the request once it is sent (1.19.1, agent V3).
+  const [ccs, setCcs] = useState<CcPick[]>([]);
   const refs = useRef(new Map<string, HTMLElement | null>());
 
   const fields = useMemo(() => type?.form ?? [], [type]);
@@ -155,6 +159,7 @@ export function RequestForm({
           answers,
           source: "portal",
           attachments: uploads.done,
+          cc: ccs.map((p) => ("user_id" in p ? { user_id: p.user_id } : { email: p.email })),
         }),
       },
       "Couldn't send your request. Try again in a moment."
@@ -245,6 +250,8 @@ export function RequestForm({
             <FormFieldControl key={row[0].key} field={row[0]} value={answers[row[0].key]} onChange={(v) => set(row[0].key, v)} error={errors[row[0].key]} refs={refs} prefilled={row[0].key in defaults} />
           )
         )}
+
+        <NewRequestPeople value={ccs} onChange={setCcs} />
 
         <AttachmentChips uploads={uploads} />
 

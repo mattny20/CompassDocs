@@ -1,4 +1,6 @@
-// POST /api/helpdesk/tickets/[number]/macro/[macroId]   { preview?: boolean }
+// POST /api/helpdesk/tickets/[number]/macro/[macroId]   { preview?: boolean, expect_last_message_id?, force? }
+// (1.19.1: a reply-sending macro takes the messages route's send guard: a
+// newer message by someone else answers 409 { newer } unless force.)
 // Helpdesk 1.19.0 (macros.use in the ticket's team, agent J's capability,
 // and the caller must work the ticket).
 // preview: the macro's reply filled for this ticket and the field changes
@@ -16,6 +18,7 @@ import { HD_FORBIDDEN, hdCan, hdCapGate } from "@/lib/helpdesk/roles";
 import { applyMacroToTicket, getMacro, macroVisibleTo } from "@/lib/helpdesk/macros";
 import { hqOne } from "@/lib/helpdesk/db-core";
 import { patchRefusal } from "@/lib/helpdesk/patch-caps";
+import { collisionRefusal } from "@/lib/helpdesk/presence";
 import { HdTicketError } from "@/lib/helpdesk/tickets";
 import { requestOrigin } from "@/lib/oauth";
 import type { HdTicketRow } from "@/lib/helpdesk/types";
@@ -44,6 +47,11 @@ export async function POST(req: Request, ctx: Ctx) {
   const body = (await readJson<{ preview?: unknown }>(req, 4 * 1024)) ?? {};
   const preview = body.preview === true;
   if (!preview && ticket.status === "closed") return NextResponse.json({ error: "This ticket is closed." }, { status: 409 });
+  // 1.19.1 collision warning (lib/helpdesk/presence): a macro's reply is a send too.
+  if (!preview && macro.body.trim()) {
+    const collided = await collisionRefusal(ticket.id, gate.id, body as Record<string, unknown>);
+    if (collided) return collided;
+  }
   const teamId = ticket.team_id;
   let result;
   try {

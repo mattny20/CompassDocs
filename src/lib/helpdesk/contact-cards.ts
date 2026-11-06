@@ -264,6 +264,11 @@ async function ticketPeople(t: TicketRef): Promise<TicketPerson[]> {
     out.push(p);
   };
   add({ user_id: t.requester_id, name: t.requester_name, email: t.requester_email, relation: "requester" });
+  // The people copied on it (1.19.1, agent V3, lib/helpdesk/ccs).
+  const { listCcs } = await import("./ccs");
+  for (const c of (await listCcs(t.id)).slice(0, 6)) {
+    add({ user_id: c.userId, name: c.name, email: c.email, relation: "contact", relation_label: "CC" });
+  }
   if (t.assignee_id) {
     const a = await userRow(t.assignee_id);
     if (a) add({ user_id: a.id, name: a.name || a.username, email: a.email, relation: "assignee" });
@@ -342,7 +347,7 @@ export async function cardAudience(viewer: Viewer, t: TicketRef, personUserId: n
     const p = match(await ticketPeople(t));
     return p ? { audience: "agent", person: p } : null;
   }
-  if (relation === "requester") {
+  if (relation === "requester" || relation === "cc") {
     if (!personUserId) return null;
     const p = match(await helpingAgents(t));
     return p ? { audience: "requester", person: p } : null;
@@ -455,7 +460,10 @@ export async function contactCardFor(
   const accountEmail = u?.email || opts.fallback?.email || "";
   const relation = opts.relation ?? (personUserId && personUserId === opts.ticket.requester_id ? "requester" : "contact");
   const fields = await listFields();
-  const stored = await directoryPersonFor(u?.id ?? null, accountEmail);
+  // 1.19.1 (agent V6): a customer-portal contact is not in the directory,
+  // whatever entry shares the address: name and email only.
+  const portalContact = !u && (await (await import("./portal")).isPortalContactEmail(accountEmail));
+  const stored = portalContact ? undefined : await directoryPersonFor(u?.id ?? null, accountEmail);
 
   const [readDir, readPhoto] = await Promise.all([
     userHolds(viewer, "directory.read", { legacyMin: "viewer" }).catch(() => false),
@@ -604,7 +612,8 @@ export async function contactCardFor(
 /** Every card this viewer may see on a ticket: the agent's contacts stack, or the requester's "Who's helping you". */
 export async function ticketContactCards(viewer: Viewer, t: TicketRef): Promise<HdTicketContacts | null> {
   const relation = await ticketRelation(viewer, t);
-  if (relation !== "agent" && relation !== "requester") return null;
+  // A CC (1.19.1) sees "Who's helping you" as the requester does.
+  if (relation !== "agent" && relation !== "requester" && relation !== "cc") return null;
   const settings = await getContactCardSettings();
   const team = t.team_name ?? (t.team_id ? (await hqOne<{ name: string }>("SELECT name FROM hd_teams WHERE id = $1", [t.team_id]))?.name ?? null : null);
   if (relation === "agent") {

@@ -15,6 +15,7 @@ import { deleteTicketFiles } from "@/lib/helpdesk/attachments";
 import { badRequest, loadTicketFor, notFound, originOf } from "@/lib/helpdesk/routes";
 import { hdCan, HD_FORBIDDEN } from "@/lib/helpdesk/roles";
 import { patchRefusal } from "@/lib/helpdesk/patch-caps";
+import { mergedLock } from "@/lib/helpdesk/merge";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
   const refused = await patchRefusal(gate, found.ticket, patch);
   if (refused) return NextResponse.json({ error: refused }, { status: 403 });
+  // 1.19.1: a merged ticket's status is locked (closed into the kept ticket; lib/helpdesk/merge mergedLock).
+  if (patch.status !== undefined && patch.status !== found.ticket.status) {
+    const locked = await mergedLock(found.ticket);
+    if (locked) return NextResponse.json({ error: locked }, { status: 409 });
+  }
   // A workflow task asks for its outcome before it is solved (B's engine): 409 opens the outcome form.
   if (
     found.ticket.source === "workflow" &&
@@ -80,6 +86,10 @@ export async function DELETE(req: Request, { params }: Ctx) {
   if (found instanceof NextResponse) return found;
   if (!(await hdCan(gate, "tickets.delete", { teamId: found.ticket.team_id }))) {
     return NextResponse.json({ error: HD_FORBIDDEN }, { status: 403 });
+  }
+  // 1.19.1: a ticket on legal hold (lib/helpdesk/retention) is never deleted, by hand either.
+  if (Number((found.ticket as { legal_hold?: number }).legal_hold ?? 0) === 1) {
+    return NextResponse.json({ error: `#${found.ticket.number} is on legal hold. Take it off hold before deleting it.` }, { status: 409 });
   }
   await deleteTicketFiles(found.ticket.id);
   const row = await deleteTicket(found.ticket.id);

@@ -6,11 +6,13 @@
 // carries the full sentence as its tooltip and for screen readers; they
 // sit above the card's stretched select button (relative z-10) so the
 // tooltip shows on hover and keyboard focus. Renders nothing for a plain
-// step.
+// step. A step that counts business time (1.19.1) adds a neutral chip
+// naming whose calendar counts; `rtTeamId` (the request type's team) is
+// the default for a wait or a reminder.
 
-import { CircleSlash, ClipboardList, Filter, Signpost } from "lucide-react";
+import { CalendarDays, CircleSlash, ClipboardList, Filter, Signpost } from "lucide-react";
 import { chipClass } from "@/components/Chip";
-import type { HdFormField, HdWorkflowDefinition, HdWorkflowStep } from "@/lib/helpdesk/types";
+import type { HdCountDef, HdFormField, HdWorkflowDefinition, HdWorkflowStep } from "@/lib/helpdesk/types";
 import type { HdTaskStepDefB, HdWorkflowStepB } from "./contract";
 import { conditionFields, findField, routeFields, routeSummary, conditionSummary } from "./conditions";
 
@@ -19,12 +21,14 @@ export function StepBadges({
   form,
   def,
   teams,
+  rtTeamId = null,
   className = "",
 }: {
   step: HdWorkflowStep;
   form: HdFormField[];
   def?: HdWorkflowDefinition | null;
   teams: { id: number; name: string }[];
+  rtTeamId?: number | null;
   className?: string;
 }) {
   const s = step as HdWorkflowStepB;
@@ -36,7 +40,13 @@ export function StepBadges({
   const routeBy = task?.route ? findField(rFields, task.route)?.label ?? task.route.field : "";
   const outputs = task?.outputs ?? [];
   const carriesOn = task?.on_cant_do === "continue";
-  if (!when && !route && !outputs.length && !carriesOn) return null;
+  const counted = step as HdWorkflowStep & HdCountDef;
+  const business =
+    counted.count === "business" && (s.kind === "wait" || (s.kind === "approval" && !!s.remind_after_hours) || (task !== null && !!task.due));
+  const countTeam = counted.count_team_id ?? (task ? task.team_id : rtTeamId);
+  const countWhose = countTeam ? `${teamName(countTeam)}'s` : "the default calendar's";
+  const countWhat = s.kind === "approval" ? "The reminder counts" : s.kind === "wait" ? "The wait counts" : "The due date counts";
+  if (!when && !route && !outputs.length && !carriesOn && !business) return null;
 
   const chip = (tone: Parameters<typeof chipClass>[0]) => chipClass(tone, "sm", "relative z-10 cursor-default");
   return (
@@ -64,6 +74,15 @@ export function StepBadges({
           <span className={chip("neutral")} tabIndex={0} data-tt={`Hands on: ${outputs.map((o) => `${o.label || o.key}${o.required ? "" : " (optional)"}`).join(", ")}.`} data-tt-wrap>
             <ClipboardList className="h-3 w-3" aria-hidden />
             {outputs.length} hand-off {outputs.length === 1 ? "field" : "fields"}
+          </span>
+        </li>
+      )}
+      {business && (
+        <li>
+          <span className={chip("neutral")} tabIndex={0} data-tt={`${countWhat} ${countWhose} office hours and holidays.`} data-tt-wrap>
+            <CalendarDays className="h-3 w-3" aria-hidden />
+            Business {s.kind === "approval" || (s.kind === "wait" && !("field" in s.until)) || (task?.due && "after_hours" in task.due) ? "hours" : "days"}
+            <span className="sr-only">: {`${countWhat} ${countWhose} office hours and holidays`}</span>
           </span>
         </li>
       )}

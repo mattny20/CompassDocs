@@ -6,6 +6,17 @@ import { NOTIFY_POLICY_SCHEMA } from "./notify-policy-schema";
 import { HD_INTAKE_SCHEMA } from "./helpdesk/intake-schema";
 import { HD_ANALYTICS_SCHEMA } from "./helpdesk/analytics/schema";
 import { HD_ASSIGNMENT_SCHEMA } from "./helpdesk/assignment-schema";
+import { HD_CC_SCHEMA } from "./helpdesk/cc-schema";
+import { HD_DRAFTS_SCHEMA } from "./helpdesk/drafts-schema";
+import { HD_MERGE_SCHEMA } from "./helpdesk/merge-schema";
+import { HD_PRESENCE_SCHEMA } from "./helpdesk/presence-schema";
+import { HD_SAVED_VIEWS_SCHEMA } from "./helpdesk/saved-views-schema";
+import { HD_RECURRING_SCHEMA } from "./helpdesk/recurring-schema";
+import { HD_TIME_SCHEMA } from "./helpdesk/time-schema";
+import { HD_IMPORT_SCHEMA } from "./helpdesk/import-schema";
+import { HD_PORTAL_SCHEMA } from "./helpdesk/portal-schema";
+import { HD_SLA_PAUSE_SCHEMA } from "./helpdesk/sla-pause-schema";
+import { HD_RETENTION_SCHEMA } from "./helpdesk/retention-schema";
 import { createHash, randomBytes } from "node:crypto";
 import { SEED_SPACES, SEED_DOCS } from "./seed-data";
 import { hashPassword } from "./password";
@@ -2270,6 +2281,28 @@ const SCHEMA_SQL = `
   ${HD_ANALYTICS_SCHEMA}
   -- Auto-assignment (agent N, lib/helpdesk/assignment-schema).
   ${HD_ASSIGNMENT_SCHEMA}
+  -- CCs and followers (1.19.1, agent V3, lib/helpdesk/cc-schema).
+  ${HD_CC_SCHEMA}
+  -- Reply drafts from the Claude connector (1.19.1, agent V1, lib/helpdesk/drafts-schema).
+  ${HD_DRAFTS_SCHEMA}
+  -- Merged tickets (1.19.1, agent V2, lib/helpdesk/merge-schema).
+  ${HD_MERGE_SCHEMA}
+  -- Ticket presence for collision warnings (1.19.1, agent V4, lib/helpdesk/presence-schema).
+  ${HD_PRESENCE_SCHEMA}
+  -- Saved queue views (1.19.1, agent V4, lib/helpdesk/saved-views-schema).
+  ${HD_SAVED_VIEWS_SCHEMA}
+  -- Recurring tickets (1.19.1, agent V8, lib/helpdesk/recurring-schema).
+  ${HD_RECURRING_SCHEMA}
+  -- Time tracking (1.19.1, agent V8, lib/helpdesk/time-schema).
+  ${HD_TIME_SCHEMA}
+  -- Ticket import from Zoho Desk or CSV (1.19.1, agent V7, lib/helpdesk/import-schema).
+  ${HD_IMPORT_SCHEMA}
+  -- Customer portal for outside requesters (1.19.1, agent V6, lib/helpdesk/portal-schema).
+  ${HD_PORTAL_SCHEMA}
+  -- Paused time in business minutes (1.19.1, agent V5, lib/helpdesk/sla-pause-schema).
+  ${HD_SLA_PAUSE_SCHEMA}
+  -- Retention and privacy: legal hold, anonymised tickets (1.19.1, agent V5, lib/helpdesk/retention-schema).
+  ${HD_RETENTION_SCHEMA}
   --- end Helpdesk 1.19.0 ---------------------------------------------------
   ${EMAIL_PARTS_SCHEMA}
   ${NOTIFY_POLICY_SCHEMA}
@@ -5335,14 +5368,22 @@ export async function deleteUser(id: number): Promise<boolean> {
      WHERE a.user_id = $1 AND a.completed_at IS NOT NULL`,
     [id]
   ).catch(() => {});
+  // Helpdesk 1.19.1 (lib/helpdesk/retention): the person's tickets as
+  // requester and CC are anonymised (Desk settings → Retention and privacy)
+  // inside the transaction below, so a failed delete changes nothing; their
+  // files go after the commit.
+  const retention = await import("./helpdesk/retention");
   // Read confirmations are kept (their FK is ON DELETE SET NULL since 1.10.0);
   // every row must carry the name snapshot the record will show once the
   // join target is gone (rows written by 1.9.x after a rollback lack it).
   // The snapshot and the delete are one transaction, and a failed snapshot
   // keeps the account: it is the only thing that will ever name the record.
   const client = await pool().connect();
+  let removal: Awaited<ReturnType<typeof retention.anonymiseRemovedAccountTx>> | null = null;
   try {
     await client.query("BEGIN");
+    removal = await retention.anonymiseRemovedAccountTx(client, id);
+    await retention.keepHeldCcRowsTx(client, id);
     await client.query(
       `UPDATE acknowledgements a SET user_name = u.name, user_email = u.email
        FROM users u WHERE u.id = $1 AND a.user_id = $1 AND a.user_name = ''`,
@@ -5358,6 +5399,7 @@ export async function deleteUser(id: number): Promise<boolean> {
     );
     const res = await client.query("DELETE FROM users WHERE id = $1", [id]);
     await client.query("COMMIT");
+    if (removal) await retention.finishRemovedAccount(id, removal);
     return (res.rowCount ?? 0) > 0;
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
@@ -7527,6 +7569,10 @@ async function reconcilePolicyOn(
             d.ack_revision_at
      FROM ${AUDIENCE_FROM}, users u
      WHERE d.id = $1 AND ${IN_AUDIENCE}
+       -- Only people with no open row (to insert, or to re-open): the rest
+       -- are the conflict arm's no-op, and the hourly sweep of every policy
+       -- would otherwise lock every audience member's users row for nothing.
+       AND NOT EXISTS (SELECT 1 FROM policy_assignments op WHERE op.document_id = d.id AND op.user_id = u.id AND op.removed_at IS NULL)
      -- An account removed while this runs is skipped, not a foreign-key
      -- failure: the lock waits for the removal, then drops the row.
      FOR KEY SHARE OF u
@@ -7605,6 +7651,8 @@ async function reconcileUserOn(
      WHERE u.id = $1 AND ${AUDIENCE_POLICY}
        AND ($4::boolean = false OR ${gate})
        AND ${IN_AUDIENCE}
+       -- As reconcilePolicyOn: lock only for the rows this inserts or re-opens.
+       AND NOT EXISTS (SELECT 1 FROM policy_assignments op WHERE op.document_id = d.id AND op.user_id = u.id AND op.removed_at IS NULL)
      FOR KEY SHARE OF u
      ${AUDIENCE_REOPEN_AFRESH}
      RETURNING document_id, due_at, (xmax = 0) AS inserted`,

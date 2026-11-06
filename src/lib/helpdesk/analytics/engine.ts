@@ -90,6 +90,7 @@ type Agg =
   | { kind: "count" }
   | { kind: "pct"; num: string }
   | { kind: "avg"; expr: string }
+  | { kind: "sum"; expr: string }
   | { kind: "durations"; a: string; b: string; business: boolean; paused?: string; stat: "median" | "p90" };
 
 interface Src {
@@ -115,6 +116,11 @@ const FIXED_PARAMS = 4;
 const OPEN = `t.status IN (${HD_OPEN_STATUSES.map((s) => `'${s}'`).join(", ")})`;
 const TICKET_WORKFLOW = `(SELECT r0.workflow_id FROM hd_workflow_runs r0 WHERE r0.id = t.workflow_run_id)`;
 const T = { from: "hd_tickets t", team: "t.team_id", person: "t.assignee_id", workflow: TICKET_WORKFLOW };
+// 1.19.1 (merge): a ticket merged into another is closed with solved_at
+// stamped, but it was never solved; its work goes on in the kept ticket.
+// Every measure over solved tickets (counts, resolution times, the
+// resolution SLA and the per-solved-ticket averages) leaves it out.
+const SOLVED = "t.solved_at IS NOT NULL AND t.merged_into IS NULL";
 
 // Replies an agent sent to the requester (a newbie's reply held for review, or returned, was never sent).
 const AGENT_REPLIES = `LEFT JOIN LATERAL (
@@ -166,7 +172,7 @@ function measureSrc(m: HdMeasureKey, extra: unknown[]): Src {
     case "created":
       return { ...T, ts: "t.created_at", where: [], agg: { kind: "count" } };
     case "solved":
-      return { ...T, ts: "t.solved_at", where: ["t.solved_at IS NOT NULL"], agg: { kind: "count" } };
+      return { ...T, ts: "t.solved_at", where: [SOLVED], agg: { kind: "count" } };
     case "reopened":
       return {
         ...T,
@@ -202,7 +208,7 @@ function measureSrc(m: HdMeasureKey, extra: unknown[]): Src {
       return {
         ...T,
         ts: "t.solved_at",
-        where: ["t.solved_at IS NOT NULL"],
+        where: [SOLVED],
         agg: { kind: "durations", a: "t.created_at", b: "t.solved_at", business: true, paused: "t.sla_paused_ms", stat: m.endsWith("p90") ? "p90" : "median" },
       };
     case "sla_first_reply_pct":
@@ -217,7 +223,7 @@ function measureSrc(m: HdMeasureKey, extra: unknown[]): Src {
       return {
         ...T,
         ts: "t.resolve_due",
-        where: [`t.resolve_due IS NOT NULL AND (t.solved_at IS NOT NULL OR (t.resolve_due < ${P.now} AND t.sla_paused_at IS NULL))`],
+        where: [`t.resolve_due IS NOT NULL AND t.merged_into IS NULL AND (t.solved_at IS NOT NULL OR (t.resolve_due < ${P.now} AND t.sla_paused_at IS NULL))`],
         agg: { kind: "pct", num: "t.solved_at IS NOT NULL AND t.solved_at <= t.resolve_due" },
       };
     case "sla_breaches":
@@ -242,13 +248,13 @@ function measureSrc(m: HdMeasureKey, extra: unknown[]): Src {
       return {
         ...T,
         ts: "t.solved_at",
-        where: ["t.solved_at IS NOT NULL AND t.parent_ticket_id IS NULL AND t.source <> 'workflow'"],
+        where: [`${SOLVED} AND t.parent_ticket_id IS NULL AND t.source <> 'workflow'`],
         agg: { kind: "pct", num: "t.csat_score IS NOT NULL" },
       };
     case "replies_per_ticket":
-      return { ...T, from: `hd_tickets t ${AGENT_REPLIES}`, ts: "t.solved_at", where: ["t.solved_at IS NOT NULL"], agg: { kind: "avg", expr: "rc.n" } };
+      return { ...T, from: `hd_tickets t ${AGENT_REPLIES}`, ts: "t.solved_at", where: [SOLVED], agg: { kind: "avg", expr: "rc.n" } };
     case "one_touch_pct":
-      return { ...T, from: `hd_tickets t ${AGENT_REPLIES}`, ts: "t.solved_at", where: ["t.solved_at IS NOT NULL AND rc.n >= 1"], agg: { kind: "pct", num: "rc.n = 1" } };
+      return { ...T, from: `hd_tickets t ${AGENT_REPLIES}`, ts: "t.solved_at", where: [`${SOLVED} AND rc.n >= 1`], agg: { kind: "pct", num: "rc.n = 1" } };
     case "approvals_pending":
       return {
         from: "hd_approvals a JOIN hd_tickets t ON t.id = a.ticket_id JOIN hd_workflow_runs r ON r.id = a.run_id",
@@ -333,6 +339,26 @@ function measureSrc(m: HdMeasureKey, extra: unknown[]): Src {
         where: [m === "reviews_done" ? "m.review_state IN ('approved', 'returned') AND m.reviewed_at IS NOT NULL" : "m.review_state = 'returned' AND m.reviewed_at IS NOT NULL"],
         agg: { kind: "count" },
       };
+    // Time tracking (1.19.1, agent V8): one row per entry, at the time it was logged, split by who logged it.
+    case "time_logged":
+      return {
+        from: "hd_time_entries te JOIN hd_tickets t ON t.id = te.ticket_id",
+        team: "t.team_id",
+        person: "te.user_id",
+        workflow: TICKET_WORKFLOW,
+        ts: "te.logged_at",
+        where: [],
+        agg: { kind: "sum", expr: "te.minutes" },
+      };
+    // One row per solved ticket with time on it: its total.
+    case "time_per_ticket":
+      return {
+        ...T,
+        from: "hd_tickets t JOIN LATERAL (SELECT sum(x.minutes)::int AS m FROM hd_time_entries x WHERE x.ticket_id = t.id) tt ON tt.m > 0",
+        ts: "t.solved_at",
+        where: [SOLVED],
+        agg: { kind: "avg", expr: "tt.m" },
+      };
   }
 }
 
@@ -381,7 +407,14 @@ const automatedSql = (o: Optional) => (o.automated ? "COALESCE(t.automated, 0) =
 const DIRECTORY_JOIN = `LEFT JOIN users ru ON ru.id = t.requester_id
   LEFT JOIN directory_people dp ON dp.id = ru.directory_person_id AND dp.hidden = 0`;
 
-const CHANNEL_SQL = `CASE WHEN t.source IN ('doc', 'handbook', 'space_access', 'link') THEN 'trigger' ELSE t.source END`;
+// A ticket's channel, from HD_CHANNEL_SOURCES (so a split and a channel
+// filter always agree): a channel covering several sources (the triggers)
+// maps them to its key; a channel named after its one source (recurring,
+// 1.19.1 portal_external "Customer portal") is the source itself.
+const CHANNEL_SQL = `CASE ${Object.entries(HD_CHANNEL_SOURCES)
+  .filter(([key, sources]) => !(sources.length === 1 && sources[0] === key))
+  .map(([key, sources]) => `WHEN t.source IN (${sources.map((x) => `'${x}'`).join(", ")}) THEN '${key}'`)
+  .join(" ")} ELSE t.source END`;
 
 /** The SQL for one dimension's key, and any join it needs. `at` is the time the row buckets on. */
 function dimSql(d: HdDimension, src: Src, at: string, o: Optional, vip: string): { expr: string; join?: string; lateral?: string } {
@@ -700,6 +733,7 @@ async function compute(
   let valueSql: string;
   if (src.agg.kind === "count") valueSql = "count(*)::float8";
   else if (src.agg.kind === "pct") valueSql = `round((100.0 * count(*) FILTER (WHERE ${src.agg.num}) / NULLIF(count(*), 0))::numeric, 1)::float8`;
+  else if (src.agg.kind === "sum") valueSql = `COALESCE(sum(${src.agg.expr}), 0)::float8`;
   else valueSql = `round(avg(${src.agg.expr})::numeric, 2)::float8`;
   const sql = `SELECT ${[...keyCols, `${valueSql} AS v`, "count(*)::int AS n"].join(", ")} FROM ${fromSql} ${whereSql} ${groupSql} LIMIT ${ENGINE_LIMITS.groupRows + 1}`;
   const res = await c.query(sql, params());

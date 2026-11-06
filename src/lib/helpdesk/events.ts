@@ -84,6 +84,12 @@ export async function afterMessageAdded(
     });
   }
   if (info.fromRequester && info.kind === "public") await rules("requester_message", ticketId, ctx);
+  // Followers hear of it; an agent who wrote it follows (1.19.1, agent V3, lib/helpdesk/ccs).
+  await safely("ccs.afterMessage", async () => {
+    const { notifyFollowers, autoFollowOnReply } = await import("./ccs");
+    if (!ctx.silent) await notifyFollowers(ticketId, { kind: "message", messageId }, ctx);
+    await autoFollowOnReply(ticketId, messageId);
+  });
 }
 
 export async function afterTicketUpdated(
@@ -122,6 +128,13 @@ export async function afterTicketUpdated(
     });
   }
   if (change.changed.length) await rules("ticket_updated", ticketId, ctx);
+  // A status change reaches the ticket's followers (1.19.1, agent V3, lib/helpdesk/ccs).
+  if (!ctx.silent && change.changed.includes("status")) {
+    await safely("ccs.followersStatus", async () => {
+      const { notifyFollowers } = await import("./ccs");
+      await notifyFollowers(ticketId, { kind: "status" }, ctx);
+    });
+  }
 }
 
 /** Every path that sets a ticket to solved ends here, after its commit. */

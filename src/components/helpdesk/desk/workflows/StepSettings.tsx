@@ -35,7 +35,10 @@ import type {
 } from "@/lib/helpdesk/types";
 import { MACRO_PLACEHOLDERS } from "../ticket/MacroPicker";
 import { personOption, type PersonLite } from "../people";
-import { KIND_LABEL, dateFields, hoursLabel } from "./model";
+import { KIND_LABEL, dateFields } from "./model";
+import { countedHoursLabel, countMode } from "@/lib/helpdesk/business-waits-shared";
+import type { HdCountDef } from "@/lib/helpdesk/types";
+import { CountSetting } from "./CountSetting";
 import type { HdStepCondition, HdTaskStepDefB, HdWorkflowStepB } from "../workflow-multi/contract";
 import { conditionFields, routeFields } from "../workflow-multi/conditions";
 import { OnlyIfEditor } from "../workflow-multi/OnlyIfEditor";
@@ -49,6 +52,14 @@ interface Common {
   people: PersonLite[];
   form: HdFormField[];
   onChange: (next: HdWorkflowStep) => void;
+  /** The request type's team: whose calendar a wait or a reminder counts by default (1.19.1). */
+  rtTeamId?: number | null;
+}
+
+/** A step with its count fields replaced (1.19.1): calendar drops them, so the stored step stays as before. */
+function withCount<T extends HdWorkflowStep>(step: T, count: HdCountDef): T {
+  const { count: _c, count_team_id: _t, ...rest } = step as T & HdCountDef;
+  return { ...rest, ...count } as T;
 }
 
 export function StepSettings({
@@ -91,10 +102,10 @@ export function StepSettings({
             <TextInput value={title} maxLength={200} onChange={(e) => c.onChange({ ...step, title: e.target.value } as HdWorkflowStep)} />
           </Field>
         )}
-        {step.kind === "approval" && <ApprovalSettings step={step} {...c} />}
+        {step.kind === "approval" && <ApprovalSettings step={step} rtTeamId={coordinatorTeamId ?? null} {...c} />}
         {step.kind === "task" && <TaskSettings step={step} {...c} />}
         {step.kind === "parallel" && <GroupSettings step={step} onAdd={onAddToGroup} {...c} />}
-        {step.kind === "wait" && <WaitSettings step={step} {...c} />}
+        {step.kind === "wait" && <WaitSettings step={step} rtTeamId={coordinatorTeamId ?? null} {...c} />}
         {step.kind === "notify" && <NotifySettings step={step} {...c} />}
         {step.kind === "finish" && <FinishSettings step={step} {...c} />}
         {task && (
@@ -120,7 +131,7 @@ export function StepSettings({
   );
 }
 
-function ApprovalSettings({ step, teams, people, onChange }: Common & { step: HdApprovalStepDef }) {
+function ApprovalSettings({ step, teams, people, onChange, rtTeamId }: Common & { step: HdApprovalStepDef }) {
   const a = step.approver as { kind: string; team_id?: number; user_id?: number };
   const kind = a.kind as "team" | "manager" | "user" | "space_owner";
   const teamName = teams.find((t) => t.id === a.team_id)?.name;
@@ -182,14 +193,32 @@ function ApprovalSettings({ step, teams, people, onChange }: Common & { step: Hd
         </Select>
       </Field>
       <Field label="Remind them after">
-        <Select value={step.remind_after_hours ?? 0} onChange={(e) => onChange({ ...step, remind_after_hours: Number(e.target.value) || undefined })}>
+        <Select
+          value={step.remind_after_hours ?? 0}
+          onChange={(e) => {
+            const h = Number(e.target.value) || undefined;
+            // No reminder, nothing to count.
+            onChange(h ? { ...step, remind_after_hours: h } : withCount({ ...step, remind_after_hours: undefined }, {}));
+          }}
+        >
           {REMIND.map((h) => (
             <option key={h} value={h}>
-              {h ? hoursLabel(h) : "Don't remind"}
+              {h ? countedHoursLabel(h, countMode(step)) : "Don't remind"}
             </option>
           ))}
         </Select>
       </Field>
+      {!!step.remind_after_hours && (
+        <CountSetting
+          stepKey={step.key}
+          value={step}
+          unit="hours"
+          teams={teams}
+          defaultTeamId={rtTeamId ?? null}
+          defaultLabel="The request type's team"
+          onChange={(count) => onChange(withCount(step, count))}
+        />
+      )}
       <p className="text-xs text-slate-500">
         Approvers see it in Needs your attention on their CompassDocs dashboard, by email and in the bell, and approve in one click.
       </p>
@@ -225,7 +254,7 @@ function TaskSettings({ step, teams, form, onChange }: Common & { step: HdTaskSt
           value={mode}
           onChange={(e) => {
             const m = e.target.value as DueMode;
-            if (m === "none") onChange({ ...step, due: undefined });
+            if (m === "none") onChange(withCount({ ...step, due: undefined }, {}));
             else if (m === "after") onChange({ ...step, due: { after_hours: 24 } });
             else onChange({ ...step, due: { field: dates[0]?.key ?? "", offset_days: -1 } });
           }}
@@ -265,11 +294,27 @@ function TaskSettings({ step, teams, form, onChange }: Common & { step: HdTaskSt
           <Select value={step.due.after_hours} onChange={(e) => onChange({ ...step, due: { after_hours: Number(e.target.value) } })}>
             {AFTER.map((h) => (
               <option key={h} value={h}>
-                {hoursLabel(h)}
+                {countedHoursLabel(h, countMode(step))}
               </option>
             ))}
           </Select>
         </Field>
+      )}
+      {step.due && (
+        <CountSetting
+          stepKey={step.key}
+          value={step}
+          unit={"field" in step.due ? "days" : "hours"}
+          teams={teams}
+          defaultTeamId={step.team_id || null}
+          defaultLabel="The task's team"
+          example={
+            "field" in step.due
+              ? { offset: off, field: form.find((f) => f.key === (step.due as { field: string }).field)?.label || "The date", kind: "due" }
+              : null
+          }
+          onChange={(count) => onChange(withCount(step, count))}
+        />
       )}
       <Field label="What to do (optional)" help="Goes on the task's ticket for the team.">
         <Textarea value={step.description ?? ""} maxLength={4000} className="h-24" onChange={(e) => onChange({ ...step, description: e.target.value })} />
@@ -298,9 +343,16 @@ function GroupSettings({ step, onAdd, teams }: Common & { step: HdParallelStepDe
   );
 }
 
-function WaitSettings({ step, form, onChange }: Common & { step: HdWaitStepDef }) {
+const WAIT_DAYS = [0, 1, 2, 3, 5, 7, 10];
+
+function WaitSettings({ step, form, teams, onChange, rtTeamId }: Common & { step: HdWaitStepDef }) {
   const dates = dateFields(form);
   const byField = "field" in step.until;
+  const mode = countMode(step);
+  const off = "field" in step.until ? step.until.offset_days ?? 0 : 0;
+  const days = Math.abs(off);
+  const field = "field" in step.until ? step.until.field : "";
+  const setUntil = (f: string, offset: number) => onChange({ ...step, until: offset ? { field: f, offset_days: offset } : { field: f } });
   return (
     <>
       <Field label="Wait">
@@ -313,26 +365,74 @@ function WaitSettings({ step, form, onChange }: Common & { step: HdWaitStepDef }
         </Select>
       </Field>
       {"field" in step.until ? (
-        <Field label="The date" help="Then move on, even on a weekend.">
-          <Select value={step.until.field} onChange={(e) => onChange({ ...step, until: { field: e.target.value } })}>
-            {dates.map((f) => (
-              <option key={f.key} value={f.key}>
-                {f.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        <fieldset>
+          <legend className="mb-1 text-sm font-medium text-slate-700">Wait until</legend>
+          <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-2">
+            <Select
+              aria-label="How many days"
+              value={days}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                setUntil(field, n === 0 ? 0 : off > 0 ? n : -n);
+              }}
+            >
+              {WAIT_DAYS.map((d) => (
+                <option key={d} value={d}>
+                  {d === 0 ? "On the day" : `${d} ${d === 1 ? "day" : "days"}`}
+                </option>
+              ))}
+            </Select>
+            <Select
+              aria-label="Before or after which date"
+              value={days === 0 ? `on:${field}` : `${off < 0 ? "before" : "after"}:${field}`}
+              onChange={(e) => {
+                const [dir, f] = e.target.value.split(":");
+                setUntil(f, days === 0 ? 0 : dir === "after" ? days : -days);
+              }}
+            >
+              {dates.flatMap((f) =>
+                days === 0
+                  ? [
+                      <option key={`on:${f.key}`} value={`on:${f.key}`}>
+                        {f.label}
+                      </option>,
+                    ]
+                  : [
+                      <option key={`before:${f.key}`} value={`before:${f.key}`}>
+                        before {f.label}
+                      </option>,
+                      <option key={`after:${f.key}`} value={`after:${f.key}`}>
+                        after {f.label}
+                      </option>,
+                    ]
+              )}
+            </Select>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            {mode === "business" ? "Moves on when that business day opens." : "Then move on, even on a weekend."}
+          </p>
+        </fieldset>
       ) : (
         <Field label="For">
           <Select value={step.until.after_hours} onChange={(e) => onChange({ ...step, until: { after_hours: Number(e.target.value) } })}>
             {AFTER.map((h) => (
               <option key={h} value={h}>
-                {hoursLabel(h)}
+                {countedHoursLabel(h, mode)}
               </option>
             ))}
           </Select>
         </Field>
       )}
+      <CountSetting
+        stepKey={step.key}
+        value={step}
+        unit={byField ? "days" : "hours"}
+        teams={teams}
+        defaultTeamId={rtTeamId ?? null}
+        defaultLabel="The request type's team"
+        example={byField ? { offset: off, field: dates.find((f) => f.key === field)?.label || "The date", kind: "wait" } : null}
+        onChange={(count) => onChange(withCount(step, count))}
+      />
     </>
   );
 }

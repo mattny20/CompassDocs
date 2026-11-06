@@ -31,12 +31,15 @@ import {
 import { getJson, listOf } from "../api";
 import { useDeskCounts } from "../counts";
 import { useCan, useDeskMe } from "../me";
+import { LegalHoldCard } from "./LegalHoldCard";
 import { PickMenu } from "../PickMenu";
 import { TicketContacts } from "@/components/helpdesk/contacts/TicketContacts";
 import { HandoffsPanel, PartOfRequestCard } from "../workflow-multi/RequestPanels";
 import { AlertDetails } from "../intake/AlertDetails";
 import { PRIORITY_DOT, slaInk, statusChip, ticketHref } from "../ui";
 import { AssignmentHistory } from "../assignment/AssignmentHistory";
+import { RelatedCard } from "../merge/MergeCards";
+import { TimeCard } from "../time/TimeCard";
 
 interface Agent {
   user_id: number;
@@ -127,6 +130,12 @@ export function SidePanel({
 
       {/* A workflow task: the request it belongs to (agent M). */}
       <PartOfRequestCard detail={d} />
+
+      {/* Time logged and the agent's timer (1.19.1, agent V8). */}
+      {d.can_work && <TimeCard ticketNumber={t.number} refreshKey={t.status} />}
+
+      {/* Merged into / merged in (1.19.1, agent V2). */}
+      <RelatedCard d={d} />
 
       {/* Properties */}
       <section aria-label="Properties" className={`${CARD_CLASS} px-4 py-1`}>
@@ -335,6 +344,9 @@ export function SidePanel({
           </ul>
         )}
       </section>
+
+      {/* Legal hold (1.19.1, retention and privacy): renders only when on, or for settings.manage. */}
+      <LegalHoldCard number={t.number} />
 
       <p className="px-1 text-xs text-slate-500">
         Opened through {HD_SOURCE_LABEL[t.source] ?? t.source}

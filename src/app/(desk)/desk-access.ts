@@ -86,6 +86,17 @@ export const SETTINGS_CAP: Record<string, string[]> = {
   // Team settings, people and on call: agents.manage_team (a lead for their own teams); rules: automations.manage (agent N).
   assignment: ["agents.manage_team", "automations.manage"],
   integrations: ["settings.manage", "channels.manage"],
+  // Recurring tickets: every team (settings.manage) or a lead's own teams (1.19.1, agent V8).
+  recurring: ["settings.manage", "agents.manage_team"],
+  // The Claude connector's workspace level (1.19.1, agent V1).
+  claude: ["settings.manage"],
+  // The customer portal for outside requesters (1.19.1, agent V6).
+  portal: ["settings.manage"],
+  // Ticket import from Zoho Desk or CSV (1.19.1, agent V7).
+  import: ["settings.manage"],
+  // Shortcut defaults and retention and privacy (1.19.1, agent V5).
+  shortcuts: ["settings.manage"],
+  retention: ["settings.manage"],
 };
 
 /** May this person open that settings page? */

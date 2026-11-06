@@ -209,15 +209,46 @@ export async function requireSettingsSection(href: string): Promise<SessionUser>
   return requirePermission("admin", section.permission);
 }
 
-/** Which settings sections this user may open — the rail renders exactly these. */
+/**
+ * Guard for a section's shared LAYOUT (1.19.1): any permission that opens
+ * some page of the section lets the layout render (the header and the tab
+ * row, which shows only the pages the viewer may open). Each page still
+ * enforces its own permission: requireSettingsSection for the section's
+ * pages, requirePermission for a page with its own (settings-sections
+ * `pages[].permission`).
+ */
+export async function requireSettingsArea(href: string): Promise<SessionUser> {
+  const { settingsSection, sectionPermissions } = await import("./settings-sections");
+  const section = settingsSection(href);
+  if (!section) redirect("/");
+  const user = await requireUser();
+  const { grantsFor, admits, legacyAuthzEnforcement } = await import("./authz");
+  if (legacyAuthzEnforcement()) {
+    if (!roleAtLeast(user.role, "admin")) redirect("/");
+    return user;
+  }
+  const grants = await grantsFor(user.id);
+  if (!sectionPermissions(section).some((p) => admits(grants, p))) redirect("/");
+  return user;
+}
+
+/**
+ * Which settings sections this user may open — the rail renders exactly
+ * these — plus (1.19.1) the href of every page they may open by its own
+ * permission (settings-sections `pages[].permission`), so a section reached
+ * only through such a page shows in the rail, landing on that page, and its
+ * tab shows. Read it with canOpenSection / sectionLanding / canOpenPage.
+ */
 export async function reachableSettingsSections(user: SessionUser): Promise<string[]> {
   const { SETTINGS_SECTIONS } = await import("./settings-sections");
   const { grantsFor, admits, legacyAuthzEnforcement } = await import("./authz");
+  const ownPages = (ok: (p: import("./permissions").PermissionKey) => boolean) =>
+    SETTINGS_SECTIONS.flatMap((s) => (s.pages ?? []).filter((p) => p.permission && p.href !== s.href && ok(p.permission)).map((p) => p.href));
   if (legacyAuthzEnforcement()) {
-    return roleAtLeast(user.role, "admin") ? SETTINGS_SECTIONS.map((s) => s.href) : [];
+    return roleAtLeast(user.role, "admin") ? [...SETTINGS_SECTIONS.map((s) => s.href), ...ownPages(() => true)] : [];
   }
   const grants = await grantsFor(user.id);
-  return SETTINGS_SECTIONS.filter((s) => admits(grants, s.permission)).map((s) => s.href);
+  return [...SETTINGS_SECTIONS.filter((s) => admits(grants, s.permission)).map((s) => s.href), ...ownPages((p) => admits(grants, p))];
 }
 
 /** The longest identifier the sign-in accepts: an email address's maximum. */

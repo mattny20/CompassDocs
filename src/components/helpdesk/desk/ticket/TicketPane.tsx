@@ -38,12 +38,22 @@ import { PickMenu } from "../PickMenu";
 import { useQueue } from "../queue/QueueLayout";
 import { STATUS_TONE, statusChip } from "../ui";
 import { Composer, type ComposerHandle } from "./Composer";
+import { TicketPresence } from "../presence/TicketPresence";
+import { latestMessageId } from "../presence/presence";
+import { ClaudeDraftCard } from "./ClaudeDraftCard";
 import { Conversation } from "./Conversation";
+import { FollowButton, TicketCcRow, useTicketPeople } from "./TicketPeople";
 import { SidePanel } from "./SidePanel";
 import { VipChip } from "@/components/helpdesk/contacts/VipChip";
 import { AutomatedChip } from "../intake/AutomatedChip";
+import { OutsideCustomerChip, isPortalTicket } from "../OutsideCustomerChip";
 import { BlockedRunBanner } from "../workflow-multi/BlockedRunBanner";
 import { TaskOutcomeBar, openTaskOutcome } from "../workflow-multi/TaskOutcome";
+import { GitMerge } from "lucide-react";
+import { MenuSeparator } from "@/components/Popover";
+import { MergeDialog, type MergeCandidate } from "../merge/MergeDialog";
+import { MergedComposerLock, MergedNotice } from "../merge/MergeCards";
+import { askTimeOnSolve } from "../time/TimeCard";
 
 const PILL_TONE: Record<string, string> = {
   info: "bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-500/15 dark:text-sky-300",
@@ -62,6 +72,8 @@ export function TicketPane({ number }: { number: number }) {
   const [error, setError] = useState<{ status: number; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const composer = useRef<ComposerHandle>(null);
+  // CCs and followers (1.19.1, agent V3).
+  const people = useTicketPeople(number);
 
   const load = useCallback(
     (quiet = false) =>
@@ -86,6 +98,8 @@ export function TicketPane({ number }: { number: number }) {
 
   const patch = useCallback(
     async (p: HdTicketPatch, ok?: string) => {
+      // A team that records time asks for it before a solve (1.19.1, agent V8); cancelling keeps it open.
+      if (p.status === "solved" && !(await askTimeOnSolve(number, me.id))) return;
       setBusy(true);
       try {
         const r = await sendJson(`/api/helpdesk/tickets/${number}`, "PATCH", p, "Couldn't update the ticket.");
@@ -103,7 +117,7 @@ export function TicketPane({ number }: { number: number }) {
         setBusy(false);
       }
     },
-    [number, load, refreshQueue, d?.parent]
+    [number, load, refreshQueue, d?.parent, me.id]
   );
 
   async function afterSend({ macro }: { macro: HdMacro | null; status: HdStatus | null }) {
@@ -121,6 +135,8 @@ export function TicketPane({ number }: { number: number }) {
   const t = d?.ticket;
   const can = !!d?.can_work;
   const closed = t?.status === "solved" || t?.status === "closed";
+  // A merged ticket is read-only: no composer, no status menu (1.19.1; the routes refuse too).
+  const merged = !!t?.merged_into;
 
   useDeskKeys(
     {
@@ -183,6 +199,7 @@ export function TicketPane({ number }: { number: number }) {
           <div className="min-w-[min(100%,18rem)] flex-1">
             <p className="text-xs text-slate-500">
               #{t.number}
+              {t.import_ref && typeof t.source_ref?.import_label === "string" && <span data-testid="import-ref"> · {t.source_ref.import_label}</span>}
               {t.team_name && ` · ${t.team_name}`} · opened <RelativeTime value={t.created_at} /> by {t.requester_name || t.requester_email}
               {d.parent && (
                 <>
@@ -196,20 +213,36 @@ export function TicketPane({ number }: { number: number }) {
             <h2 id="ticket-subject" className="mt-1 text-xl font-bold text-slate-900">
               {t.subject}
             </h2>
-            {vip?.vip && <VipChip size="md" reason={vip.reason} className="mt-1.5" />}
+            {can && <TicketPresence number={t.number} className="mt-1.5" />}
+            {vip?.vip &&<VipChip size="md" reason={vip.reason} className="mt-1.5" />}
             {(t.automated === 1 || t.source === "alert") && (
               <span className="mt-1.5 inline-flex">
                 <AutomatedChip size="md" ticket={t} />
               </span>
             )}
+            {isPortalTicket(t) && (
+              <span className="mt-1.5 inline-flex">
+                <OutsideCustomerChip size="md" ticket={t} />
+              </span>
+            )}
+            <TicketCcRow
+              number={t.number}
+              state={people}
+              meId={me.id}
+              requesterId={t.requester_id}
+              canEdit={can && !closed && (can$("tickets.reply_public") || can$("tickets.reply_needs_review"))}
+            />
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {t.in_workflow && !closed && <span className={chipClass("accent")}>{HD_IN_WORKFLOW_LABEL}</span>}
-            {can && can$("tickets.change_status") ? (
+            {can && can$("tickets.change_status") && !merged ? (
               <PickMenu
                 label="Status"
                 value={t.status}
                 options={statusOptions}
+                // Hang right from the pill: with Follow in the header the actions wrap at 1280px,
+                // and an end-aligned menu then reached under the queue column (1.19.1).
+                align="start"
                 onPick={(s) => patch({ status: s }, `Status set to ${HD_STATUS_LABEL[s]}.`)}
                 trigger={(p) => (
                   <button
@@ -228,12 +261,21 @@ export function TicketPane({ number }: { number: number }) {
             ) : (
               <span className={chipClass(chip.tone)}>{chip.label}</span>
             )}
+            {can && <FollowButton number={t.number} state={people} />}
             {can && !closed && can$("tickets.change_status") && (
               <Button variant="secondary" icon={<CircleCheck />} busy={busy} onClick={() => patch({ status: "solved" }, `#${t.number} solved.`)}>
                 Solve
               </Button>
             )}
-            {can && can$("tickets.delete") && <TicketMoreMenu number={t.number} onDeleted={() => { refreshQueue(); router.push(`/desk${qs}`); }} />}
+            {can && (can$("tickets.delete") || canMergeFrom(t, can$)) && (
+              <TicketMoreMenu
+                number={t.number}
+                canDelete={can$("tickets.delete")}
+                mergeFrom={canMergeFrom(t, can$) ? t : null}
+                onMerged={(keep) => { void load(true); refreshQueue(); if (keep !== t.number) router.push(`/desk/tickets/${keep}${qs}`); }}
+                onDeleted={() => { refreshQueue(); router.push(`/desk${qs}`); }}
+              />
+            )}
           </div>
         </div>
 
@@ -241,13 +283,18 @@ export function TicketPane({ number }: { number: number }) {
           <div className="flex min-w-0 flex-col gap-3">
             <BlockedRunBanner detail={d} onChanged={() => void load(true).then(refreshQueue)} />
             <TaskOutcomeBar detail={d} onChanged={() => void load(true).then(refreshQueue)} />
-            <Conversation messages={d.messages} requesterId={t.requester_id} meId={me.id} ticketNumber={t.number} />
-            {can ? (
+            <MergedNotice d={d} />
+            <Conversation messages={d.messages} requesterId={t.requester_id} meId={me.id} ticketNumber={t.number} origins={d.merge?.message_origins} />
+            {can && !merged && <ClaudeDraftCard number={t.number} onUse={(body) => composer.current?.fill(body)} />}
+            {can && merged ? (
+              <MergedComposerLock d={d} />
+            ) : can ? (
               <Composer
                 ref={composer}
                 number={t.number}
                 subject={t.subject}
                 requesterName={t.requester_name}
+                ccCount={people.people?.ccs.length ?? 0}
                 agentName={me.name}
                 suggestions={d.suggested_articles}
                 onSent={afterSend}
@@ -255,6 +302,8 @@ export function TicketPane({ number }: { number: number }) {
                 allowNotes={can$("tickets.internal_note")}
                 defaultMode={t.automated === 1 ? "internal" : "public"}
                 automated={t.automated === 1}
+                latestMessageId={latestMessageId(d.messages)}
+                onNewer={() => void load(true)}
               />
             ) : (
               <p className="notice-warn rounded-lg border px-3 py-2 text-sm">You can read this ticket but not work it: it belongs to a team you're not in.</p>
@@ -272,8 +321,26 @@ export function TicketPane({ number }: { number: number }) {
   );
 }
 
-function TicketMoreMenu({ number, onDeleted }: { number: number; onDeleted: () => void }) {
+/** "Merge into another ticket…" (1.19.1): tickets.merge, and not already merged, closed, or part of a running workflow. */
+function canMergeFrom(t: HdTicketDetail["ticket"], can$: (cap: string) => boolean): boolean {
+  return can$("tickets.merge") && !t.merged_into && t.status !== "closed" && !t.in_workflow && !t.parent_ticket_id;
+}
+
+function TicketMoreMenu({
+  number,
+  onDeleted,
+  canDelete = true,
+  mergeFrom = null,
+  onMerged,
+}: {
+  number: number;
+  onDeleted: () => void;
+  canDelete?: boolean;
+  mergeFrom?: MergeCandidate | null;
+  onMerged?: (keep: number) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const [merging, setMerging] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   async function remove() {
     setOpen(false);
@@ -306,11 +373,28 @@ function TicketMoreMenu({ number, onDeleted }: { number: number; onDeleted: () =
       >
         <MoreHorizontal aria-hidden />
       </button>
-      <Popover open={open} onClose={() => setOpen(false)} triggerRef={btn} role="menu" label={`Ticket #${number}`} align="end" width="w-52">
-        <MenuItem danger icon={<Trash2 />} onClick={remove}>
-          Delete ticket…
-        </MenuItem>
+      <Popover open={open} onClose={() => setOpen(false)} triggerRef={btn} role="menu" label={`Ticket #${number}`} align="end" width="w-60">
+        {mergeFrom && (
+          <MenuItem icon={<GitMerge />} onClick={() => { setOpen(false); setMerging(true); }}>
+            Merge into another ticket…
+          </MenuItem>
+        )}
+        {mergeFrom && canDelete && <MenuSeparator />}
+        {canDelete && (
+          <MenuItem danger icon={<Trash2 />} onClick={remove}>
+            Delete ticket…
+          </MenuItem>
+        )}
       </Popover>
+      {mergeFrom && (
+        <MergeDialog
+          open={merging}
+          onClose={() => setMerging(false)}
+          tickets={[mergeFrom]}
+          findOther
+          onMerged={(keep) => { setMerging(false); onMerged?.(keep); }}
+        />
+      )}
     </div>
   );
 }

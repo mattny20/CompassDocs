@@ -10,6 +10,7 @@ import type { HdRequestType } from "@/lib/helpdesk/types";
 import type { SessionUser } from "@/lib/types";
 import { helpAccess } from "./access";
 import { triggerRequestType, type TriggerSource } from "./trigger-type";
+import { shortcutChoice } from "@/lib/helpdesk/shortcuts";
 
 export interface TriggerSetup {
   type: HdRequestType | null;
@@ -20,6 +21,8 @@ export async function helpTrigger(user: SessionUser | null, source: TriggerSourc
   if (!who) return null;
   try {
     if (!(await helpAccess(who)).canRequest) return null;
+    // Desk settings → Shortcuts → Hidden (1.19.1): the trigger is not offered.
+    if ((await shortcutChoice(source)) === "hidden") return null;
     return { type: await triggerRequestType(who, source) };
   } catch {
     // A helpdesk that cannot answer hides its trigger; the page around it renders as before.

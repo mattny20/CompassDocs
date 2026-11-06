@@ -18,6 +18,17 @@ import { HD_ASSIGNMENT_SCHEMA } from "../src/lib/helpdesk/assignment-schema";
 import { EMAIL_PARTS_SCHEMA } from "../src/lib/email-parts-schema";
 import { NOTIFY_POLICY_SCHEMA } from "../src/lib/notify-policy-schema";
 import { HD_ANALYTICS_SCHEMA } from "../src/lib/helpdesk/analytics/schema";
+import { HD_MERGE_SCHEMA } from "../src/lib/helpdesk/merge-schema";
+import { HD_PRESENCE_SCHEMA } from "../src/lib/helpdesk/presence-schema";
+import { HD_SAVED_VIEWS_SCHEMA } from "../src/lib/helpdesk/saved-views-schema";
+import { HD_IMPORT_SCHEMA } from "../src/lib/helpdesk/import-schema";
+import { HD_PORTAL_SCHEMA } from "../src/lib/helpdesk/portal-schema";
+import { HD_DRAFTS_SCHEMA } from "../src/lib/helpdesk/drafts-schema";
+import { HD_SLA_PAUSE_SCHEMA } from "../src/lib/helpdesk/sla-pause-schema";
+import { HD_RETENTION_SCHEMA } from "../src/lib/helpdesk/retention-schema";
+import { HD_CC_SCHEMA } from "../src/lib/helpdesk/cc-schema";
+import { HD_RECURRING_SCHEMA } from "../src/lib/helpdesk/recurring-schema";
+import { HD_TIME_SCHEMA } from "../src/lib/helpdesk/time-schema";
 
 /** The schema blocks db.ts interpolates into SCHEMA_SQL (1.19.0). */
 const INTERPOLATED: Record<string, string> = {
@@ -28,6 +39,17 @@ const INTERPOLATED: Record<string, string> = {
   HD_ANALYTICS_SCHEMA,
   EMAIL_PARTS_SCHEMA,
   NOTIFY_POLICY_SCHEMA,
+  HD_MERGE_SCHEMA,
+  HD_PRESENCE_SCHEMA,
+  HD_SAVED_VIEWS_SCHEMA,
+  HD_IMPORT_SCHEMA,
+  HD_PORTAL_SCHEMA,
+  HD_DRAFTS_SCHEMA,
+  HD_SLA_PAUSE_SCHEMA,
+  HD_RETENTION_SCHEMA,
+  HD_CC_SCHEMA,
+  HD_RECURRING_SCHEMA,
+  HD_TIME_SCHEMA,
 };
 
 const COLUMN_PREDICATE = (table: string, column: string) =>

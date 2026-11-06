@@ -7,7 +7,7 @@
 // visible. Every failure carries the server's own sentence.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { HdAnalyticsQuery, HdDashboard, HdQueryResult } from "@/lib/helpdesk/analytics/shared";
+import type { HdAnalyticsQuery, HdDashboard, HdFilters, HdQueryResult } from "@/lib/helpdesk/analytics/shared";
 import { getJson, sendJson } from "../api";
 
 export interface ReportOptions {
@@ -134,8 +134,37 @@ export async function downloadQueryCsv(q: HdAnalyticsQuery, title: string): Prom
     const d = await res.json().catch(() => ({}));
     throw new Error((d as { error?: string }).error || "Couldn't export that.");
   }
+  await saveDownload(res, "report.csv");
+}
+
+/**
+ * Time tracking (1.19.1): the entries behind a Time logged widget, from
+ * GET /api/helpdesk/time/export (tickets.export, audited there). The
+ * widget's resolved dates, and the filters the export knows: team, person
+ * (who logged it), request type and category.
+ */
+export function timeExportUrl(range: { from: string; to: string }, f: HdFilters): string {
+  const p = new URLSearchParams({ from: range.from, to: range.to });
+  if (f.team?.length) p.set("team", f.team.join(","));
+  const people = (f.assignee ?? []).filter((x): x is number => typeof x === "number");
+  if (people.length) p.set("agent", people.join(","));
+  if (f.request_type?.length) p.set("request_type", f.request_type.join(","));
+  for (const c of f.category ?? []) p.append("category", c);
+  return `/api/helpdesk/time/export?${p.toString()}`;
+}
+
+export async function downloadTimeCsv(url: string): Promise<void> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error((d as { error?: string }).error || "Couldn't export the time entries.");
+  }
+  await saveDownload(res, "helpdesk-time.csv");
+}
+
+async function saveDownload(res: Response, fallback: string): Promise<void> {
   const blob = await res.blob();
-  const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "report.csv";
+  const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? fallback;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

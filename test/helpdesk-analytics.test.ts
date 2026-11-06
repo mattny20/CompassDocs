@@ -561,6 +561,23 @@ describe("measures (hand-computed, team A + B, October 2026)", () => {
     }
   });
 
+  test("customer portal tickets are their own channel, as a split and a filter", async () => {
+    const id = await ticket({ assignee: P.agentA.id, created: "2026-10-13T10:00:00Z", source: "portal_external" as never });
+    try {
+      assert.ok((shared.HD_CHANNELS as readonly string[]).includes("portal_external"));
+      assert.equal(shared.HD_CHANNEL_LABEL.portal_external, "Customer portal");
+      const ch = await q(manager(), { measure: "created", groupBy: ["channel"] });
+      const row = ch.rows.find((r) => r.keys[0] === "portal_external");
+      assert.equal(row?.value, 1);
+      assert.equal(row?.labels[0], "Customer portal");
+      assert.equal(ch.rows.find((r) => r.keys[0] === "portal")?.value, 3, "Get help is still its own channel");
+      assert.equal((await q(manager(), { measure: "created", filters: { channel: ["portal_external"] } })).total.value, 1);
+      assert.deepEqual(shared.parseFilters({ channel: ["portal_external"] }), { ok: true, value: { channel: ["portal_external"] } });
+    } finally {
+      await pool().query("DELETE FROM hd_tickets WHERE id = $1", [id]);
+    }
+  });
+
   test("heatmap: day of the week by hour, in local time", async () => {
     const h = await q(manager(), { measure: "created", groupBy: ["weekday", "hour"] });
     assert.equal(h.rows.length, 7 * 24);

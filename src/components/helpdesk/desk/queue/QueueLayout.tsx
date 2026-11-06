@@ -25,8 +25,15 @@ import { useDeskKeys } from "../hotkeys";
 import { PickMenu } from "../PickMenu";
 import { TeamIcon } from "../TeamIcon";
 import { TicketList } from "./TicketList";
+import { BulkBar } from "../merge/BulkBar";
+import { useRowSelection } from "../merge/selection";
 import { NewTicketModal } from "./NewTicketModal";
 import { SORTS, VIEWS, apiQs, readSel, selQs, type QueueSel } from "./views";
+import { savedApiQs, useSavedViews } from "../views/saved";
+import { SavedViewsNav } from "../views/SavedViewsNav";
+import { EditViewButton, SaveViewButton } from "../views/ViewControls";
+import { ViewDialogs } from "../views/ViewDialogs";
+import { filterSummary } from "@/lib/helpdesk/saved-views-shared";
 
 interface QueueCtx {
   rows: HdTicketListRow[] | null;
@@ -53,14 +60,24 @@ export function QueueLayout({ children }: { children: ReactNode }) {
   const [newOpen, setNewOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
+  // 1.19.1 saved views (agent V4, ../views): ?saved=12 lists the view's own filters.
+  const sv = useSavedViews();
+  const savedView = sel.saved ? sv.list?.views.find((v) => v.id === sel.saved) : undefined;
+  const listQs = sel.saved ? savedApiQs(sel, sv.list?.views) : apiQs(sel);
+  const savedGone = !!sel.saved && !!sv.list && !listQs;
+
   const load = useCallback(() => {
-    getJson(`/api/helpdesk/tickets?${apiQs(sel)}`, "Couldn't load the tickets.")
+    if (!listQs) {
+      if (savedGone) setError("This saved view was deleted, or it isn't shared with you any more.");
+      return;
+    }
+    getJson(`/api/helpdesk/tickets?${listQs}`, "Couldn't load the tickets.")
       .then((d) => {
         setRows(listOf<HdTicketListRow>(d, "tickets", "rows"));
         setError("");
       })
       .catch((e: Error) => setError(e.message));
-  }, [sel]);
+  }, [listQs, savedGone]);
 
   useEffect(() => {
     setRows(null);
@@ -69,17 +86,19 @@ export function QueueLayout({ children }: { children: ReactNode }) {
     return () => clearInterval(t);
   }, [load]);
 
+  const refreshViews = sv.refresh;
   const refresh = useCallback(() => {
     load();
     refreshCounts();
-  }, [load, refreshCounts]);
+    refreshViews();
+  }, [load, refreshCounts, refreshViews]);
 
   const can = useCan();
   // Replies from newbies waiting for a lead (agent J's review queue), in the counts.
   const reviewer = can("replies.review");
   const reviews = reviewer ? counts?.reviews_pending ?? 0 : 0;
   const team = sel.team ? counts?.teams.find((t) => t.team_id === sel.team) : null;
-  const title = sel.drill ? "Report drill-down" : sel.team ? team?.name ?? "Team" : VIEWS.find((v) => v.key === sel.view)?.label ?? "My open";
+  const title = sel.saved ? savedView?.name ?? "Saved view" : sel.drill && sel.origin === "filter" ? "Filtered tickets" : sel.drill ? "Report drill-down" : sel.team ? team?.name ?? "Team" : VIEWS.find((v) => v.key === sel.view)?.label ?? "My open";
 
   // j / k move focus through the list's rows; Enter (on a focused row) is
   // the link's own. Focus is real, so the outline shows where you are.
@@ -93,9 +112,13 @@ export function QueueLayout({ children }: { children: ReactNode }) {
     links[next].focus();
     links[next].scrollIntoView({ block: "nearest" });
   };
+  // Row selection and the bulk bar (1.19.1, agent V2, ../merge): x toggles the focused row.
+  const selectable = can("tickets.bulk") || can("tickets.merge");
+  const selection = useRowSelection(rows);
   useDeskKeys({
     j: () => move(1),
     k: () => move(-1),
+    ...(selectable ? { x: () => selection.toggleFocused(listRef) } : {}),
     Enter: () => {
       const links = Array.from(listRef.current?.querySelectorAll<HTMLAnchorElement>("a[data-row]") ?? []);
       const first = links[0];
@@ -147,6 +170,7 @@ export function QueueLayout({ children }: { children: ReactNode }) {
           )}
         </Link>
       )}
+      <SavedViewsNav sv={sv} sel={sel} onPick={onPick} asMenu={asMenu} />
       {counts && counts.teams.length > 0 && (
         <>
           <p className={`${RAIL_GROUP_TEXT} mb-1 mt-4 px-3`}>Teams</p>
@@ -190,6 +214,7 @@ export function QueueLayout({ children }: { children: ReactNode }) {
           <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-slate-200 px-3">
             <QueueTitle title={title} count={rows?.length} viewLinks={viewLinks} />
             <div className="ml-auto flex items-center gap-1">
+              <EditViewButton sv={sv} sel={sel} />
               <PickMenu
                 label="Sort"
                 value={sel.sort}
@@ -200,7 +225,7 @@ export function QueueLayout({ children }: { children: ReactNode }) {
                     {...p}
                     type="button"
                     aria-label={`Sort: ${SORTS.find((s) => s.value === sel.sort)?.label}`}
-                    className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                    className="inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
                   >
                     <ArrowDownUp className="h-3.5 w-3.5 sm:hidden" aria-hidden />
                     <span className="hidden sm:inline">{SORTS.find((s) => s.value === sel.sort)?.label}</span>
@@ -223,20 +248,31 @@ export function QueueLayout({ children }: { children: ReactNode }) {
             <div className="flex items-center gap-2 border-b border-compass-200 bg-compass-50/70 px-3 py-2 text-xs text-slate-700">
               <Filter className="h-3.5 w-3.5 shrink-0 text-compass-600" aria-hidden />
               <span className="min-w-0 flex-1 truncate">
-                Filtered from Reports: <span className="font-medium">{drillSummary(sel.drill, counts?.teams ?? [])}</span>
+                {sel.origin === "filter" ? (
+                  <>
+                    Filtered: <span className="font-medium">{filterSummary(sel.drill, counts?.teams ?? [])}</span>
+                  </>
+                ) : (
+                  <>
+                    Filtered from Reports: <span className="font-medium">{drillSummary(sel.drill, counts?.teams ?? [])}</span>
+                  </>
+                )}
               </span>
+              <SaveViewButton sv={sv} sel={sel} />
               <Link href="/desk" className="link shrink-0 font-medium">
                 Clear
               </Link>
             </div>
           )}
+          {selectable && <BulkBar selection={selection} shown={rows?.length ?? 0} onDone={refresh} />}
           <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
-            <TicketList rows={rows} error={error} selected={selected} qs={qs} onRetry={load} title={title} />
+            <TicketList rows={rows} error={error} selected={selected} qs={qs} onRetry={load} title={title} selection={selectable ? selection : undefined} />
           </div>
         </section>
         <div className={`min-h-0 min-w-0 flex-1 ${selected ? "flex" : "hidden lg:flex"}`}>{children}</div>
       </div>
       <NewTicketModal open={newOpen} onClose={() => setNewOpen(false)} onCreated={(n) => { setNewOpen(false); refresh(); router.push(`/desk/tickets/${n}${qs}`); }} />
+      <ViewDialogs sv={sv} sel={sel} teams={counts?.teams ?? []} title={title} basePath={selected ? `/desk/tickets/${selected}` : "/desk"} />
     </Ctx.Provider>
   );
 }

@@ -25,6 +25,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   "user.enable": "Enabled user",
   "user.disable": "Disabled user",
   "user.delete": "Deleted user",
+  "user.personal_data_exported": "Exported a person's data",
   "users.directory_autolink": "Linked accounts to directory entries",
 
   // The signed-in person's own account
@@ -154,6 +155,11 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.setup.starter": "Added the helpdesk starter set",
   "helpdesk.inbound.secret_rotated": "Changed the helpdesk email address secret",
   "helpdesk.inbound.rejected": "Rejected helpdesk email",
+  // Customer portal (1.19.1, agent V6, lib/helpdesk/portal).
+  "helpdesk.portal.updated": "Changed the customer portal",
+  "helpdesk.portal.contact_blocked": "Blocked a customer portal contact",
+  "helpdesk.portal.contact_unblocked": "Unblocked a customer portal contact",
+  "helpdesk.portal.signin": "Signed in to the customer portal",
   "helpdesk.automation.created": "Created helpdesk rule",
   "helpdesk.automation.updated": "Edited helpdesk rule",
   "helpdesk.automation.deleted": "Deleted helpdesk rule",
@@ -161,7 +167,25 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.macro.created": "Created macro",
   "helpdesk.macro.updated": "Edited macro",
   "helpdesk.macro.deleted": "Deleted macro",
+  "helpdesk.view.created": "Saved a queue view",
+  "helpdesk.view.updated": "Changed a saved view",
+  "helpdesk.view.deleted": "Deleted a saved view",
   "helpdesk.ticket.deleted": "Deleted ticket",
+  // Retention and privacy (1.19.1, agent V5): the sweep's rows carry counts per run.
+  "helpdesk.ticket.auto_closed": "Closed solved tickets automatically",
+  "helpdesk.ticket.anonymised": "Anonymised helpdesk tickets",
+  "helpdesk.ticket.deleted_by_retention": "Deleted old helpdesk tickets",
+  "helpdesk.ticket.legal_hold_set": "Put a ticket on legal hold",
+  "helpdesk.ticket.legal_hold_cleared": "Took a ticket off legal hold",
+  "helpdesk.retention.updated": "Changed helpdesk retention settings",
+  "helpdesk.shortcuts.updated": "Changed helpdesk shortcuts",
+  // CCs and followers (1.19.1, lib/helpdesk/ccs).
+  "helpdesk.ticket.cc_added": "Added people to a ticket's CC",
+  "helpdesk.ticket.cc_removed": "Removed someone from a ticket's CC",
+  "helpdesk.ticket.follower_added": "Followed a ticket",
+  "helpdesk.ticket.follower_removed": "Unfollowed a ticket",
+  "helpdesk.ticket.merged": "Merged tickets",
+  "helpdesk.ticket.bulk_updated": "Bulk edited tickets",
   "helpdesk.space_access.granted": "Granted space access from a request",
   "helpdesk.approval.decided": "Decided an approval",
   "helpdesk.approval.approved": "Approved a request",
@@ -173,6 +197,16 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.assignment.rules_reordered": "Reordered assignment rules",
   "helpdesk.assignment.on_call_updated": "Changed a team's on-call rota",
   "helpdesk.assignment.member_paused": "Paused or resumed auto-assignment for an agent",
+  // Recurring tickets and time tracking (1.19.1, agent V8).
+  "helpdesk.recurring.created": "Created a recurring ticket schedule",
+  "helpdesk.recurring.updated": "Edited a recurring ticket schedule",
+  "helpdesk.recurring.deleted": "Deleted a recurring ticket schedule",
+  "helpdesk.recurring.run": "Opened a recurring ticket",
+  "helpdesk.time.logged": "Logged time on a ticket",
+  "helpdesk.time.edited": "Edited logged time",
+  "helpdesk.time.deleted": "Deleted logged time",
+  "helpdesk.time.exported": "Exported logged time",
+  "helpdesk.team.time_setting_changed": "Changed whether a team is asked for time on solve",
   "helpdesk.reports.exported": "Exported helpdesk report",
   "helpdesk.report.exported": "Exported helpdesk report",
   // Workspace notification policy (1.19.0, agent F's helpdesk notifications).
@@ -206,6 +240,18 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.workflow_run.cancelled": "Cancelled a workflow run",
   "helpdesk.workflow_run.step_retried": "Retried a workflow step",
   "helpdesk.workflow_run.step_skipped": "Skipped a workflow step",
+  // Claude connector helpdesk tools (1.19.1, agent V1): rows carry details.via "mcp".
+  "helpdesk.request.created": "Raised a request",
+  "helpdesk.request.replied": "Replied on own request",
+  "helpdesk.note.added": "Added an internal note",
+  "helpdesk.ticket.updated": "Changed a ticket",
+  "helpdesk.reply_draft.created": "Saved a reply draft",
+  "helpdesk.reply_draft.used": "Used a reply draft",
+  "helpdesk.reply_draft.discarded": "Discarded a reply draft",
+  // Ticket import from Zoho Desk or CSV (1.19.1, agent V7): details carry the counts.
+  "helpdesk.import.started": "Started a ticket import",
+  "helpdesk.import.completed": "Finished a ticket import",
+  "helpdesk.import.cancelled": "Stopped a ticket import",
   // Bulk actions across policies and people (F5, 1.14.0): one summary row
   // per call beside the per-policy and per-row rows the writes emit
   // (ack.bulk_extended, above, is the dispatcher's since 1.13.0).

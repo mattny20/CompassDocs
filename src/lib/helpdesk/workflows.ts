@@ -24,6 +24,7 @@ import type { HdQueryable } from "./db-core";
 import { answerText, isIsoDate } from "./request-types";
 import type { Checked } from "./request-types";
 import { HD_CONDITION_OPS, HD_REQUESTER_FIELDS } from "./types";
+import { checkCount, countedHoursLabel, countedReminderAt, countedTaskDue, countedWaitUntil, countMode, shiftBusinessDays, shortDate } from "./business-waits-shared";
 import type {
   HdApproverDefB,
   HdConditionOp,
@@ -147,6 +148,10 @@ function checkTask(raw: Record<string, unknown>, key: string, where: string): Ch
   const outputs = checkOutputs(raw.outputs, where);
   if (!outputs.ok) return outputs;
   if (outputs.value) step.outputs = outputs.value;
+  // How the due counts (1.19.1): only with a due date to count.
+  const count = checkCount(raw, where);
+  if (!count.ok) return count;
+  if (step.due) Object.assign(step, count.value);
   return { ok: true, value: step as HdTaskStepDef };
 }
 
@@ -346,7 +351,12 @@ export function parseWorkflowDefinition(raw: unknown): Checked<HdWorkflowDefinit
         if (u.field !== undefined) {
           const f = str(u.field);
           if (!FIELD_RE.test(f)) return { ok: false, error: `${where}: the date is a form field key.` };
-          until = { field: f };
+          // Days before or after the date (1.19.1); 0 is stored as no offset, as before.
+          const off = u.offset_days === undefined || u.offset_days === null ? 0 : u.offset_days;
+          if (typeof off !== "number" || !Number.isInteger(off) || Math.abs(off) > WORKFLOW_LIMITS.offsetDays) {
+            return { ok: false, error: `${where}: the days before or after are a whole number up to ${WORKFLOW_LIMITS.offsetDays}.` };
+          }
+          until = off ? { field: f, offset_days: off } : { field: f };
         } else {
           const h = u.after_hours;
           if (typeof h !== "number" || !Number.isInteger(h) || h < 1 || h > WORKFLOW_LIMITS.afterHours) {
@@ -386,6 +396,13 @@ export function parseWorkflowDefinition(raw: unknown): Checked<HdWorkflowDefinit
     const when = checkWhen(s.when, where);
     if (!when.ok) return when;
     if (when.value) (steps[steps.length - 1] as HdStepExtrasB).when = when.value;
+    // A wait, and an approval with a reminder, may count business time (1.19.1; a task's was read with it).
+    const last = steps[steps.length - 1];
+    if (last.kind === "wait" || (last.kind === "approval" && last.remind_after_hours)) {
+      const count = checkCount(s, where);
+      if (!count.ok) return count;
+      Object.assign(last, count.value);
+    }
   }
   return { ok: true, value: { trigger: rtId ? { request_type_id: rtId } : {}, steps } };
 }
@@ -410,6 +427,7 @@ export async function checkWorkflowRefs(def: HdWorkflowDefinition, form?: HdForm
       if (s.approver.kind === "user") userIds.add(s.approver.user_id);
     }
     if (s.kind === "wait" && "field" in s.until) fields.push({ field: s.until.field, title: s.title });
+    if ((s.kind === "wait" || s.kind === "approval") && s.count_team_id) teamIds.add(s.count_team_id);
     if (s.kind === "notify" && typeof s.to === "object") {
       if ("user_id" in s.to) userIds.add(s.to.user_id);
       if ("team_id" in s.to) teamIds.add(s.to.team_id);
@@ -417,6 +435,7 @@ export async function checkWorkflowRefs(def: HdWorkflowDefinition, form?: HdForm
   }
   for (const t of definitionTasks(def) as HdTaskStepDefB[]) {
     teamIds.add(t.team_id);
+    if (t.count_team_id) teamIds.add(t.count_team_id);
     if (t.due && "field" in t.due) fields.push({ field: t.due.field, title: t.title });
     if (t.route) {
       for (const m of t.route.map) teamIds.add(m.team_id);
@@ -658,9 +677,9 @@ export function taskDueAt(due: HdDueDef | undefined, answers: HdFormAnswers, fro
   return new Date(from.getTime() + due.after_hours * 3_600_000);
 }
 
-/** When a wait ends: the form date (start of that day, UTC) or hours after `from`. A missing date ends it at once. */
+/** When a wait ends: the form date plus its offset days (start of that day, UTC) or hours after `from`. A missing date ends it at once. */
 export function waitUntil(until: HdWaitStepDef["until"], answers: HdFormAnswers, from: Date): Date {
-  if ("field" in until) return fieldDate(answers, until.field, 0, 0) ?? from;
+  if ("field" in until) return fieldDate(answers, until.field, until.offset_days ?? 0, 0) ?? from;
   return new Date(from.getTime() + until.after_hours * 3_600_000);
 }
 
@@ -907,6 +926,8 @@ export interface SimulatedStep {
   reason?: string;
   /** The team a task would go to (after routing). */
   team_name?: string;
+  /** Business counting (1.19.1): whose calendar counted, and the holidays it passed over. */
+  count_note?: string;
   warnings: string[];
 }
 
@@ -945,8 +966,8 @@ async function teamNames(ids: number[]): Promise<Map<number, string>> {
 }
 
 const fmt = (d: Date) => d.toISOString();
-const dayText = (d: Date) =>
-  d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const dayText = (d: Date, timeZone = "UTC") =>
+  d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone });
 
 /**
  * A dry run: what each step would do with these answers. Reads only. Time
@@ -1007,11 +1028,32 @@ export async function simulateWorkflow(
     reason,
     warnings: [],
   });
-  const task = (t: HdTaskStepDefB, depth: number): SimulatedStep => {
+  // Business counting (1.19.1): the counting team's calendar, its name and the holidays passed.
+  const { hoursForTeam } = await import("./calendars");
+  const counting = async (s: { count?: "business"; count_team_id?: number }, fallbackTeam: number | null) => {
+    if (countMode(s) !== "business") return { mode: "calendar" as const, hours: null, teamId: null, name: "" };
+    const teamId = s.count_team_id ?? fallbackTeam;
+    if (teamId && !teams.has(teamId)) {
+      const more = await teamNames([teamId]);
+      for (const [k, v] of more) teams.set(k, v);
+    }
+    return { mode: "business" as const, hours: await hoursForTeam(teamId), teamId, name: teamId ? team(teamId) : "the default calendar" };
+  };
+  const countNote = (c: Awaited<ReturnType<typeof counting>>, field: { answer: unknown; offset: number; at: "open" | "close" } | null): string | undefined => {
+    if (c.mode !== "business" || !c.hours) return undefined;
+    const whose = c.teamId ? `${c.name}'s office hours and holidays` : "the default calendar's office hours and holidays";
+    if (!field || !isIsoDate(field.answer)) return `Business time: counts ${whose}.`;
+    const r = shiftBusinessDays(String(field.answer), field.offset, c.hours, field.at);
+    const skipped = r.holidays.map((h) => `${shortDate(h.date)} (${h.name})`);
+    return `Business days: counts ${whose}${skipped.length ? `; skips ${skipped.join(", ")}` : ""}.`;
+  };
+  const task = async (t: HdTaskStepDefB, depth: number): Promise<SimulatedStep> => {
     const cond = evaluateWhen(t.when, facts);
     if (!cond.pass) return skippedLine(t.key, "task", t.title, depth, cond.reason);
     const routed = pickRouteTeam(t.route, facts, t.team_id);
-    const due = taskDueAt(t.due, answers, clock);
+    const c = await counting(t, routed.team_id);
+    const due = countedTaskDue(t.due, answers, clock, c.mode, c.hours);
+    const tz = c.hours?.timezone ?? "UTC";
     const w: string[] = [];
     if (t.due && "field" in t.due && !due) w.push(`No date in "${t.due.field}", so the task has no due date.`);
     const routeLine = t.route ? ` Routed to ${team(routed.team_id)} (${routed.reason}).` : "";
@@ -1021,11 +1063,12 @@ export async function simulateWorkflow(
       kind: "task",
       title: t.title,
       depth,
-      outcome: `A task ticket for ${team(routed.team_id)}${due ? `, due ${dayText(due)}` : ""}. The next step waits until it is solved.${routeLine}${cantDo}`,
+      outcome: `A task ticket for ${team(routed.team_id)}${due ? `, due ${dayText(due, tz)}` : ""}. The next step waits until it is solved.${routeLine}${cantDo}`,
       starts_at: fmt(clock),
       due_at: due ? fmt(due) : null,
       reason: t.route ? routed.reason : undefined,
       team_name: team(routed.team_id),
+      count_note: countNote(c, t.due && "field" in t.due ? { answer: answers[t.due.field], offset: t.due.offset_days ?? 0, at: "close" } : null),
       warnings: w,
     };
   };
@@ -1059,7 +1102,12 @@ export async function simulateWorkflow(
         }
       }
       const declined = input.decline_at === s.key;
-      const remind = s.remind_after_hours ? ` Reminder after ${s.remind_after_hours} hour${s.remind_after_hours === 1 ? "" : "s"}.` : "";
+      const rc = await counting(s, rt?.team_id ?? null);
+      const remindAt = countedReminderAt(clock, s.remind_after_hours, rc.mode, rc.hours);
+      const remind =
+        s.remind_after_hours && remindAt
+          ? ` Reminder after ${countedHoursLabel(s.remind_after_hours, rc.mode)}${rc.mode === "business" ? ` (${dayText(remindAt, rc.hours?.timezone)})` : ""}.`
+          : "";
       out.push({
         key: s.key,
         kind: "approval",
@@ -1069,6 +1117,7 @@ export async function simulateWorkflow(
           ? `Asks ${who}. Declined: ${s.on_decline === "close" ? "the request is closed and the requester told why." : "the workflow carries on."}`
           : `Asks ${who}.${remind}`,
         starts_at: fmt(clock),
+        count_note: s.remind_after_hours ? countNote(rc, null) : undefined,
         warnings: w,
       });
       if (declined && s.on_decline === "close") {
@@ -1076,7 +1125,7 @@ export async function simulateWorkflow(
         break;
       }
     } else if (s.kind === "task") {
-      out.push(task(s, 0));
+      out.push(await task(s, 0));
     } else if (s.kind === "parallel") {
       out.push({
         key: s.key,
@@ -1087,9 +1136,10 @@ export async function simulateWorkflow(
         starts_at: fmt(clock),
         warnings: [],
       });
-      for (const t of s.steps) out.push(task(t, 1));
+      for (const t of s.steps) out.push(await task(t, 1));
     } else if (s.kind === "wait") {
-      const until = waitUntil(s.until, answers, clock);
+      const wc = await counting(s, rt?.team_id ?? null);
+      const until = countedWaitUntil(s.until, answers, clock, wc.mode, wc.hours);
       const w: string[] = [];
       if ("field" in s.until && !isIsoDate(answers[s.until.field])) w.push(`No date in "${s.until.field}", so the wait ends at once.`);
       out.push({
@@ -1097,9 +1147,10 @@ export async function simulateWorkflow(
         kind: "wait",
         title: s.title,
         depth: 0,
-        outcome: until > clock ? `Waits until ${dayText(until)}.` : "Moves straight on.",
+        outcome: until > clock ? `Waits until ${dayText(until, wc.hours?.timezone)}.` : "Moves straight on.",
         starts_at: fmt(clock),
         wait_until: fmt(until),
+        count_note: countNote(wc, "field" in s.until ? { answer: answers[s.until.field], offset: s.until.offset_days ?? 0, at: "open" } : null),
         warnings: w,
       });
       if (until > clock) clock = until;

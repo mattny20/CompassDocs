@@ -1,0 +1,4 @@
+﻿"Ticket","Message ID","From","Kind","Text","Sent"
+"GEN-1","m1","Alex Agent <alex.agent@acme-example.com>","public","Have you tried holding the power button for 30 seconds?","04/11/2026 09:30"
+"GEN-1","m2","Alex Agent <alex.agent@acme-example.com>","internal","Battery recall list, check serial.","04/11/2026 09:35"
+"GEN-2","m3","Sam Outside <sam@outside-example.org>","public","Thanks, all sorted.","06/11/2026 09:00"

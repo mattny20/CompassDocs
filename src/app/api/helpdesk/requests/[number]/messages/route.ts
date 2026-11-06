@@ -1,14 +1,19 @@
 // POST /api/helpdesk/requests/[number]/messages  { body, attachments? }
 //   The requester's reply on their own request (public). A request waiting
 //   on them, or solved, opens again. → 201 { message, status }
-// Helpdesk 1.19.0 (helpdesk.request). Only the requester posts here
-// (approvers ask through /api/helpdesk/approvals/[id]/question). 30 a minute.
+// Helpdesk 1.19.0 (helpdesk.request). Only the requester posts here, and
+// (1.19.1) people copied on the request, who reply as the requester does
+// (approvers ask through /api/helpdesk/approvals/[id]/question). A CC who
+// works the ticket gets 409 and replies from the desk. 30 a minute.
 
 import { NextResponse } from "next/server";
 import { helpdeskGate, messagePostLimited, readJson, requesterMessages, tooMany } from "@/lib/helpdesk/access";
 import { addMessage, MESSAGE_LIMITS } from "@/lib/helpdesk/messages";
 import { attachToMessage, pendingAttachments } from "@/lib/helpdesk/attachments";
 import { badRequest, loadTicketFor, notFound, originOf, textField } from "@/lib/helpdesk/routes";
+import { isCcOf } from "@/lib/helpdesk/ccs";
+import { hdLinks } from "@/lib/helpdesk/email";
+import { HdTicketError } from "@/lib/helpdesk/tickets";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +25,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ number:
   const found = await loadTicketFor(gate, number, "see");
   if (found instanceof NextResponse) return found;
   const t = found.ticket;
-  if (t.requester_id !== gate.id) return notFound();
+  if (t.requester_id !== gate.id && !(await isCcOf(gate.id, t.id))) return notFound();
+  // Someone who works the ticket replies from the desk, where their role's
+  // newbie review applies, even when they are also copied on it (the same
+  // precedence as inbound mail: agent before CC).
+  if (t.requester_id !== gate.id && found.relation === "agent") {
+    return NextResponse.json({ error: "You work this ticket. Reply from the desk.", desk_url: hdLinks.ticket(t.number) }, { status: 409 });
+  }
   if (t.status === "closed") return NextResponse.json({ error: "This request is closed. Send a new one." }, { status: 409 });
   const b = await readJson(req, 128 * 1024);
   if (!b) return badRequest("Send the reply as JSON.");
@@ -29,18 +40,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ number:
   const attachments = await pendingAttachments(b.attachments, { userId: gate.id, ticketId: t.id });
   if (!attachments) return badRequest("One of the files is not available. Upload it again.");
   if (!body && !attachments.length) return badRequest("Write a reply.");
-  const res = await addMessage(
-    t.id,
-    {
-      kind: "public",
-      body,
-      author: { id: gate.id, name: gate.name || gate.username, email: gate.email },
-      via: "portal",
-      asRequester: true,
-      attachments,
-    },
-    { origin: originOf(req) }
-  );
+  let res: Awaited<ReturnType<typeof addMessage>>;
+  try {
+    res = await addMessage(
+      t.id,
+      {
+        kind: "public",
+        body,
+        author: { id: gate.id, name: gate.name || gate.username, email: gate.email },
+        via: "portal",
+        asRequester: true,
+        attachments,
+      },
+      { origin: originOf(req) }
+    );
+  } catch (e) {
+    // A merge committed meanwhile (re-checked under its lock).
+    if (e instanceof HdTicketError) {
+      return NextResponse.json({ error: e.status === 409 ? "This request was merged into another one. Reply on that one." : e.message }, { status: e.status });
+    }
+    throw e;
+  }
   if (!res) return notFound();
   if (attachments.length) await attachToMessage(attachments.map((a) => a.id), t.id, res.message.id, { userId: gate.id });
   return NextResponse.json({ message: requesterMessages([res.message])[0], status: res.status, reopened: res.reopened }, { status: 201 });

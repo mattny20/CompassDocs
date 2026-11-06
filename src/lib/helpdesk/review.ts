@@ -323,6 +323,14 @@ export async function decideReview(
     } catch (e) {
       console.error("helpdesk review: reply notice failed:", e);
     }
+    // 1.19.1: the followers' notice was held with the reply; it goes now
+    // (never to the author, nor to the lead who approved it).
+    try {
+      const { notifyFollowers } = await import("./ccs");
+      await notifyFollowers(res.t.id, { kind: "message", messageId }, { origin: ctx.origin, actorId: user.id, actorName: reviewerName });
+    } catch (e) {
+      console.error("helpdesk review: followers notice failed:", e);
+    }
   } else if (res.m.author_id) {
     await reviewNotice([res.m.author_id], "desk_review_returned", {
       title: `${reviewerName} returned your reply on #${res.t.number}`,
