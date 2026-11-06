@@ -234,6 +234,7 @@ describe("lib/periodic (pure)", () => {
       reminded_at: null,
       hidden_count: 0,
       via_handbook_title: null,
+      asked_through_handbook: false,
     });
     const lines = policySummaryLines(
       groups,

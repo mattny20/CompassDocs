@@ -11343,6 +11343,9 @@ export interface ClaimedAckReminder {
  * one, every nudge_every_days when that is above 0. SET reminded_at = now(),
  * reminder_count + 1. `documentIds` limits the claim (tests sharing a
  * database; the tick passes nothing).
+ * Known gap (pre-1.18.3, left as is): no ACK_DOC_VISIBILITY test here, so
+ * a row whose person lost access (space closed, handbook unpublished) is
+ * still claimed until the reconcile closes it.
  */
 export async function claimAckReminders(
   defaults: AckSweepDefaults,
