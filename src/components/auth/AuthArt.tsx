@@ -3,8 +3,10 @@
 // headline, tagline and caption over it. Brand and decoration only, never
 // a control (the Card/Stage rule), with one deliberate exception (1.17.0):
 // the sign-in page's quick links (SignInLinksBar), between the lockup and
-// the headline in the DOM, a bar across the middle of the cover or a strip
-// along the bottom of the band. The first and password steps name the
+// the headline in the DOM, since 1.18.1 a bar across the top of the cover,
+// level with the logo tile, or a strip along the top of the band. The bar is
+// drawn by the content's own grid (.auth-links in globals.css), so nothing
+// is laid over the links. The first and password steps name the
 // workspace in their subtitle, and print shows the column's lockup in place
 // of the cover. With the text switched off over a photo the cover is pure
 // art (aria-hidden, unless it carries links) and the column shows the

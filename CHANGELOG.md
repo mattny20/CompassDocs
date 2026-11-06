@@ -4,6 +4,29 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.18.1] - 2026-11-05
+
+Sign-in quick links move to the top of the artwork, as buttons in a bar
+level with the logo.
+
+### Changed
+- **Quick links on the sign-in page sit in a bar across the top of the
+  artwork.** On screens 1024 pixels and wider, the links an admin marks
+  **Sign-in page** are now buttons the height of the logo, each with the
+  link's icon, right-aligned in a frosted bar that runs the full width of
+  the artwork with the logo on its left. When there are more than fit,
+  the row scrolls sideways. The middle of the artwork is clear again, and
+  the headline, tagline and caption sit where they did before quick
+  links. Over a photo the bar is darker, so the links stay readable.
+- **On phones the links sit at the top of the band**, in one row that
+  scrolls sideways, with the logo and workspace name below them. The
+  sign-in preview and the forced password change show the same.
+- Nothing changed in **Settings → Links**: the same links, chosen the same
+  way, still open in a new tab, come after the sign-in form for the
+  keyboard, are left out of print, and turn solid for reduced
+  transparency, more contrast and forced colours. With no sign-in links
+  the artwork is unchanged.
+
 ## [1.18.0] - 2026-11-05
 
 Policy handbooks. A handbook brings published policies from any spaces

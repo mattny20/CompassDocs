@@ -878,7 +878,8 @@ mechanical and comes later.
   the form is centred in the 16px gutter. The band is 6rem tall on a phone
   (the lockup only), 10rem from 40rem, and 4rem when the viewport is under
   34rem tall (a landscape phone, the Outlook dialog), which wins by source
-  order; each grows by 3.5rem when it carries the quick links strip (below).
+  order; the 6rem and 4rem bands grow by 3.5rem when they carry the quick
+  links strip (below), and the 10rem band holds it as it is.
   The cover is a sticky, full-height `aside`. The grid uses
   `minmax(0, 1fr)`, so nothing scrolls sideways at 3440.
 - **DOM order is `<main>` first**, then the cover. The grid puts the cover
@@ -938,7 +939,9 @@ mechanical and comes later.
   a photo each text block (`.auth-art-top`, `.auth-art-foot`) draws its
   own scrim as a `::before` of `rgb(2 6 23 / var(--scrim))`, so the floor
   of **0.62** sits under every glyph whatever the crop, focus point or
-  viewport; the foot's scrim deepens by 0.1 towards the bottom edge. A
+  viewport; the foot's scrim deepens by 0.1 towards the bottom edge. From
+  64rem the quick links bar, darker still over a photo, is the lockup's
+  scrim, and the lockup draws none of its own. A
   scrim drawn by the text block is provable where an upload-time contrast
   solver is not (which pixels sit under the text changes with the screen).
   `prefers-contrast: more` raises the floor to 0.8 and drops the bezel and
@@ -965,50 +968,71 @@ mechanical and comes later.
   tagline and caption scale the same way, the lockup name is capped at
   24ch, and the display hides the lockup's name when it is the name.
   Aileron 400, 600 and 700 only; no display font, no weight 800.
-- **Sign-in quick links** (1.17.0, `components/auth/SignInLinksBar`, the
-  `.auth-links` rules): the links an admin marks **Sign-in page** in
-  Settings → Links, only links with no group restriction (the chip is
-  disabled with a `data-tt` reason otherwise, the server refuses the flag,
-  and restricting a link later clears it), at most 8, by position. The
-  pages load them through `signInLinks()`, which returns none on an error,
-  so the links can never stop anyone signing in; with none, nothing
-  renders and the cover is unchanged. A `<nav aria-label="Quick links">`
-  inside the cover, between the lockup and the words in the DOM, so after
-  the form for Tab and a screen reader. Each link is a button-shaped `<a>`
-  to the link's own address (`TrackedLink`: the same-origin click beacon
-  counts it, a signed-out click with no user; the admin preview passes
-  `trackLinks={false}`), `target="_blank" rel="noopener noreferrer"` with
-  an `sr-only` "(opens in a new tab)": a white icon tile (the favicon or
-  custom icon from the public-safe icon route, else the letter in
-  `compass-700`), the title (600, white, truncating at 14rem), then a
-  0.875rem `ExternalLink` at 60% opacity. Buttons are 0.625rem radius,
-  `rgb(255 255 255 / .14)` on a `.22` hairline, raised to `.26` / `.42`
-  on hover and focus; the focus ring on the art is a 2px **white**
-  outline (the house accent ring does not show on the accent art).
-  - **From 64rem, a bar across the middle of the cover**: the content
-    becomes a `1fr auto 1fr` grid with the bar in the middle row, so it
-    sits on the cover's vertical middle when there is room and is pushed
-    towards the lockup, never over it or the words, when there is not
-    (under 40rem tall it also tightens and drops its caption). It sits
-    inside the cover's own padding (`--art-pad`), 1rem radius,
-    `rgb(15 23 42 / .32)` with
-    `backdrop-filter: blur(14px) saturate(1.2)`, a `rgb(255 255 255 /
-    .16)` hairline and a soft shadow, `.875rem 1rem` padding; an
-    uppercase "Quick links" caption (11px, 600, 0.08em, white at 75%,
-    `aria-hidden`: the nav is already named) over buttons that wrap. With
-    the text off over a photo the bar is all the cover holds. **Over a
-    photo the glass is darker** (`rgb(2 6 23 / .7)`, buttons `/ .1`, `.2`
-    on hover and focus, white caption), so the links stay readable on a
-    bright picture; the solid fallbacks below still win.
-  - **Below 64rem, a strip along the bottom of the band**: 3.5rem tall,
-    `rgb(15 23 42 / .38)` with `blur(12px)` and a top hairline, one row
-    that scrolls sideways (scroll-snap, no visible scrollbar, inset by
-    the band's own padding), smaller buttons (1.375rem tiles, 13px); the
-    band grows by the strip so the lockup keeps its height above it.
-  - `prefers-reduced-transparency` and `prefers-contrast: more` swap the
-    glass for solid slate (`rgb(15 23 42)`, buttons `rgb(51 65 85)`);
-    `forced-colors` draws `Canvas` boxes with `CanvasText` and `LinkText`
-    borders; print hides it with the cover. Nothing on it moves.
+- **Sign-in quick links** (1.17.0, a bar across the top of the cover
+  since 1.18.1; `components/auth/SignInLinksBar`, the `.auth-links`
+  rules): the links an admin marks **Sign-in page** in Settings → Links,
+  only links with no group restriction (the chip is disabled with a
+  `data-tt` reason otherwise, the server refuses the flag, and
+  restricting a link later clears it), at most 8, by position. The pages
+  load them through `signInLinks()`, which returns none on an error, so
+  the links can never stop anyone signing in; with none, nothing renders
+  and the cover is exactly as it is without them. A `<nav
+  aria-label="Quick links">` inside the cover, between the lockup and the
+  words in the DOM, so after the form for Tab and a screen reader however
+  high it sits on screen; no visible caption (the nav is already named).
+  Each link is a button-shaped `<a>` to the link's own address
+  (`TrackedLink`: the same-origin click beacon counts it, a signed-out
+  click with no user; the admin preview passes `trackLinks={false}`),
+  `target="_blank" rel="noopener noreferrer"` with an `sr-only` "(opens
+  in a new tab)": a white icon tile (the favicon or custom icon from the
+  public-safe icon route, else the letter in `compass-700`; 0.375rem
+  radius, the button's height less 0.875rem, so it is inset evenly on
+  three sides), the title (600, white, truncating at 12rem, 10rem below
+  64rem, with a plain `title` once it is over 20 characters), then a
+  0.875rem `ExternalLink` at 60% opacity; no dividers, a 0.5rem gap.
+  Buttons are 0.625rem radius, `rgb(255 255 255 / .14)` on a `.22`
+  hairline, raised to `.26` / `.42` on hover and focus; the focus ring on
+  the art is a 2px **white** outline (the house accent ring does not show
+  on the accent art).
+  - **From 64rem, a frosted bar across the top of the cover**, edge to
+    edge, `rgb(15 23 42 / .32)` with `backdrop-filter: blur(14px)
+    saturate(1.2)` and a `rgb(255 255 255 / .16)` bottom hairline. The
+    logo tile stays where it always is, at the cover's padding, and the
+    bar is `2 × --art-pad` + the tile tall, so the tile sits on its
+    middle. The buttons are **the tile's height**: both read
+    `--art-tile` (`clamp(2.5rem, 2rem + 0.8cqi, 3.25rem)` on the cover,
+    set on `.auth-art`), never a measured size; 14px text. The cover's
+    content becomes a two-row grid (`auto minmax(0, 1fr)` columns): the
+    lockup at its own width and the nav in the rest of the first row,
+    right-aligned and inset by `--art-pad`, the words at the foot of the
+    second. The glass is the content's `::before`, placed on the first
+    row and pushed out by the padding, with `pointer-events: none`; the
+    nav is `position: relative; z-index: 1`. Nothing is absolutely laid
+    over the links, so nothing takes their clicks. A row that does not
+    fit **scrolls sideways** (scroll-snap, no visible scrollbar) in the
+    space right of the lockup, never over it: the scroller runs out to
+    the cover's edge and fades over its first 1.5rem and last
+    `--art-pad`, which at rest are the list's own padding, so a long row
+    is cut at the edge of the art. It never wraps, so the bar never
+    grows and the tile stays on its middle. The middle of the cover is
+    clear; the words keep their place at the foot.
+  - **Below 64rem, a strip along the top of the band**: 3.5rem tall,
+    `rgb(15 23 42 / .38)` with `blur(12px)` and a bottom hairline, the
+    same buttons at 2.25rem (13px text), one row that scrolls sideways
+    (scroll-snap, no visible scrollbar), inset by the band's own padding
+    and right-aligned when it fits. The lockup sits under it, centred in
+    the band's own height: the 6rem (and 4rem) band grows by the strip,
+    the 10rem band has room for both.
+  - **Over a photo the glass is darker** (`rgb(2 6 23 / .7)`, buttons
+    `/ .1`, `.2` on hover and focus), so the links stay readable on a
+    bright picture. The glass is one variable (`--glass`,
+    `--glass-filter` on `.auth-art[data-links]`) that the bar and the
+    strip both read, so each fallback is one line:
+    `prefers-reduced-transparency` and `prefers-contrast: more` swap it
+    for solid slate (`rgb(15 23 42)`, buttons `rgb(51 65 85)`);
+    `forced-colors` draws `Canvas` with a `CanvasText` border (the bar's
+    lines up with the cover's outline) and `LinkText` buttons; print
+    hides it with the cover. Nothing on it moves.
 
 ### Identifier-first steps
 
