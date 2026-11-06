@@ -14,7 +14,7 @@ import {
 } from "@/lib/db";
 import { BranchBanner } from "@/components/BranchBanner";
 import { ViewTracker } from "@/components/ViewTracker";
-import { requireUser } from "@/lib/auth";
+import { getCurrentUser, requireUser } from "@/lib/auth";
 import { userHolds, canPublishDirectly, canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { resolveAuthorPerson } from "@/lib/directory";
 import { findScopeFor } from "@/lib/handbook-visibility";
@@ -51,6 +51,8 @@ import { DocActions } from "@/components/DocActions";
 import { SuggestBox } from "@/components/SuggestBox";
 import { DocComments } from "@/components/DocComments";
 import { DocFeedback } from "@/components/DocFeedback";
+import { helpTrigger } from "@/components/helpdesk/help/trigger-server";
+import { ReportPageProblem } from "@/components/helpdesk/help/triggers";
 import { Attachments } from "@/components/Attachments";
 import { RelatedDocs } from "@/components/RelatedDocs";
 import { relationsFor } from "@/lib/relations";
@@ -64,13 +66,15 @@ import { shareLinksEnabled, getActiveShare } from "@/lib/shares";
 import { Link2 } from "lucide-react";
 
 import type { Metadata } from "next";
-import { cachedDocument } from "@/lib/page-data";
+import { cachedDocument, documentTabTitle } from "@/lib/page-data";
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
-  const doc = await cachedDocument(Number(id)).catch(() => undefined);
-  return { title: doc?.title ? `${doc.title}` : "Document" };
+  // A document the reader cannot open is titled like an id with no document
+  // behind it (1.19.0): the tab never names a draft or a private document.
+  const title = await documentTabTitle(Number(id), await getCurrentUser().catch(() => null));
+  return { title: title ?? "Not found" };
 }
 
 /** Whole calendar months from one moment to another, at least one ("It has been 12 months since…"). */
@@ -131,6 +135,9 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       canEditSpace(user, doc.space_id),
     ]);
   const fmtSettings = settingsForUser(settings, user);
+  // "Report a problem with this page" (Helpdesk 1.19.0): the request type it
+  // starts, or null when the helpdesk is off or the person may not use it.
+  const helpdeskDoc = await helpTrigger(user, "doc");
   // Content review state (staff-facing; readers never see review chrome).
   const reviewDueAt = doc.review_due_at ?? null;
   const reviewOverdue =
@@ -616,6 +623,8 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
               maxMb={settings.max_attachment_mb}
             />
             <SuggestBox documentId={doc.id} />
+            {/* Helpdesk 1.19.0: only when the person may raise a request. */}
+            {helpdeskDoc && <ReportPageProblem docId={doc.id} title={doc.title} type={helpdeskDoc.type} />}
           </>
         }
       >

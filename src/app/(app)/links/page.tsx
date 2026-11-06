@@ -10,6 +10,8 @@ import { SettingsLink } from "@/components/SettingsLink";
 import { PageContainer } from "@/components/PageWidth";
 import { PageHeader } from "@/components/PageHeader";
 import { TrackedLink } from "@/components/TrackedLink";
+import { helpTrigger } from "@/components/helpdesk/help/trigger-server";
+import { BrokenLinkButton } from "@/components/helpdesk/help/triggers";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Links" };
@@ -19,10 +21,12 @@ export const metadata = { title: "Links" };
 // card keeps the link's real href; TrackedLink records the click (1.17.0).
 export default async function LinksPage() {
   const user = await requireUser();
-  const [categories, links, settings] = await Promise.all([
+  const [categories, links, settings, broken] = await Promise.all([
     listLinkCategories(),
     listLinksVisibleTo(user.role === "admin" ? "all" : user.id),
     getAppSettings(),
+    // "This link is broken" (Helpdesk 1.19.0), when the person may raise a request.
+    helpTrigger(user, "link"),
   ]);
 
   const byCategory = new Map<number | null, QuickLink[]>();
@@ -80,13 +84,14 @@ export default async function LinksPage() {
           </h2>
           <div className="card-grid gap-3 [--card-min:16rem]">
             {section.links.map((l) => (
+              // The report control sits beside the card's link, never inside it.
+              <div key={l.id} className="group/card relative">
               <TrackedLink
-                key={l.id}
                 linkId={l.id}
                 href={l.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group flex items-start gap-3 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs transition hover:border-compass-300 hover:shadow-sm"
+                className="group flex h-full items-start gap-3 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs transition hover:border-compass-300 hover:shadow-sm"
               >
                 <LinkIcon link={l} brandLogo={settings.logo_url} />
                 <span className="min-w-0 flex-1">
@@ -101,6 +106,16 @@ export default async function LinksPage() {
                   )}
                 </span>
               </TrackedLink>
+              {broken && (
+                <BrokenLinkButton
+                  linkId={l.id}
+                  title={l.title}
+                  url={l.url}
+                  type={broken.type}
+                  className="absolute bottom-2 right-2 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/card:opacity-100 [@media(hover:none)]:opacity-100"
+                />
+              )}
+              </div>
             ))}
           </div>
         </section>

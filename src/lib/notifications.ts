@@ -24,7 +24,12 @@ export interface NotificationEvent {
     | "ack_escalation"
     | "training_assigned"
     | "training_due"
-    | "service_status";
+    | "service_status"
+    // Helpdesk (1.19.0, Enterprise): requests, desk tickets, approvals, SLA.
+    | "hd_request"
+    | "hd_ticket"
+    | "hd_approval"
+    | "hd_sla";
   title: string;
   body?: string;
   /** In-app path, e.g. `/doc/12#comments`. */
@@ -32,6 +37,13 @@ export interface NotificationEvent {
   actorName?: string;
   /** Absolute origin for webhook links; empty = link text stays relative. */
   origin?: string;
+  /**
+   * The notification catalog's event id (lib/notify-policy-shared) when it
+   * is finer than the bell kind (the helpdesk's "hd_desk_replied" under
+   * kind "hd_request"). Omitted: the kind is the event, as for every
+   * pre-1.19 kind.
+   */
+  event?: string;
 }
 
 /**
@@ -105,16 +117,28 @@ export async function notify(userIds: number[], ev: NotificationEvent, opts: Not
   const result: NotifyResult = { inbox: 0, webhook: 0, inboxIds: [], webhookIds: [] };
   if (all.length === 0) return result;
 
-  // Per-event routing (Account → Notifications): a missing pref means "on".
-  let prefs: Awaited<ReturnType<typeof getNotifyPrefsFor>>;
+  // Per-event routing (1.19.0): the workspace policy and the person's
+  // choices through lib/notify-policy. The bell is never paused; the
+  // webhook follows a pause like email. If the decision cannot be loaded,
+  // the pre-1.19 rule (a missing pref means "on") answers instead.
+  let inboxIds: number[];
+  let webhookIds: number[];
   try {
-    prefs = await getNotifyPrefsFor(all);
+    const { shouldNotifyChannels, eventForKind } = await import("./notify-policy");
+    const d = await shouldNotifyChannels(all, ev.event ?? eventForKind(ev.kind), ["bell", "webhook"] as const);
+    inboxIds = all.filter((id) => d.get(id)?.bell.send);
+    webhookIds = all.filter((id) => d.get(id)?.webhook.send);
   } catch (e) {
-    console.error("notify: prefs lookup failed:", e);
-    prefs = new Map();
+    console.error("notify: policy lookup failed:", e);
+    let prefs: Awaited<ReturnType<typeof getNotifyPrefsFor>>;
+    try {
+      prefs = await getNotifyPrefsFor(all);
+    } catch {
+      prefs = new Map();
+    }
+    inboxIds = all.filter((id) => notifyPrefAllows(prefs.get(id), ev.kind, "inapp"));
+    webhookIds = all.filter((id) => notifyPrefAllows(prefs.get(id), ev.kind, "webhook"));
   }
-  const inboxIds = all.filter((id) => notifyPrefAllows(prefs.get(id), ev.kind, "inapp"));
-  const webhookIds = all.filter((id) => notifyPrefAllows(prefs.get(id), ev.kind, "webhook"));
 
   if (inboxIds.length > 0) {
     try {

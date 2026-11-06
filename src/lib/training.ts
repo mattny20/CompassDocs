@@ -8,14 +8,13 @@ import {
   claimTrainingReminders,
   claimTrainingEscalations,
   claimRecertifications,
-  getNotifyPrefsFor,
   getSetting,
   listUsers,
   trainingOverview,
   trainingNeedsAttention,
   listTrainingDecks,
 } from "@/lib/db";
-import { notify, notifyPrefAllows } from "@/lib/notifications";
+import { notify } from "@/lib/notifications";
 import { renderEmail } from "@/lib/email-templates";
 import { sendMail } from "@/lib/mailer";
 import { getSmtpConfig, smtpConfigured } from "@/lib/smtp-config";
@@ -233,7 +232,8 @@ export async function notifyTrainingAssigned(input: {
     (u) => input.userIds.includes(u.id) && u.email && u.status === "active"
   );
   if (!users.length) return;
-  const prefs = await getNotifyPrefsFor(users.map((u) => u.id));
+  const { emailGate } = await import("@/lib/notify-policy");
+  const gate = await emailGate(users.map((u) => u.id), "training_assigned");
   const origin = input.origin || (settings.custom_domain ? `https://${settings.custom_domain}` : "");
   const { subject, text, html } = await renderEmail(
     "training_assigned",
@@ -246,8 +246,11 @@ export async function notifyTrainingAssigned(input: {
     origin
   );
   for (const u of users) {
-    if (!notifyPrefAllows(prefs.get(u.id), "training_assigned", "email")) continue;
-    await sendMail([u.email], subject, text, html).catch(() => {});
+    await gate
+      .route(u.id, { title: `Training assigned: ${input.deckTitle}`, body: input.dueAt ? `Due by ${formatDate(input.dueAt, settings)}.` : "", link: "/training" }, () =>
+        sendMail([u.email], subject, text, html)
+      )
+      .catch(() => {});
   }
 }
 
@@ -275,9 +278,11 @@ export async function remindDueTraining(): Promise<void> {
 
   const smtp = await getSmtpConfig();
   if (!smtpConfigured(smtp)) return;
+  const { emailGate } = await import("@/lib/notify-policy");
+  const gate = await emailGate(due.map((r) => r.user_id), "training_due");
   for (const r of due) {
     if (!r.email) continue;
-    if (!notifyPrefAllows(r.notify_prefs, "training_due", "email")) continue;
+    if (!gate.allows(r.user_id)) continue;
     const { subject, text, html } = await renderEmail(
       "training_due",
       {
@@ -285,9 +290,14 @@ export async function remindDueTraining(): Promise<void> {
         due_date: formatDate(r.due_at, settings),
         training_url: `${origin}/training`,
       },
-      origin
+      origin,
+      { recipientUserId: r.user_id }
     );
-    await sendMail([r.email], subject, text, html).catch(() => {});
+    await gate
+      .route(r.user_id, { title: `Training due: ${r.title}`, body: `Due by ${formatDate(r.due_at, settings)}.`, link: "/training" }, () =>
+        sendMail([r.email], subject, text, html)
+      )
+      .catch(() => {});
   }
 }
 
@@ -322,11 +332,12 @@ export async function remindAssignmentsNow(
 
   const smtp = await getSmtpConfig();
   if (smtpConfigured(smtp)) {
-    const prefs = await getNotifyPrefsFor(rows.map((r) => r.user_id));
+    const { emailGate } = await import("@/lib/notify-policy");
+    const gate = await emailGate(rows.map((r) => r.user_id), "training_due");
     const origin = settings.custom_domain ? `https://${settings.custom_domain}` : "";
     for (const r of rows) {
       if (!r.email) continue;
-      if (!notifyPrefAllows(prefs.get(r.user_id), "training_due", "email")) continue;
+      if (!gate.allows(r.user_id)) continue;
       const { subject, text, html } = await renderEmail(
         "training_due",
         {
@@ -334,9 +345,14 @@ export async function remindAssignmentsNow(
           due_date: r.due_at ? formatDate(r.due_at, settings) : "soon",
           training_url: `${origin}/training`,
         },
-        origin
+        origin,
+        { recipientUserId: r.user_id }
       );
-      await sendMail([r.email], subject, text, html).catch(() => {});
+      await gate
+        .route(r.user_id, { title: `Reminder: ${deck.title}`, body: r.due_at ? `Due ${formatDate(r.due_at, settings)}.` : "", link: "/training" }, () =>
+          sendMail([r.email], subject, text, html)
+        )
+        .catch(() => {});
     }
   }
   return rows.map((r) => r.assignment_id);
@@ -472,7 +488,8 @@ export async function monthlyTrainingEvidence(): Promise<void> {
         training_url: `${origin}/training`,
         org_name: settings.company_name,
       },
-      origin
+      origin,
+      { recipientUserId: u.id }
     );
     await sendMail([u.email], subject, text, html).catch(() => {});
   }

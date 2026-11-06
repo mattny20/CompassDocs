@@ -101,13 +101,24 @@ export async function notifyMentions(input: {
     }
   );
 
+  // Email (1.19.0, lib/notify-policy): the workspace policy and the
+  // person's mention-email choice, which before 1.19 was the master switch.
+  const { emailGate } = await import("./notify-policy");
+  const gate = await emailGate(
+    input.targets.filter((t) => t.id !== input.authorId).map((t) => t.id),
+    "mention"
+  );
   for (const target of input.targets) {
     if (target.id === input.authorId) continue; // self-mentions don't notify
 
-    // Email (respects the user's notification master switch).
-    if (!mail || !target.email || target.email_notifications !== 1) continue;
+    if (!mail || !target.email) continue;
     try {
-      await sendMail([target.email], mail.subject, mail.text, mail.html);
+      const sent = mail;
+      await gate.route(
+        target.id,
+        { title: `${input.authorName} mentioned you`, body: `In "${input.docTitle}": ${excerpt}`, link: `/doc/${input.docId}#comments` },
+        () => sendMail([target.email], sent.subject, sent.text, sent.html)
+      );
     } catch (e) {
       console.error(`Mention email to ${target.email} failed:`, e);
     }

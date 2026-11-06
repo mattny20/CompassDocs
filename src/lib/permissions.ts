@@ -141,6 +141,14 @@ export const PERMISSIONS = [
   // building handbooks owned by that space from its documents. Reading a
   // handbook needs no permission: its audience decides.
   { key: "handbook.manage", label: "Build handbooks", description: "Create, edit, publish and delete handbooks: workspace-wide when held globally, a space's own when assigned on that space", scope: "space" },
+  // --- helpdesk ---
+  // Enterprise (1.19.0, licence feature "helpdesk"). All global: which
+  // queues an agent works is decided by hd_team_members, not by scope.
+  { key: "helpdesk.admin", label: "Configure the helpdesk", description: "Teams, request types, workflows, SLA, automations, macros, email and surveys; read reports", scope: "global" },
+  { key: "helpdesk.agent", label: "Work helpdesk tickets", description: "Work tickets in the desk for the teams you are a member of", scope: "global" },
+  { key: "helpdesk.agent_all", label: "Work every team's tickets", description: "See and work all teams' tickets in the desk", scope: "global" },
+  { key: "helpdesk.reports", label: "Read helpdesk reports", description: "View and export helpdesk reports", scope: "global" },
+  { key: "helpdesk.request", label: "Get help", description: "Raise requests and follow your own in Get help", scope: "global" },
   // --- identity ---
   { key: "identity.saml_manage", label: "Manage SAML", description: "Change identity-provider trust", scope: "global" },
   { key: "identity.saml_read", label: "Read SAML config", description: "View SAML settings", scope: "global" },
@@ -200,6 +208,8 @@ export const PERMISSIONS = [
   // --- notification ---
   { key: "notification.mark_read", label: "Mark notifications read", description: "Clear your unread badge", scope: "global" },
   { key: "notification.read", label: "Read notifications", description: "Read your notification feed", scope: "global" },
+  { key: "notification.policy_manage", label: "Change notification policies", description: "Set the workspace notification policy: which events notify, on which channels, and what people may change", scope: "global" },
+  { key: "notification.policy_read", label: "View notification policies", description: "See the workspace notification policy", scope: "global" },
   // --- public ---
   { key: "public.attachment_read", label: "Read public attachment", description: "Anonymous attachment download via the public site", scope: "space", principal: "anonymous" },
   { key: "public.diagram_render", label: "Render diagram", description: "Anonymous PlantUML render", scope: "global", principal: "anonymous" },
@@ -350,6 +360,7 @@ export const PRESET_ROLES = {
       "document.read",
       "document.relation_read",
       "document.track_view",
+      "helpdesk.request",
       "link.favicon_fetch",
       "link.icon_read",
       "link.read",
@@ -425,6 +436,7 @@ export const PRESET_ROLES = {
       "document.update",
       "document.version_read",
       "document.version_restore",
+      "helpdesk.request",
       "link.favicon_fetch",
       "link.icon_read",
       "link.read",
@@ -511,6 +523,7 @@ export const PRESET_ROLES = {
       "document.update",
       "document.version_read",
       "document.version_restore",
+      "helpdesk.request",
       "link.favicon_fetch",
       "link.icon_read",
       "link.read",
@@ -617,6 +630,11 @@ export const PRESET_ROLES = {
       "group.read",
       "group.update",
       "handbook.manage",
+      "helpdesk.admin",
+      "helpdesk.agent",
+      "helpdesk.agent_all",
+      "helpdesk.reports",
+      "helpdesk.request",
       "identity.saml_manage",
       "identity.saml_read",
       "identity.scim_manage",
@@ -666,6 +684,8 @@ export const PRESET_ROLES = {
       "newsletter.submit",
       "newsletter.use",
       "notification.mark_read",
+      "notification.policy_manage",
+      "notification.policy_read",
       "notification.read",
       "role.assign",
       "role.manage",
@@ -909,8 +929,36 @@ export const SPACE_ROLES = {
 export type SpaceRoleKey = keyof typeof SPACE_ROLES;
 export const SPACE_ROLE_KEYS = Object.keys(SPACE_ROLES) as SpaceRoleKey[];
 
+/**
+ * The helpdesk roles (1.19.0, Enterprise "helpdesk"). Assigned globally to
+ * a person or a group; which queues an agent works is still decided by team
+ * membership (hd_team_members), so "Helpdesk agent" plus membership of IT
+ * is "works the IT queue". Every built-in role already holds
+ * helpdesk.request, so requesters need nothing.
+ */
+export const HELPDESK_ROLES = {
+  "helpdesk-agent": {
+    label: "Helpdesk agent",
+    description: "Work tickets in the desk for the helpdesk teams you belong to.",
+    permissions: ["helpdesk.agent", "helpdesk.request"] as const satisfies readonly PermissionKey[],
+  },
+  "helpdesk-manager": {
+    label: "Helpdesk manager",
+    description: "Work every team's tickets, configure the helpdesk and read its reports.",
+    permissions: [
+      "helpdesk.admin",
+      "helpdesk.agent",
+      "helpdesk.agent_all",
+      "helpdesk.reports",
+      "helpdesk.request",
+    ] as const satisfies readonly PermissionKey[],
+  },
+};
+export type HelpdeskRoleKey = keyof typeof HELPDESK_ROLES;
+export const HELPDESK_ROLE_KEYS = Object.keys(HELPDESK_ROLES) as HelpdeskRoleKey[];
+
 /** Every seeded non-ladder role, in one place for the boot-time sync. */
 export const DELEGATED_ROLES: Record<
   string,
   { label: string; description: string; permissions: readonly PermissionKey[] }
-> = { ...SECTION_ROLES, ...NEWSLETTER_ROLES, ...SPACE_ROLES };
+> = { ...SECTION_ROLES, ...NEWSLETTER_ROLES, ...SPACE_ROLES, ...HELPDESK_ROLES };

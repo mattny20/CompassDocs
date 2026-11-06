@@ -36,6 +36,9 @@ import {
   PanelLeftOpen,
   GraduationCap,
   BookOpen,
+  LifeBuoy,
+  Headset,
+  ExternalLink,
 } from "lucide-react";
 import { PaletteTrigger } from "./palette/PaletteTrigger";
 import { NotificationsBell } from "./NotificationsBell";
@@ -80,6 +83,9 @@ export function SidebarClient({
   showCompliance,
   showTraining = false,
   showHandbooks = false,
+  showHelp = false,
+  showDesk = false,
+  helpCount = 0,
   trainingCount = 0,
   pendingAckCount = 0,
   isEditor,
@@ -112,6 +118,12 @@ export function SidebarClient({
   showTraining?: boolean;
   /** Reads a handbook or may create one (1.18.0). */
   showHandbooks?: boolean;
+  /** Get help (1.19.0): the helpdesk is licensed and the person may raise requests. */
+  showHelp?: boolean;
+  /** The desk (1.19.0): an agent, helpdesk admin or reports reader; opens in its own tab. */
+  showDesk?: boolean;
+  /** Approvals waiting for the person plus their requests waiting on them — badged on Get help. */
+  helpCount?: number;
   trainingCount?: number;
   /** Policies the person has not confirmed the current ask of — badged on Compliance (B4). */
   pendingAckCount?: number;
@@ -364,6 +376,42 @@ export function SidebarClient({
             collapsed={collapsed}
             active={isActivePath(pathname, "/handbooks")}
           />
+        )}
+        {showHelp && (
+          <NavLink
+            href="/help"
+            icon={<LifeBuoy className="h-4 w-4" />}
+            label="Get help"
+            collapsed={collapsed}
+            active={isActivePath(pathname, "/help")}
+            badge={helpCount}
+            badgeLabel="waiting on you"
+          />
+        )}
+        {showDesk && (
+          // The desk is a workspace of its own that stays open beside
+          // CompassDocs: a plain anchor into a new tab, with the
+          // external-link mark saying so (never a client navigation).
+          <a
+            href="/desk"
+            target="_blank"
+            rel="noopener"
+            data-tt={collapsed ? "Desk (opens in a new tab)" : undefined}
+            data-tt-pos={collapsed ? "right" : undefined}
+            aria-label={collapsed ? "Desk, opens in a new tab" : undefined}
+            className={`relative ${railRowClass(false, { collapsed })}`}
+          >
+            <span className={railIconClass(false)}>
+              <Headset className="h-4 w-4" />
+            </span>
+            {!collapsed && (
+              <>
+                <span className="min-w-0 flex-1 truncate">Desk</span>
+                <ExternalLink className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                <span className="sr-only"> (opens in a new tab)</span>
+              </>
+            )}
+          </a>
         )}
         {showTraining && (
           <NavLink

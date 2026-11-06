@@ -240,7 +240,8 @@ async function assertSchema1101(db: Client, label: string) {
     `${label}: the indexes exist`
   );
   // The OID 1082 text parser in lib/db is process-wide: it must reach
-  // exactly one column, so a later `date` column is read as text on purpose.
+  // exactly the columns below, each read as text on purpose, so a later
+  // `date` column is a decision, not an accident.
   const dates = await db.query<{ c: string }>(
     "SELECT table_name || '.' || column_name AS c FROM information_schema.columns WHERE table_schema = current_schema() AND data_type = 'date' ORDER BY 1"
   );
@@ -249,7 +250,9 @@ async function assertSchema1101(db: Client, label: string) {
   // the person's due instant).
   assert.deepEqual(
     dates.rows.map((r) => r.c).sort(),
-    ["documents.ack_effective_at", "policy_settings.due_at"],
+    // 1.19.0 (helpdesk): holiday dates, on-call rotation start days and the
+    // daily digest's last day are calendar days read as 'YYYY-MM-DD' text too.
+    ["documents.ack_effective_at", "hd_holidays.date", "hd_on_call_rotation.starts_on", "notify_digest_state.last_daily_on", "policy_settings.due_at"],
     `${label}: the OID 1082 text parser reaches exactly these columns; a new date column must be read as text on purpose`
   );
   const trigger = await db.query(

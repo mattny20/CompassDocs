@@ -1,0 +1,15 @@
+{
+  "routing_key": "ignored-by-compassdocs",
+  "event_action": "trigger",
+  "dedup_key": "backup-nightly-fs-01",
+  "payload": {
+    "summary": "Nightly backup failed on fs-01",
+    "source": "backup.example.test",
+    "severity": "error",
+    "component": "backup",
+    "group": "storage",
+    "class": "job",
+    "custom_details": { "exit_code": 2, "job": "nightly" }
+  },
+  "links": [{ "href": "https://backup.example.test/jobs/991", "text": "Job log" }, { "href": "data:text/html,hi", "text": "Bad" }]
+}

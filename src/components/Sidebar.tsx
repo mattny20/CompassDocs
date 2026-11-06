@@ -16,6 +16,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import type { NavCapabilities } from "@/lib/nav-capabilities";
 import type { SessionUser } from "@/lib/types";
 import { SidebarClient } from "./SidebarClient";
+import { helpBadgeCount } from "./helpdesk/help/badge";
 
 // `caps` comes from the layout, which already resolved it for the command
 // palette. Recomputing here is how the sidebar and the palette used to be
@@ -58,6 +59,11 @@ export async function Sidebar({
       showCompliance={caps.showCompliance}
       showTraining={caps.showTraining}
       showHandbooks={caps.showHandbooks}
+      showHelp={caps.showHelp}
+      showDesk={caps.showDesk}
+      // Get help (1.19.0): approvals waiting for this person plus their
+      // requests waiting on them, counted only when the item shows.
+      helpCount={caps.showHelp ? await helpBadgeCount(user) : 0}
       trainingCount={caps.showTraining ? await countMyOpenTraining(user.id) : 0}
       // The policies to confirm (B4): counted only when the item shows, the
       // way the training badge follows its capability.

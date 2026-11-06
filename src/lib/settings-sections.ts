@@ -180,10 +180,11 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     label: "Operations",
     sections: [
-      { href: "/admin/notifications", label: "Notifications", icon: BellRing, description: "Webhooks, SMTP, channels, and email templates.", keywords: "webhooks slack teams webex smtp email templates alerts channels", permission: "integration.webhook_read", docs: "https://docs.compassdocs.io/admin/notifications/", pages: [
+      { href: "/admin/notifications", label: "Notifications", icon: BellRing, description: "Webhooks, SMTP, channels, email templates, and notification policies.", keywords: "webhooks slack teams webex smtp email templates alerts channels", permission: "integration.webhook_read", docs: "https://docs.compassdocs.io/admin/notifications/", pages: [
           { href: "/admin/notifications", label: "Webhooks", icon: Webhook, keywords: "webhook slack teams webex channel events" },
           { href: "/admin/notifications/email", label: "Email", icon: Share2, keywords: "smtp mail server host port from" },
           { href: "/admin/notifications/templates", label: "Email templates", icon: MailPlus, keywords: "email templates subject body tags" },
+          { href: "/admin/notifications/policies", label: "Policies", icon: ListChecks, keywords: "notification policy defaults lock locked digest hourly daily quiet hours preferences who decides" },
           { href: "/admin/notifications/chat", label: "Ask in chat", icon: MessageSquare, keywords: "ask chat slack teams bot" },
         ] },
       { href: "/admin/backups", label: "Backups", icon: DatabaseBackup, description: "Schedules, destinations, and restores.", keywords: "restore s3 azure destination encrypted schedule", permission: "system.backup_read", docs: "https://docs.compassdocs.io/self-hosting/backups/", topics: [

@@ -1,0 +1,14 @@
+{
+  "dashboardId": 1,
+  "evalMatches": [{ "value": 100, "metric": "High value", "tags": {} }],
+  "imageUrl": "https://grafana.example.test/render/panel.png",
+  "message": "Notification message",
+  "orgId": 1,
+  "panelId": 2,
+  "ruleId": 7,
+  "ruleName": "Panel Title alert",
+  "ruleUrl": "https://grafana.example.test/d/xyz/dash?fullscreen&edit&tab=alert&panelId=2",
+  "state": "alerting",
+  "tags": { "severity": "critical" },
+  "title": "[Alerting] Panel Title alert"
+}

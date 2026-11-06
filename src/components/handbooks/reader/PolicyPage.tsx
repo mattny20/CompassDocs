@@ -27,6 +27,7 @@ import { InShort } from "./InShort";
 import { WhatChanged } from "./WhatChanged";
 import { PolicyConfirmBar } from "./PolicyConfirmBar";
 import type { PolicyView } from "./reader-data";
+import { AskAboutPolicyTrigger } from "@/components/helpdesk/help/server-triggers";
 
 export function PolicyPage({ view }: { view: PolicyView }) {
   return (
@@ -102,6 +103,13 @@ export function PolicyPage({ view }: { view: PolicyView }) {
             ))}
           </p>
         )}
+
+        <AskAboutPolicyTrigger
+          handbookId={view.confirm.handbookId}
+          handbookTitle={view.handbookTitle}
+          docId={view.docId}
+          title={view.title}
+        />
       </div>
     </div>
   );

@@ -233,8 +233,14 @@ export async function weeklyTeamDigest(opts: TeamDigestOptions = {}): Promise<Te
   // training-only workspace keeps its 1.13.0 link.
   const teamUrl = `${origin}${policies ? "/compliance/team" : "/training/team"}`;
 
+  // 1.19.0: a lead who turned the team digest off (or a workspace that
+  // locked it off) is skipped (lib/notify-policy, "training_team_digest").
+  const { emailGate } = await import("./notify-policy");
+  const gate = await emailGate(leads.map((l) => l.user_id), "training_team_digest", { now });
+
   let sent = 0;
   for (const lead of leads) {
+    if (!gate.allows(lead.user_id)) continue;
     const groups = lead.group_ids;
     let summary = "";
     let policySummary = "";
@@ -262,7 +268,8 @@ export async function weeklyTeamDigest(opts: TeamDigestOptions = {}): Promise<Te
         team_url: teamUrl,
         org_name: settings.company_name,
       },
-      origin
+      origin,
+      { recipientUserId: lead.user_id }
     );
     const accepted = await mailer([lead.email], subject, text, html).then(
       () => true,

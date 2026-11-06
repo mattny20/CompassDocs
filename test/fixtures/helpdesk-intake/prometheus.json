@@ -1,0 +1,31 @@
+{
+  "version": "4",
+  "groupKey": "{}:{alertname=\"HighErrorRate\"}",
+  "truncatedAlerts": 0,
+  "status": "firing",
+  "receiver": "compassdocs-helpdesk",
+  "groupLabels": { "alertname": "HighErrorRate" },
+  "commonLabels": { "alertname": "HighErrorRate", "job": "api", "severity": "critical" },
+  "commonAnnotations": { "runbook_url": "https://runbooks.example.test/high-error-rate" },
+  "externalURL": "https://alertmanager.example.test",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": { "alertname": "HighErrorRate", "instance": "api-01:9090", "job": "api", "severity": "critical" },
+      "annotations": { "summary": "API error rate above 5% on api-01", "description": "5xx responses are **7.2%** of traffic over 5m." },
+      "startsAt": "2026-11-06T09:12:00.000Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "https://prometheus.example.test/graph?g0.expr=rate",
+      "fingerprint": "a1b2c3d4e5f60718"
+    },
+    {
+      "status": "resolved",
+      "labels": { "alertname": "HighErrorRate", "instance": "api-02:9090", "job": "api", "severity": "warning" },
+      "annotations": { "description": "Recovered." },
+      "startsAt": "2026-11-06T08:50:00.000Z",
+      "endsAt": "2026-11-06T09:10:00.000Z",
+      "generatorURL": "javascript:alert(1)",
+      "fingerprint": "f0e1d2c3b4a59687"
+    }
+  ]
+}

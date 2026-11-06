@@ -1,4 +1,11 @@
 import { Pool, types } from "pg";
+import { HD_ROLES_SCHEMA } from "./helpdesk/roles-schema";
+import { HD_CALENDARS_SCHEMA } from "./helpdesk/calendars-schema";
+import { EMAIL_PARTS_SCHEMA } from "./email-parts-schema";
+import { NOTIFY_POLICY_SCHEMA } from "./notify-policy-schema";
+import { HD_INTAKE_SCHEMA } from "./helpdesk/intake-schema";
+import { HD_ANALYTICS_SCHEMA } from "./helpdesk/analytics/schema";
+import { HD_ASSIGNMENT_SCHEMA } from "./helpdesk/assignment-schema";
 import { createHash, randomBytes } from "node:crypto";
 import { SEED_SPACES, SEED_DOCS } from "./seed-data";
 import { hashPassword } from "./password";
@@ -115,6 +122,9 @@ function makePool(): Pool {
   return new Pool({
     connectionString,
     max: Number(process.env.DATABASE_POOL_MAX) || 5,
+    // A request waiting for a connection gives up instead of hanging forever
+    // (a leaked or deadlocked client would otherwise stall every request).
+    connectionTimeoutMillis: Number(process.env.DATABASE_POOL_WAIT_MS) || 30_000,
     ssl: useSsl ? { rejectUnauthorized: false } : undefined,
     // Always speak UTC so timestamp strings are unambiguous.
     options: "-c timezone=UTC",
@@ -150,6 +160,15 @@ export function slugify(input: string): string {
 function ready(): Promise<void> {
   if (!global.__compassInit) global.__compassInit = initialize();
   return global.__compassInit;
+}
+
+/**
+ * The schema-ready promise for modules that keep their SQL outside this file
+ * (lib/helpdesk/db-core, 1.19.0): awaited before their first pool() query so
+ * a cold start never queries a table the boot has not created yet.
+ */
+export function dbReady(): Promise<void> {
+  return ready();
 }
 
 async function initialize(): Promise<void> {
@@ -1974,6 +1993,286 @@ const SCHEMA_SQL = `
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary_points text[] NOT NULL DEFAULT '{}';
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS applies_to text NOT NULL DEFAULT '';
   --- end Handbooks 1.18.0 --------------------------------------------------
+
+  --- Helpdesk 1.19.0 ------------------------------------------------------
+  -- The Enterprise helpdesk ("helpdesk" licence feature; lib/helpdesk/*).
+  -- Requesters are the workspace's own users; agents work tickets in /desk
+  -- for the teams they belong to (hd_team_members). Every table is new and
+  -- every column default constant (the ticket number's sequence default is
+  -- on a new table), so a 1.18 binary on the same database is unaffected.
+  -- Names on tickets and messages are snapshots: a deleted user leaves the
+  -- history readable (references SET NULL).
+  CREATE TABLE IF NOT EXISTS hd_teams (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name text NOT NULL UNIQUE,
+    description text NOT NULL DEFAULT '',
+    icon text NOT NULL DEFAULT '',
+    email_alias text NOT NULL DEFAULT '',
+    position integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS hd_team_members (
+    team_id integer NOT NULL REFERENCES hd_teams(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role text NOT NULL DEFAULT 'agent',
+    PRIMARY KEY (team_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_hd_team_members_user ON hd_team_members(user_id);
+  -- Office hours per team, holidays and per-team reply targets (agent L,
+  -- lib/helpdesk/calendars-schema).
+  ${HD_CALENDARS_SCHEMA}
+  -- An agent's availability (the desk's top bar): one row per agent who set it.
+  CREATE TABLE IF NOT EXISTS hd_agent_prefs (
+    user_id integer PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    availability text NOT NULL DEFAULT 'available',
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+  -- Workflows: definition = the published steps new runs pin (by version);
+  -- draft = unpublished edits (NULL = none). Publishing copies draft into
+  -- definition and bumps version.
+  CREATE TABLE IF NOT EXISTS hd_workflows (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    slug text NOT NULL UNIQUE,
+    title text NOT NULL,
+    description text NOT NULL DEFAULT '',
+    definition jsonb NOT NULL DEFAULT '{"trigger":{},"steps":[]}',
+    draft jsonb,
+    published integer NOT NULL DEFAULT 0,
+    version integer NOT NULL DEFAULT 1,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+  -- What people pick in Get help; form = HdFormField[] (lib/helpdesk/types).
+  CREATE TABLE IF NOT EXISTS hd_request_types (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    slug text NOT NULL UNIQUE,
+    title text NOT NULL,
+    description text NOT NULL DEFAULT '',
+    icon text NOT NULL DEFAULT '',
+    team_id integer REFERENCES hd_teams(id) ON DELETE SET NULL,
+    category text NOT NULL DEFAULT '',
+    form jsonb NOT NULL DEFAULT '[]',
+    workflow_id integer REFERENCES hd_workflows(id) ON DELETE SET NULL,
+    sla_priority text NOT NULL DEFAULT 'normal',
+    visibility text NOT NULL DEFAULT 'all',
+    active integer NOT NULL DEFAULT 1,
+    position integer NOT NULL DEFAULT 0,
+    eta_label text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS hd_request_type_groups (
+    request_type_id integer NOT NULL REFERENCES hd_request_types(id) ON DELETE CASCADE,
+    group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    PRIMARY KEY (request_type_id, group_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_hd_rt_groups_group ON hd_request_type_groups(group_id);
+  -- One target row per priority; business_hours 1 = minutes count only the
+  -- helpdesk_settings hours (lib/helpdesk/sla).
+  CREATE TABLE IF NOT EXISTS hd_sla_policies (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name text NOT NULL DEFAULT '',
+    priority text NOT NULL UNIQUE,
+    first_reply_minutes integer NOT NULL,
+    resolve_minutes integer NOT NULL,
+    business_hours integer NOT NULL DEFAULT 1
+  );
+  -- Display numbers (#1047): a sequence from 1001, never reused.
+  CREATE SEQUENCE IF NOT EXISTS hd_ticket_number_seq START WITH 1001;
+  CREATE TABLE IF NOT EXISTS hd_tickets (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    number integer NOT NULL UNIQUE DEFAULT nextval('hd_ticket_number_seq'),
+    subject text NOT NULL,
+    requester_id integer REFERENCES users(id) ON DELETE SET NULL,
+    requester_name text NOT NULL DEFAULT '',
+    requester_email text NOT NULL DEFAULT '',
+    team_id integer REFERENCES hd_teams(id) ON DELETE SET NULL,
+    assignee_id integer REFERENCES users(id) ON DELETE SET NULL,
+    status text NOT NULL DEFAULT 'new',
+    priority text NOT NULL DEFAULT 'normal',
+    category text NOT NULL DEFAULT '',
+    tags text[] NOT NULL DEFAULT '{}',
+    request_type_id integer REFERENCES hd_request_types(id) ON DELETE SET NULL,
+    form_answers jsonb NOT NULL DEFAULT '{}',
+    source text NOT NULL DEFAULT 'portal',
+    source_ref jsonb NOT NULL DEFAULT '{}',
+    parent_ticket_id integer REFERENCES hd_tickets(id) ON DELETE SET NULL,
+    sla_policy_id integer REFERENCES hd_sla_policies(id) ON DELETE SET NULL,
+    first_reply_due timestamptz,
+    resolve_due timestamptz,
+    first_replied_at timestamptz,
+    solved_at timestamptz,
+    closed_at timestamptz,
+    sla_paused_at timestamptz,
+    sla_paused_ms bigint NOT NULL DEFAULT 0,
+    reply_token text UNIQUE,
+    csat_score integer,
+    csat_comment text NOT NULL DEFAULT '',
+    csat_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+  -- The SLA sweep's once-only claims (lib/helpdesk/sla.slaSweep): when a
+  -- target was first seen breached, and when its "nearing" warning went.
+  ALTER TABLE hd_tickets ADD COLUMN IF NOT EXISTS first_reply_breached_at timestamptz;
+  ALTER TABLE hd_tickets ADD COLUMN IF NOT EXISTS resolve_breached_at timestamptz;
+  ALTER TABLE hd_tickets ADD COLUMN IF NOT EXISTS sla_warned_at timestamptz;
+  CREATE INDEX IF NOT EXISTS idx_hd_tickets_status_team ON hd_tickets(status, team_id);
+  CREATE INDEX IF NOT EXISTS idx_hd_tickets_assignee_open ON hd_tickets(assignee_id) WHERE status IN ('new', 'open', 'pending', 'on_hold');
+  CREATE INDEX IF NOT EXISTS idx_hd_tickets_requester ON hd_tickets(requester_id);
+  CREATE INDEX IF NOT EXISTS idx_hd_tickets_parent ON hd_tickets(parent_ticket_id) WHERE parent_ticket_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_hd_tickets_reply_due ON hd_tickets(first_reply_due) WHERE first_replied_at IS NULL AND status IN ('new', 'open', 'pending', 'on_hold');
+  CREATE INDEX IF NOT EXISTS idx_hd_tickets_resolve_due ON hd_tickets(resolve_due) WHERE status IN ('new', 'open', 'pending', 'on_hold');
+  CREATE INDEX IF NOT EXISTS idx_hd_tickets_updated ON hd_tickets(updated_at DESC);
+  -- The conversation and the timeline: kind 'public' (the requester sees
+  -- it), 'internal' (agents only, never in a requester read), 'system'
+  -- (timeline events: assignment, status, workflow steps).
+  CREATE TABLE IF NOT EXISTS hd_messages (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ticket_id integer NOT NULL REFERENCES hd_tickets(id) ON DELETE CASCADE,
+    author_id integer REFERENCES users(id) ON DELETE SET NULL,
+    author_name text NOT NULL DEFAULT '',
+    author_email text NOT NULL DEFAULT '',
+    kind text NOT NULL DEFAULT 'public',
+    body text NOT NULL DEFAULT '',
+    via text NOT NULL DEFAULT 'portal',
+    attachments jsonb NOT NULL DEFAULT '[]',
+    email_message_id text,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_hd_messages_ticket ON hd_messages(ticket_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_hd_messages_email_id ON hd_messages(email_message_id) WHERE email_message_id IS NOT NULL;
+  -- Desk roles and newbie reply review (agent J, lib/helpdesk/roles-schema).
+  ${HD_ROLES_SCHEMA}
+  CREATE TABLE IF NOT EXISTS hd_macros (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    title text NOT NULL,
+    body text NOT NULL DEFAULT '',
+    actions jsonb NOT NULL DEFAULT '{}',
+    team_id integer REFERENCES hd_teams(id) ON DELETE SET NULL,
+    created_by integer REFERENCES users(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+  -- Personal macros (lib/helpdesk/macros MACRO_SCHEMA, agent C): owner_id
+  -- set = only its owner sees and uses it.
+  ALTER TABLE hd_macros ADD COLUMN IF NOT EXISTS owner_id integer REFERENCES users(id) ON DELETE CASCADE;
+  CREATE INDEX IF NOT EXISTS idx_hd_macros_owner ON hd_macros(owner_id) WHERE owner_id IS NOT NULL;
+  CREATE TABLE IF NOT EXISTS hd_automations (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name text NOT NULL,
+    event text NOT NULL,
+    conditions jsonb NOT NULL DEFAULT '{}',
+    actions jsonb NOT NULL DEFAULT '{}',
+    active integer NOT NULL DEFAULT 1,
+    position integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    last_run_at timestamptz
+  );
+  CREATE INDEX IF NOT EXISTS idx_hd_automations_event ON hd_automations(event, position) WHERE active = 1;
+  -- A run pins its workflow's version; current holds the runtime cursor and
+  -- the definition snapshot taken at start (lib/helpdesk/engine).
+  CREATE TABLE IF NOT EXISTS hd_workflow_runs (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    workflow_id integer REFERENCES hd_workflows(id) ON DELETE SET NULL,
+    workflow_version integer NOT NULL DEFAULT 1,
+    ticket_id integer NOT NULL REFERENCES hd_tickets(id) ON DELETE CASCADE,
+    state text NOT NULL DEFAULT 'running',
+    current jsonb NOT NULL DEFAULT '{}',
+    started_at timestamptz NOT NULL DEFAULT now(),
+    finished_at timestamptz
+  );
+  CREATE INDEX IF NOT EXISTS idx_hd_runs_ticket ON hd_workflow_runs(ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_hd_runs_state ON hd_workflow_runs(state) WHERE state IN ('running', 'waiting');
+  ALTER TABLE hd_tickets ADD COLUMN IF NOT EXISTS workflow_run_id integer REFERENCES hd_workflow_runs(id) ON DELETE SET NULL;
+  CREATE INDEX IF NOT EXISTS idx_hd_tickets_run ON hd_tickets(workflow_run_id) WHERE workflow_run_id IS NOT NULL;
+  CREATE TABLE IF NOT EXISTS hd_workflow_steps (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    run_id integer NOT NULL REFERENCES hd_workflow_runs(id) ON DELETE CASCADE,
+    step_key text NOT NULL,
+    kind text NOT NULL,
+    state text NOT NULL DEFAULT 'pending',
+    task_ticket_id integer REFERENCES hd_tickets(id) ON DELETE SET NULL,
+    wait_until timestamptz,
+    started_at timestamptz,
+    finished_at timestamptz,
+    result jsonb NOT NULL DEFAULT '{}'
+  );
+  -- One runtime step per definition key per run: step creation is idempotent.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_steps_run_key ON hd_workflow_steps(run_id, step_key);
+  CREATE INDEX IF NOT EXISTS idx_hd_steps_task ON hd_workflow_steps(task_ticket_id) WHERE task_ticket_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_hd_steps_wait ON hd_workflow_steps(wait_until) WHERE state = 'active' AND wait_until IS NOT NULL;
+  CREATE TABLE IF NOT EXISTS hd_approvals (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    run_id integer NOT NULL REFERENCES hd_workflow_runs(id) ON DELETE CASCADE,
+    step_id integer NOT NULL REFERENCES hd_workflow_steps(id) ON DELETE CASCADE,
+    ticket_id integer NOT NULL REFERENCES hd_tickets(id) ON DELETE CASCADE,
+    approver_kind text NOT NULL,
+    approver_team_id integer REFERENCES hd_teams(id) ON DELETE SET NULL,
+    approver_user_id integer REFERENCES users(id) ON DELETE SET NULL,
+    decided_by integer REFERENCES users(id) ON DELETE SET NULL,
+    decided_by_name text NOT NULL DEFAULT '',
+    decision text NOT NULL DEFAULT 'pending',
+    note text NOT NULL DEFAULT '',
+    reminded_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    decided_at timestamptz
+  );
+  CREATE INDEX IF NOT EXISTS idx_hd_approvals_user ON hd_approvals(decision, approver_user_id);
+  CREATE INDEX IF NOT EXISTS idx_hd_approvals_team ON hd_approvals(approver_team_id) WHERE approver_team_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_hd_approvals_ticket ON hd_approvals(ticket_id);
+  -- Files on tickets (lib/helpdesk/attachments): stored in the uploads
+  -- volume under an opaque name. An upload is unbound (ticket_id and
+  -- message_id NULL) until the message it goes with is posted; unbound rows
+  -- older than a day are swept with their files.
+  CREATE TABLE IF NOT EXISTS hd_attachments (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    stored_name text NOT NULL UNIQUE,
+    filename text NOT NULL,
+    mime_type text NOT NULL,
+    size integer NOT NULL,
+    ticket_id integer REFERENCES hd_tickets(id) ON DELETE CASCADE,
+    message_id integer REFERENCES hd_messages(id) ON DELETE SET NULL,
+    uploaded_by integer REFERENCES users(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_hd_attachments_ticket ON hd_attachments(ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_hd_attachments_unbound ON hd_attachments(created_at) WHERE message_id IS NULL;
+  -- Web push (the desk as an installed web app): one row per browser
+  -- subscription; endpoint is the push service URL. Notification
+  -- preferences per person (shape owned by lib/helpdesk/notify-prefs).
+  CREATE TABLE IF NOT EXISTS hd_push_subscriptions (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint text NOT NULL UNIQUE,
+    p256dh text NOT NULL,
+    auth text NOT NULL,
+    user_agent text NOT NULL DEFAULT '',
+    label text NOT NULL DEFAULT '',
+    platform text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    last_used_at timestamptz,
+    last_error text NOT NULL DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS idx_hd_push_user ON hd_push_subscriptions(user_id);
+  -- The session that turned the device on (md5 of sessions.token, the
+  -- sid listUserSessions shows): signing that session out drops it.
+  ALTER TABLE hd_push_subscriptions ADD COLUMN IF NOT EXISTS session_sid text;
+  CREATE TABLE IF NOT EXISTS hd_notify_prefs (
+    user_id integer PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    prefs jsonb NOT NULL DEFAULT '{}',
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+  -- Machine intake: alerts and API (agent P, lib/helpdesk/intake-schema).
+  ${HD_INTAKE_SCHEMA}
+  -- Reports: dashboards, report schedules, report indexes (agent K, lib/helpdesk/analytics/schema).
+  ${HD_ANALYTICS_SCHEMA}
+  -- Auto-assignment (agent N, lib/helpdesk/assignment-schema).
+  ${HD_ASSIGNMENT_SCHEMA}
+  --- end Helpdesk 1.19.0 ---------------------------------------------------
+  ${EMAIL_PARTS_SCHEMA}
+  ${NOTIFY_POLICY_SCHEMA}
 `;
 
 /**
@@ -2142,13 +2441,40 @@ async function migrateDirectoryRegistry(client: import("pg").PoolClient) {
  * Built-ins are owned by the code, not the database: an upgrade that adds a
  * permission to the Editor preset should grant it without anyone running a
  * migration. So their permission sets are replaced wholesale here. Custom
- * roles are never touched.
+ * roles' permissions are never touched (one holding a new built-in's key
+ * is moved to another key first: moveCustomRoleOffKey).
  *
  * Deliberately not `DELETE FROM role_permissions` + re-INSERT: that would leave
  * a window inside the transaction where a concurrent reader sees a role with no
  * permissions. Instead the delete is narrowed to keys that are no longer in the
  * preset, and inserts are ON CONFLICT DO NOTHING.
  */
+/**
+ * A release that seeds a new built-in key (1.19.0: helpdesk-agent,
+ * helpdesk-manager) can meet a custom role that createRole already gave
+ * that key (slugify("Helpdesk agent")). The custom role keeps its id,
+ * people, permissions and name; only its key moves to `<key>-custom`
+ * (or -custom-2, …), with " (custom)" on a name that reads like the
+ * built-in's, an audit row and a log line. Then the key is free for the
+ * built-in.
+ */
+export async function moveCustomRoleOffKey(client: import("pg").PoolClient, key: string, label: string): Promise<void> {
+  const clash = (
+    await client.query<{ id: number; name: string }>("SELECT id, name FROM roles WHERE key = $1 AND NOT is_builtin", [key])
+  ).rows[0];
+  if (!clash) return;
+  let next = `${key}-custom`;
+  for (let i = 2; (await client.query("SELECT 1 FROM roles WHERE key = $1", [next])).rowCount; i++) next = `${key}-custom-${i}`;
+  const name = clash.name.trim().toLowerCase() === label.trim().toLowerCase() ? `${clash.name} (custom)` : clash.name;
+  await client.query("UPDATE roles SET key = $2, name = $3 WHERE id = $1", [clash.id, next, name]);
+  await client.query(
+    `INSERT INTO audit_log (actor_name, action, target_type, target_id, target_label, details)
+     VALUES ('system', 'role.updated', 'role', $1, $2, $3)`,
+    [String(clash.id), name, JSON.stringify({ reason: "key_reserved_for_builtin", previous_key: key, key: next, previous_name: clash.name, name })]
+  );
+  console.warn(`[roles] custom role #${clash.id} "${clash.name}" moved from key "${key}" to "${next}": the key is now a built-in role's.`);
+}
+
 async function syncPresetRoles(client: import("pg").PoolClient) {
   const { PRESET_ROLES, PRESET_ROLE_KEYS, DELEGATED_ROLES } = await import("./permissions");
   const seeded: Record<string, { label: string; description: string; permissions: readonly string[] }> = {
@@ -2159,13 +2485,20 @@ async function syncPresetRoles(client: import("pg").PoolClient) {
   };
   for (const key of Object.keys(seeded)) {
     const preset = seeded[key];
+    await moveCustomRoleOffKey(client, key, preset.label);
     const { rows } = await client.query<{ id: number }>(
       `INSERT INTO roles (key, name, description, is_builtin)
        VALUES ($1, $2, $3, true)
        ON CONFLICT (key) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description
+         WHERE roles.is_builtin
        RETURNING id`,
       [key, preset.label, preset.description]
     );
+    // Never rewrite a custom role's permissions (moveCustomRoleOffKey failed to free the key).
+    if (!rows[0]) {
+      console.error(`[roles] a custom role holds the built-in key "${key}"; it was left as it is and the built-in was not seeded.`);
+      continue;
+    }
     const roleId = rows[0].id;
     const want = preset.permissions as readonly string[];
     await client.query(
@@ -2191,16 +2524,28 @@ async function syncPresetRoles(client: import("pg").PoolClient) {
  * all, self-healing beats a one-shot flag.
  */
 async function migrateLadderToAssignments(client: import("pg").PoolClient) {
-  const { rowCount } = await client.query(
-    `INSERT INTO role_assignments (role_id, user_id, scope_type)
-     SELECT r.id, u.id, 'global'
-       FROM users u JOIN roles r ON r.key = u.role AND r.is_builtin
-      WHERE NOT EXISTS (
-        SELECT 1 FROM role_assignments ra
-         WHERE ra.user_id = u.id AND ra.role_id = r.id AND ra.scope_type = 'global')
-     ON CONFLICT DO NOTHING`
-  );
-  if (rowCount) console.log(`[rbac] backfilled ${rowCount} role assignment(s) from the ladder`);
+  // A user deleted while this runs (its snapshot still saw them) fails the
+  // FK check (23503), which ON CONFLICT doesn't cover. Boot runs these
+  // statements outside a transaction, so the next attempt takes a fresh
+  // snapshot without that user; a startup never fails over it.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const { rowCount } = await client.query(
+        `INSERT INTO role_assignments (role_id, user_id, scope_type)
+         SELECT r.id, u.id, 'global'
+           FROM users u JOIN roles r ON r.key = u.role AND r.is_builtin
+          WHERE NOT EXISTS (
+            SELECT 1 FROM role_assignments ra
+             WHERE ra.user_id = u.id AND ra.role_id = r.id AND ra.scope_type = 'global')
+         ON CONFLICT DO NOTHING`
+      );
+      if (rowCount) console.log(`[rbac] backfilled ${rowCount} role assignment(s) from the ladder`);
+      return;
+    } catch (e) {
+      if ((e as { code?: string }).code !== "23503" || attempt >= 3) throw e;
+      console.warn("[rbac] a user went away during the ladder backfill; retrying");
+    }
+  }
 }
 
 /**
@@ -4864,6 +5209,7 @@ export async function scimUpdateUser(
   // A status flip closes or re-opens the person's policy rows (D1).
   if (fields.status !== undefined && fields.status !== existing.status) {
     await reconcilePoliciesForUser(id).catch((e) => console.error("[ack] could not reconcile the account's policies:", e));
+    if (fields.status !== "active") await forgetPushDevices(id);
   }
   return getUserById(id);
 }
@@ -4931,6 +5277,8 @@ export async function updateUser(
   // change waits for the hourly sweep, as every role writer does.
   if (fields.status !== undefined && fields.status !== existing.status) {
     await reconcilePoliciesForUser(id).catch((e) => console.error("[ack] could not reconcile the account's policies:", e));
+    // A disabled account's desk devices stop at once (helpdesk Web Push).
+    if (fields.status !== "active") await forgetPushDevices(id);
   }
   return getUserById(id);
 }
@@ -15704,20 +16052,46 @@ export async function listUserSessions(userId: number, currentToken: string): Pr
   );
 }
 
+/** The session's sid (md5 of its stored key), as listUserSessions shows it; hd_push_subscriptions.session_sid. */
+export function sessionSid(token: string): string {
+  return createHash("md5").update(sessionKey(token)).digest("hex");
+}
+
+/**
+ * Helpdesk Web Push (1.19.0): the devices a signed-out session turned on
+ * stop with it, and a disabled account's stop altogether. Best effort: a
+ * failure is logged, never blocks the sign-out.
+ */
+export async function forgetPushDevices(userId: number, opts: { sids?: string[]; exceptSid?: string } = {}): Promise<void> {
+  try {
+    if (opts.sids) {
+      if (opts.sids.length) await q("DELETE FROM hd_push_subscriptions WHERE user_id = $1 AND session_sid = ANY($2::text[])", [userId, opts.sids]);
+    } else if (opts.exceptSid !== undefined) {
+      await q("DELETE FROM hd_push_subscriptions WHERE user_id = $1 AND session_sid IS DISTINCT FROM $2", [userId, opts.exceptSid]);
+    } else {
+      await q("DELETE FROM hd_push_subscriptions WHERE user_id = $1", [userId]);
+    }
+  } catch (e) {
+    console.error("[push] could not forget the account's desk devices:", e);
+  }
+}
+
 export async function deleteSessionBySid(userId: number, sid: string): Promise<boolean> {
   const res = await pool().query("DELETE FROM sessions WHERE user_id = $1 AND md5(token) = $2", [
     userId,
     sid,
   ]);
+  await forgetPushDevices(userId, { sids: [sid] });
   return (res.rowCount ?? 0) > 0;
 }
 
-/** "Sign out everywhere else" — keeps only the calling session alive. */
+/** "Sign out everywhere else" — keeps only the calling session alive (and only its desk push devices). */
 export async function deleteOtherSessions(userId: number, currentToken: string): Promise<number> {
   const res = await pool().query("DELETE FROM sessions WHERE user_id = $1 AND token <> $2", [
     userId,
     sessionKey(currentToken),
   ]);
+  await forgetPushDevices(userId, { exceptSid: sessionSid(currentToken) });
   return res.rowCount ?? 0;
 }
 
@@ -15817,11 +16191,14 @@ export async function touchSession(token: string, expiresAt: string): Promise<vo
 }
 
 export async function deleteSession(token: string): Promise<void> {
-  await q("DELETE FROM sessions WHERE token = $1", [sessionKey(token)]);
+  const r = await q<{ user_id: number }>("DELETE FROM sessions WHERE token = $1 RETURNING user_id", [sessionKey(token)]);
+  if (r[0]) await forgetPushDevices(r[0].user_id, { sids: [sessionSid(token)] });
 }
 
+/** Every session of the account (disable, admin password reset, SCIM), and with them every desk push device. */
 export async function deleteUserSessions(userId: number): Promise<void> {
   await q("DELETE FROM sessions WHERE user_id = $1", [userId]);
+  await forgetPushDevices(userId);
 }
 
 // --- Suggestions -------------------------------------------------------------

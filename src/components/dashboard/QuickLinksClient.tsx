@@ -24,6 +24,8 @@ import { Modal } from "@/components/Modal";
 import { Segmented } from "@/components/Segmented";
 import { toast } from "@/components/Toasts";
 import { DashboardTile, TileLabel } from "./DashboardTile";
+import { BrokenLinkButton } from "@/components/helpdesk/help/triggers";
+import type { HdRequestType } from "@/lib/helpdesk/types";
 
 /** The API's limits (POST /api/quick-links), checked here first. */
 const MAX_PINS = 12;
@@ -78,6 +80,8 @@ export function QuickLinksClient(props: {
   mostUsedIsWorkspace: boolean;
   /** The curated links the viewer may pin (the Add dialog's first tab). */
   pinnable: QuickLinkItem[];
+  /** "This link is broken" (Helpdesk 1.19.0): set when the viewer may raise a request; the type it starts. */
+  brokenLink?: { type: HdRequestType | null } | null;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -363,7 +367,7 @@ export function QuickLinksClient(props: {
                           </span>
                         </div>
                       ) : (
-                        <LinkRow item={item} />
+                        <LinkRow item={item} brokenLink={props.brokenLink} />
                       )}
                     </li>
                   ))}
@@ -377,7 +381,7 @@ export function QuickLinksClient(props: {
               <ul className={LIST}>
                 {featured.map((item) => (
                   <li key={item.key}>
-                    <LinkRow item={item} />
+                    <LinkRow item={item} brokenLink={props.brokenLink} />
                   </li>
                 ))}
               </ul>
@@ -391,7 +395,7 @@ export function QuickLinksClient(props: {
               <ul className={LIST}>
                 {mostUsed.map((item) => (
                   <li key={item.key}>
-                    <LinkRow item={item} />
+                    <LinkRow item={item} brokenLink={props.brokenLink} />
                   </li>
                 ))}
               </ul>
@@ -455,8 +459,30 @@ function LinkText({ item, external = false }: { item: QuickLinkItem; external?: 
   );
 }
 
-function LinkRow({ item }: { item: QuickLinkItem }) {
-  const cls = "group flex items-center gap-2.5 rounded-lg px-2 py-1.75 transition hover:bg-slate-50";
+function LinkRow({ item, brokenLink }: { item: QuickLinkItem; brokenLink?: { type: HdRequestType | null } | null }) {
+  // A curated link can be reported as broken (Helpdesk 1.19.0): an icon
+  // button beside the link, never inside it, shown on hover and focus (and
+  // always on a touch screen, which has no hover). A person's own links are
+  // theirs to fix.
+  if (brokenLink && item.kind === "curated" && item.linkId != null) {
+    return (
+      <div className="group/row relative flex items-center">
+        <LinkAnchor item={item} className="min-w-0 flex-1 pr-9" />
+        <BrokenLinkButton
+          linkId={item.linkId}
+          title={item.title}
+          url={item.url}
+          type={brokenLink.type}
+          className="absolute right-1 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100"
+        />
+      </div>
+    );
+  }
+  return <LinkAnchor item={item} />;
+}
+
+function LinkAnchor({ item, className = "" }: { item: QuickLinkItem; className?: string }) {
+  const cls = `group flex items-center gap-2.5 rounded-lg px-2 py-1.75 transition hover:bg-slate-50 ${className}`.trim();
   const body = (
     <>
       <LinkTile item={item} />

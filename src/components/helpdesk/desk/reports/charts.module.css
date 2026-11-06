@@ -1,0 +1,51 @@
+/*
+ * Desk reports (1.19.0): the chart palette (STYLEGUIDE §Desk reports and
+ * charts). Slot 1 is the workspace accent, so a re-skinned workspace
+ * re-skins its charts; slots 2 to 8 are the validated categorical order
+ * (dataviz validator: adjacent CVD ΔE ≥ 8.4, normal-vision ≥ 19.3, light
+ * and dark), selected for the dark surface rather than flipped. Every
+ * series also carries a legend or a direct label and every chart a table
+ * view, so no colour carries meaning alone. Print is always light.
+ */
+
+.viz {
+  --s1: rgb(var(--compass-500));
+  --s2: #eb6834;
+  --s3: #1baf7a;
+  --s4: #eda100;
+  --s5: #e87ba4;
+  --s6: #008300;
+  --s7: #6250d6;
+  --s8: #e34948;
+  --s-other: rgb(var(--slate-300));
+  --s-compare: rgb(var(--slate-400));
+  --grid: rgb(var(--slate-200));
+  --axis: rgb(var(--slate-300));
+  --tick: rgb(var(--slate-500));
+}
+
+:global(:root[data-theme="dark"]) .viz {
+  --s2: #d95926;
+  --s3: #199e70;
+  --s4: #c98500;
+  --s5: #d55181;
+  --s7: #9085e9;
+  --s8: #e66767;
+}
+
+@media print {
+  :global(:root[data-theme="dark"]) .viz {
+    --s2: #eb6834;
+    --s3: #1baf7a;
+    --s4: #eda100;
+    --s5: #e87ba4;
+    --s7: #6250d6;
+    --s8: #e34948;
+  }
+}
+
+/* The surface gap between touching marks (stacked segments, donut arcs). */
+.gapStroke {
+  stroke: rgb(var(--surface));
+  stroke-width: 2;
+}

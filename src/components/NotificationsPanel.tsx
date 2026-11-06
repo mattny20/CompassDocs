@@ -26,12 +26,15 @@ export function NotificationsPanel({
   email,
   initialSubs,
   initialWebhook = "",
+  emailSwitches = true,
 }: {
   initialEnabled: boolean;
   initialDigest?: boolean;
   email: string;
   initialSubs: Sub[];
   initialWebhook?: string;
+  /** The subscription-email and weekly-digest switches (1.19.0: rows of the preferences matrix instead). */
+  emailSwitches?: boolean;
 }) {
   const [enabled, setEnabled] = useState(initialEnabled);
   const [digest, setDigest] = useState(initialDigest);
@@ -111,6 +114,7 @@ export function NotificationsPanel({
 
   return (
     <div className="space-y-4">
+      {emailSwitches && (
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <label className="flex cursor-pointer items-start gap-3">
           <input
@@ -147,8 +151,9 @@ export function NotificationsPanel({
           </span>
         </label>
       </div>
+      )}
 
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+      <div id="chat-webhook" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 text-sm font-semibold text-slate-900">Chat webhook</h3>
         <p className="mb-2 text-sm text-slate-500">
           Paste a Slack or Teams incoming-webhook URL and your notifications are also posted

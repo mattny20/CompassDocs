@@ -24,7 +24,7 @@ export const ACCOUNT_SECTIONS: AccountSection[] = [
     href: "/account/notifications",
     label: "Notifications",
     icon: BellRing,
-    description: "Choose what reaches you, and where — the bell inbox, email, or a chat webhook.",
+    description: "Choose what reaches you, where and how often: the bell, email, push or chat, with quiet hours and a pause.",
   },
   {
     href: "/account/security",

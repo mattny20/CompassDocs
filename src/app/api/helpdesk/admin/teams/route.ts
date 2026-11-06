@@ -1,0 +1,55 @@
+// GET  /api/helpdesk/admin/teams   every team with its members → { teams }
+// POST /api/helpdesk/admin/teams   { name, description?, icon?, email_alias?, position?, members?: [{user_id, role}] }
+//        → 201 { team }   audited (helpdesk.team.created)
+// Helpdesk 1.19.0 (desk capability teams.manage). Members' team roles follow
+// their desk role when they have one assigned (lib/helpdesk/roles teamRoleFor).
+
+import { NextResponse } from "next/server";
+import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { readJson } from "@/lib/helpdesk/access";
+import { hdCapGate } from "@/lib/helpdesk/roles";
+import { createTeam, listTeamsWithMembers, setTeamMembers, validateTeamInput } from "@/lib/helpdesk/teams";
+import type { TeamInput } from "@/lib/helpdesk/teams";
+import { parseMembers, withDeskRoles } from "@/lib/helpdesk/teams";
+import { markSetupSteps } from "@/lib/helpdesk/settings";
+import { badRequest } from "@/lib/helpdesk/routes";
+import { invalidateCalendarCache } from "@/lib/helpdesk/calendars";
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const gate = await hdCapGate("teams.manage");
+  if (gate instanceof NextResponse) return gate;
+  return NextResponse.json({ teams: await listTeamsWithMembers() });
+}
+
+export async function POST(req: Request) {
+  const gate = await hdCapGate("teams.manage");
+  if (gate instanceof NextResponse) return gate;
+  const b = await readJson(req, 64 * 1024);
+  if (!b) return badRequest("Send the team as JSON.");
+  const v = validateTeamInput(b);
+  if (!v.ok) return badRequest(v.error);
+  const members = b.members === undefined ? null : parseMembers(b.members);
+  if (b.members !== undefined && !members) return badRequest("Members are [{ user_id, role: 'agent'|'lead' }].");
+  let team;
+  try {
+    team = await createTeam(v.value as TeamInput);
+  } catch (e) {
+    return badRequest(e instanceof Error ? e.message : "Could not create the team.");
+  }
+  if (!team) return NextResponse.json({ error: "A team with that name already exists." }, { status: 409 });
+  invalidateCalendarCache();
+  const m = members ? await setTeamMembers(team.id, await withDeskRoles(members)) : null;
+  await audit({
+    actor: actorFrom(gate),
+    action: "helpdesk.team.created",
+    targetType: "helpdesk_team",
+    targetId: team.id,
+    targetLabel: team.name,
+    details: { members: m?.added ?? [] },
+    ip: ipFrom(req),
+  });
+  await markSetupSteps(["teams"], true);
+  return NextResponse.json({ team: { ...team, members: m?.members ?? [] } }, { status: 201 });
+}

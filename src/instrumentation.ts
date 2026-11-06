@@ -30,6 +30,15 @@ export async function register() {
     } catch (e) {
       console.error("[digest] scheduler error:", e);
     }
+    // Hourly and daily notification digests (1.19.0, lib/notify-policy):
+    // queued emails, one summary per person; rows are claimed with SKIP
+    // LOCKED, so every instance may run this. Never throws.
+    try {
+      const { sendNotificationDigests } = await import("./lib/notify-policy");
+      await sendNotificationDigests();
+    } catch (e) {
+      console.error("[notify-digest] scheduler error:", e);
+    }
     // Training due/overdue reminders (entitlement-gated inside; atomic claim).
     try {
       const { trainingHourly } = await import("./lib/training");
@@ -113,6 +122,15 @@ export async function register() {
       await refreshDueStatuses(domain ? `https://${domain}` : "");
     } catch (e) {
       console.error("[status] scheduler error:", e);
+    }
+    // Helpdesk (Enterprise, helpdesk; gated inside): SLA breaches and
+    // warnings, workflow waits and approval reminders, upload cleanup. Each
+    // sweep claims its own rows, so every instance may run this.
+    try {
+      const { runHelpdeskSweeps } = await import("./lib/periodic");
+      await runHelpdeskSweeps();
+    } catch (e) {
+      console.error("[helpdesk] sweep error:", e);
     }
     // Read-confirmation notices (Enterprise, policy_ack): drain the outbox.
     // The claim is one UPDATE with FOR UPDATE SKIP LOCKED, so every instance

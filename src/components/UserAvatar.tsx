@@ -7,14 +7,16 @@ const SIZES = {
   lg: "h-20 w-20 text-2xl",
 } as const;
 
+/** "Ana Ruiz" → "AR"; punctuation is not a letter: "Monitoring (Grafana)" → "MG", "?" → "?". */
 export function initialsOf(name: string): string {
-  return name
-    .split(" ")
-    .map((p) => p[0])
+  const letters = name
+    .split(/\s+/)
+    .map((p) => p.replace(/^[^\p{L}\p{N}]+/u, "")[0])
     .filter(Boolean)
     .slice(0, 2)
     .join("")
     .toUpperCase();
+  return letters || name.trim().slice(0, 1);
 }
 
 export function UserAvatar({

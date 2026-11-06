@@ -210,7 +210,6 @@ describe("style drift guard", () => {
       "app/(app)/links/page.tsx",
       "components/dashboard/QuickLinksClient.tsx",
       "components/NewsletterPeople.tsx",
-      "components/EmailTemplatesPanel.tsx",
       "components/EmailTemplate.tsx",
     ];
     const hits = offenders(/\bbg-white\b(?!\/)/, (file) => !ALLOW.some((a) => file.endsWith(a)));

@@ -10,6 +10,9 @@ import {
   DatabaseBackup,
   FilePlus2,
   FolderPlus,
+  Headset,
+  LifeBuoy,
+  Stamp,
   KeyRound,
   LayoutTemplate,
   Mail,
@@ -38,10 +41,15 @@ export interface PaletteCommand {
   hint?: string;
   /** Keyboard hint shown on the row. */
   keyHint?: string;
+  /** Opens in its own tab (the desk). */
+  external?: boolean;
 }
 
 export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: "doc.new", label: "New document", icon: FilePlus2, keywords: "create write page add draft", cap: "canAuthor", href: "/doc/new", keyHint: "c" },
+  { id: "help.request", label: "Send a request", icon: LifeBuoy, keywords: "get help helpdesk ticket support problem it hr facilities new request", cap: "showHelp", href: "/help/new" },
+  { id: "help.approvals", label: "Approvals", icon: Stamp, keywords: "approve decline decide helpdesk requests waiting manager", cap: "showHelp", href: "/help/approvals" },
+  { id: "desk.open", label: "Open the desk", icon: Headset, keywords: "helpdesk agent tickets queue support new tab", cap: "showDesk", href: "/desk", hint: "opens in a new tab", external: true },
   { id: "space.new", label: "New space", icon: FolderPlus, keywords: "create team area section", cap: "isAdmin", href: "/admin/spaces", hint: "opens Spaces" },
   { id: "template.new", label: "New template", icon: LayoutTemplate, keywords: "create document template sop starter", cap: "isAdmin", href: "/admin/templates", hint: "opens Templates" },
   { id: "announcement.new", label: "New announcement", icon: Megaphone, keywords: "post broadcast news publish", cap: "showAnnouncements", href: "/announcements", hint: "opens Announcements" },

@@ -10,9 +10,15 @@
 import type { SessionUser } from "@/lib/types";
 import { getDashboardQuickLinks, listPinnableLinks } from "@/lib/quick-links";
 import { QuickLinksClient } from "./QuickLinksClient";
+import { helpTrigger } from "@/components/helpdesk/help/trigger-server";
 
 export async function QuickLinksTile({ user }: { user: SessionUser }) {
-  const [links, pinnable] = await Promise.all([getDashboardQuickLinks(user), listPinnableLinks(user)]);
+  const [links, pinnable, broken] = await Promise.all([
+    getDashboardQuickLinks(user),
+    listPinnableLinks(user),
+    // "This link is broken" (Helpdesk 1.19.0) on curated links, when the person may raise a request.
+    helpTrigger(user, "link"),
+  ]);
   return (
     <QuickLinksClient
       pinned={links.pinned}
@@ -20,6 +26,7 @@ export async function QuickLinksTile({ user }: { user: SessionUser }) {
       mostUsed={links.mostUsed}
       mostUsedIsWorkspace={links.mostUsedIsWorkspace}
       pinnable={pinnable}
+      brokenLink={broken}
     />
   );
 }

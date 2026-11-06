@@ -1,0 +1,15 @@
+{
+  "title": "[Triggered] CPU high on web-03",
+  "text_only_msg": "CPU usage above 90% for 10 minutes on web-03.",
+  "alert_transition": "Triggered",
+  "alert_type": "error",
+  "alert_id": "123456789",
+  "aggreg_key": "dd-aggreg-77a1",
+  "alert_cycle_key": "cycle-1",
+  "priority": "P2",
+  "hostname": "web-03",
+  "alert_metric": "system.cpu.user",
+  "link": "https://app.datadoghq.com/monitors/123456789",
+  "tags": "env:prod,service:web,team:platform",
+  "org_name": "Example"
+}

@@ -41,6 +41,14 @@ function emittedActions(): string[] {
       if (dynamic) dynamic.forEach((suffix) => keys.add(key + suffix));
       else keys.add(key);
     }
+    // A chosen key (`action: ok ? "a.approved" : "a.declined"`) and the
+    // unions audit helpers take (`type CalendarAuditAction = | "…" | "…"`).
+    for (const m of src.matchAll(/action: ([^\n,]*\?[^\n,]*)/g)) {
+      for (const k of m[1].matchAll(/"([a-z_]+\.[a-z_.]+)"/g)) keys.add(k[1]);
+    }
+    for (const m of src.matchAll(/type \w*AuditAction =([^;]+);/g)) {
+      for (const k of m[1].matchAll(/"([a-z_]+\.[a-z_.]+)"/g)) keys.add(k[1]);
+    }
   }
   return [...keys].sort();
 }

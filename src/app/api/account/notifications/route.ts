@@ -65,6 +65,18 @@ export async function PATCH(req: Request) {
     }
     await setNotifyPrefs(user.id, cleaned);
   }
+  // 1.19.0: someone who saved the new preferences page has a row in
+  // user_notify_prefs; lay what this route just wrote over it so the two
+  // agree (lib/notify-policy). The new page saves through
+  // /api/account/notification-prefs.
+  if (
+    typeof body?.email_notifications === "boolean" ||
+    typeof body?.weekly_digest === "boolean" ||
+    body?.notify_prefs !== undefined
+  ) {
+    const { syncLegacyIntoNotifyPrefs } = await import("@/lib/notify-policy");
+    await syncLegacyIntoNotifyPrefs(user.id);
+  }
   return NextResponse.json({ ok: true });
 }
 
@@ -78,6 +90,8 @@ const PREF_KINDS = [
   "ack_requested",
   "ack_due",
   "ack_escalation",
+  "training_assigned",
+  "training_due",
   "service_status",
 ];
 const PREF_CHANNELS = ["inapp", "webhook", "email"];

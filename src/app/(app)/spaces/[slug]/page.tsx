@@ -14,7 +14,7 @@ import { SpaceSearch } from "@/components/SpaceSearch";
 import { SpaceViews } from "@/components/SpaceViews";
 import { EmptyState } from "@/components/form";
 import { PageContainer } from "@/components/PageWidth";
-import { requireUser } from "@/lib/auth";
+import { getCurrentUser, requireUser } from "@/lib/auth";
 import { canPublishDirectly, canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { getApprovalMode } from "@/lib/db";
@@ -30,7 +30,12 @@ export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const space = await cachedSpace(slug).catch(() => undefined);
-  return { title: space?.name ?? "Space" };
+  // A space the reader cannot see is titled exactly like an address with no
+  // space behind it: the tab must not name a private space the page itself
+  // answers "not found" for (1.19.0, alongside Request access).
+  const user = space ? await getCurrentUser() : null;
+  const visible = !!space && !!user && scopeAllows(await spaceScopeFor(user), space.id);
+  return { title: visible ? space!.name : "Space" };
 }
 
 export default async function SpacePage({ params }: { params: Promise<{ slug: string }> }) {

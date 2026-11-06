@@ -1,0 +1,11 @@
+{
+  "title": "[Recovered] CPU high on web-03",
+  "text_only_msg": "CPU back below 90%.",
+  "alert_transition": "Recovered",
+  "alert_type": "success",
+  "alert_id": "123456789",
+  "aggreg_key": "dd-aggreg-77a1",
+  "priority": "P2",
+  "hostname": "web-03",
+  "link": "https://app.datadoghq.com/monitors/123456789"
+}
