@@ -37,6 +37,7 @@ import { PeopleThisWeekTile } from "@/components/dashboard/PeopleThisWeekTile";
 import { MyTrainingTile } from "@/components/dashboard/MyTrainingTile";
 import { TeamComplianceTile } from "@/components/dashboard/TeamComplianceTile";
 import { handbookConfirmHref } from "@/components/handbooks/ThroughHandbookTag";
+import { helpdeskAttention } from "@/lib/helpdesk/attention";
 import {
   Sparkles,
   CalendarClock,
@@ -45,6 +46,8 @@ import {
   MessageSquareText,
   PenLine,
   ChevronRight,
+  Stamp,
+  MessageCircleQuestion,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -211,6 +214,7 @@ async function PinnedBlocks({
     reviewsDue,
     pendingCrs,
     openSuggestions,
+    helpdeskRows,
   ] = await Promise.all([
     pickUp,
     // The policies to confirm, in the person's priority (overdue first, then
@@ -222,10 +226,17 @@ async function PinnedBlocks({
     isEditor ? listReviewsDue(scope, 12) : Promise.resolve([]),
     isApprover ? listChangeRequests("pending", scope) : Promise.resolve([]),
     isEditor ? listSuggestions("open", scope) : Promise.resolve([]),
+    // Helpdesk 1.19.0: approvals waiting for this person and their requests
+    // waiting on them. A helpdesk that cannot answer adds no rows.
+    caps.showHelp ? helpdeskAttention(user).catch(() => []) : Promise.resolve([]),
   ]);
 
   const attentionCount =
-    pendingAcks.length + reviewsDue.length + pendingCrs.length + openSuggestions.length;
+    pendingAcks.length +
+    reviewsDue.length +
+    pendingCrs.length +
+    openSuggestions.length +
+    helpdeskRows.reduce((n, r) => n + r.count, 0);
 
   return (
     <>
@@ -311,6 +322,20 @@ async function PinnedBlocks({
                   .join(" · ")}
               />
             )}
+            {helpdeskRows.map((r) => (
+              <AttentionRow
+                key={r.key}
+                href={r.href}
+                icon={
+                  r.key === "hd_approvals" ? (
+                    <Stamp className="h-4 w-4" aria-hidden />
+                  ) : (
+                    <MessageCircleQuestion className="h-4 w-4" aria-hidden />
+                  )
+                }
+                label={r.label}
+              />
+            ))}
             {openSuggestions.length > 0 && (
               <AttentionRow
                 href="/review"

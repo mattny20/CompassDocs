@@ -4,7 +4,7 @@
 // write paths, silently a no-op when SMTP isn't configured. Server-only.
 
 import "server-only";
-import { listSubscriberRecipients, listSubscriberIds } from "./db";
+import { listSubscriberIds } from "./db";
 import { notify } from "./notifications";
 import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { sendMail } from "./mailer";
@@ -47,10 +47,18 @@ export async function notifySpaceSubscribers(ev: SubscriberEvent): Promise<void>
 
   try {
     if (!smtpConfigured(await getSmtpConfig())) return;
-    // Handbooks 1.18.0 (H6): as above, for the email.
-    const recipients = (
-      await keepWhoFind(ev.docId, ev.spaceId, await listSubscriberRecipients(ev.spaceId, ev.actorUserId))
-    ).slice(0, MAX_RECIPIENTS);
+    // Handbooks 1.18.0 (H6): as above, for the email. 1.19.0: who wants the
+    // email is lib/notify-policy's answer (the workspace policy and the
+    // person's choice, which before 1.19 was the master switch), so the
+    // list starts from every subscriber with an address.
+    const { emailGate, emailRecipients } = await import("./notify-policy");
+    const subscribers = await keepWhoFind(
+      ev.docId,
+      ev.spaceId,
+      await emailRecipients(await listSubscriberIds(ev.spaceId, ev.actorUserId))
+    );
+    const gate = await emailGate(subscribers.map((r) => r.id), "doc_update");
+    const recipients = subscribers.filter((r) => gate.allows(r.id)).slice(0, MAX_RECIPIENTS);
     if (recipients.length === 0) return;
 
     const verb = ev.kind === "published" ? "published" : "updated";
@@ -77,9 +85,10 @@ export async function notifySpaceSubscribers(ev: SubscriberEvent): Promise<void>
     );
 
     // Individual sends (no shared To/CC): fine at this scale, keeps addresses private.
+    const item = { title: `${ev.actorName} ${verb} "${ev.title}"`, body: `In ${ev.spaceName}`, link: `/doc/${ev.docId}` };
     for (const r of recipients) {
       try {
-        await sendMail([r.email], subject, text, html);
+        await gate.route(r.id, item, () => sendMail([r.email], subject, text, html));
       } catch (e) {
         console.error(`Subscriber email to ${r.email} failed:`, e);
       }

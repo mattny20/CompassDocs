@@ -35,7 +35,8 @@ export type EntitlementFeature =
   | "priority_support"
   | "directory_sync"
   | "policy_ack"
-  | "training";
+  | "training"
+  | "helpdesk";
 
 export interface License {
   /** Opaque license id (for a future revocation list). */

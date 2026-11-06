@@ -1,0 +1,59 @@
+{
+  "id": "/desk",
+  "name": "CompassDocs Desk",
+  "short_name": "Desk",
+  "description": "The CompassDocs helpdesk for agents: tickets, approvals and workflows, with notifications on this device.",
+  "start_url": "/desk?source=pwa",
+  "scope": "/desk",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f8fafc",
+  "theme_color": "#2e75bd",
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "/desk-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/desk-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/desk-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Tickets",
+      "url": "/desk",
+      "icons": [
+        {
+          "src": "/desk-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Notification settings",
+      "short_name": "Notifications",
+      "url": "/desk/settings/notifications",
+      "icons": [
+        {
+          "src": "/desk-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}

@@ -986,7 +986,7 @@ async function sendComplianceReport(input: {
   };
   let sent = 0;
   for (const u of recipients) {
-    const { subject, text, html } = await renderEmail("ack_program_report", vars, origin);
+    const { subject, text, html } = await renderEmail("ack_program_report", vars, origin, { recipientUserId: u.id });
     try {
       await mailer([u.email], subject, text, html);
       sent += 1;

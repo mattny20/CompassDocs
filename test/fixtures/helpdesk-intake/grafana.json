@@ -1,0 +1,31 @@
+{
+  "receiver": "CompassDocs",
+  "status": "firing",
+  "orgId": 1,
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": { "alertname": "Disk almost full", "grafana_folder": "Infra", "host": "fs-02", "severity": "warning" },
+      "annotations": { "summary": "Disk on fs-02 is 91% full", "description": "Free space below 10% on /data." },
+      "startsAt": "2026-11-06T07:40:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "https://grafana.example.test/alerting/grafana/abc123/view",
+      "fingerprint": "9f8e7d6c5b4a3210",
+      "silenceURL": "https://grafana.example.test/alerting/silence/new?alertmanager=grafana",
+      "dashboardURL": "https://grafana.example.test/d/infra",
+      "panelURL": "https://grafana.example.test/d/infra?viewPanel=4",
+      "values": { "B": 91.2 },
+      "valueString": "[ var='B' labels={host=fs-02} value=91.2 ]"
+    }
+  ],
+  "groupLabels": { "alertname": "Disk almost full" },
+  "commonLabels": { "alertname": "Disk almost full", "severity": "warning" },
+  "commonAnnotations": {},
+  "externalURL": "https://grafana.example.test/",
+  "version": "1",
+  "groupKey": "{}:{alertname=\"Disk almost full\"}",
+  "truncatedAlerts": 0,
+  "title": "[FIRING:1] Disk almost full Infra",
+  "state": "alerting",
+  "message": "**Firing**\n\nValue: B=91.2"
+}

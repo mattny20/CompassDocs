@@ -11,6 +11,7 @@ import { featureEnabled } from "./ee";
 import { canSeeDrafts, editableScopeFor, spaceScopeFor, userHolds } from "./access";
 import { hasPolicyInScope } from "./db";
 import { seesHandbooks } from "./handbooks";
+import { helpdeskCapabilities } from "./helpdesk/access";
 import type { SessionUser } from "./types";
 import type { CapKey } from "./nav-items";
 import { NAV_ITEMS } from "./nav-items";
@@ -30,6 +31,10 @@ export interface NavCapabilities {
   showTraining: boolean;
   /** Reads at least one handbook, or may create one (1.18.0). */
   showHandbooks: boolean;
+  /** Get help (1.19.0): helpdesk licensed and helpdesk.request held. */
+  showHelp: boolean;
+  /** The desk (1.19.0): licensed, and an agent, a helpdesk admin or a reports reader. */
+  showDesk: boolean;
   /** Has at least one space they may write in. */
   canAuthor: boolean;
 }
@@ -63,7 +68,7 @@ async function showComplianceFor(user: SessionUser): Promise<boolean> {
 }
 
 export async function navCapabilities(user: SessionUser): Promise<NavCapabilities> {
-  const [showAnnouncements, showCompliance, showTraining, showHandbooks, canAuthor, isEditor, isApprover] =
+  const [showAnnouncements, showCompliance, showTraining, showHandbooks, canAuthor, isEditor, isApprover, helpdesk] =
     await Promise.all([
       canAccessSection(user, "announcements"),
       showComplianceFor(user),
@@ -72,6 +77,9 @@ export async function navCapabilities(user: SessionUser): Promise<NavCapabilitie
       canAuthorFor(user),
       canSeeDrafts(user),
       userHolds(user, "change_request.read", { legacyMin: "approver" }),
+      // A helpdesk that cannot answer (its tables mid-migration) hides the
+      // entries rather than breaking every page's shell.
+      helpdeskCapabilities(user).catch(() => null),
     ]);
   return {
     isEditor,
@@ -82,6 +90,8 @@ export async function navCapabilities(user: SessionUser): Promise<NavCapabilitie
     showCompliance,
     showTraining,
     showHandbooks,
+    showHelp: !!helpdesk?.licensed && helpdesk.request,
+    showDesk: !!helpdesk?.licensed && (helpdesk.agent || helpdesk.admin || helpdesk.reports),
     canAuthor,
   };
 }

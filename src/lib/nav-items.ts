@@ -9,7 +9,9 @@ import {
   BookOpen,
   BookUser,
   GraduationCap,
+  Headset,
   Home,
+  LifeBuoy,
   Mail,
   Megaphone,
   ChartColumn,
@@ -31,6 +33,10 @@ export type CapKey =
   | "showCompliance"
   | "showTraining"
   | "showHandbooks"
+  /** Get help (1.19.0): the helpdesk is licensed and the person holds helpdesk.request. */
+  | "showHelp"
+  /** The desk (1.19.0): licensed, and an agent, a helpdesk admin or a reports reader. */
+  | "showDesk"
   | "canAuthor";
 
 export interface NavItem {
@@ -43,6 +49,8 @@ export interface NavItem {
   cap: CapKey | null;
   /** The second key of its `g` chord, when it has one. */
   chord?: string;
+  /** Opens in its own tab (the desk, 1.19.0, is a workspace that stays open beside CompassDocs). */
+  external?: boolean;
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -52,6 +60,8 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/links", label: "Links", icon: SquareArrowOutUpRight, keywords: "shortcuts tools launchpad apps", cap: null, chord: "l" },
   { href: "/status", label: "Status", icon: Activity, keywords: "service incidents uptime outage", cap: null, chord: "s" },
   { href: "/handbooks", label: "Handbooks", icon: BookOpen, keywords: "handbook policies sops procedures bundle read print confirm employee staff onboarding", cap: "showHandbooks" },
+  { href: "/help", label: "Get help", icon: LifeBuoy, keywords: "helpdesk support it hr facilities request ticket problem broken access laptop approvals", cap: "showHelp" },
+  { href: "/desk", label: "Desk", icon: Headset, keywords: "helpdesk agent tickets queue support workspace", cap: "showDesk", external: true },
   { href: "/training", label: "Training", icon: GraduationCap, keywords: "courses decks compliance learning", cap: "showTraining", chord: "t" },
   { href: "/review", label: "Review queue", icon: ClipboardList, keywords: "approve suggestions change requests pending", cap: "isApprover", chord: "r" },
   { href: "/announcements", label: "Announcements", icon: Megaphone, keywords: "news posts broadcast", cap: "showAnnouncements", chord: "n" },

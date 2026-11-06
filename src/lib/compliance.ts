@@ -1,11 +1,11 @@
 import "server-only";
-import { notify, notifyPrefAllows } from "./notifications";
+import { notify } from "./notifications";
+import { emailGate } from "./notify-policy";
 import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { sendMail } from "./mailer";
 import { renderEmail, HANDBOOK_LINE } from "./email-templates";
 import {
   pool,
-  getNotifyPrefsFor,
   insertAckOutbox,
   claimAckOutbox,
   claimAckReminder,
@@ -605,13 +605,12 @@ export async function notifyAckRequest(input: NotifyAckInput): Promise<NotifyAck
   const targets = [...fresh, ...resume];
   let emailed = 0;
   if (mailer && targets.length > 0) {
-    const prefs = await getNotifyPrefsFor(targets.map((u) => u.id)).catch(
-      () => new Map<number, Record<string, Record<string, boolean>>>()
-    );
+    // 1.19.0: the workspace policy and the person's choices (lib/notify-policy).
+    const gate = await emailGate(targets.map((u) => u.id), "ack_requested");
     let attempted = 0;
     for (const target of targets) {
       if (!target.email) continue;
-      if (!notifyPrefAllows(prefs.get(target.id), "ack_requested", "email")) continue;
+      if (!gate.allows(target.id)) continue;
       const mail = await mailFor(dueOf(target), routeOf(target));
       if (!mail) continue;
       try {
@@ -1173,8 +1172,7 @@ async function deliverWelcome(
   }
 
   if (mail && person.email) {
-    const prefs = await getNotifyPrefsFor([userId]).catch(() => new Map<number, Record<string, Record<string, boolean>>>());
-    if (notifyPrefAllows(prefs.get(userId), "ack_requested", "email")) {
+    if ((await emailGate([userId], "ack_requested")).allows(userId)) {
       try {
         await ctx.mailer!([person.email], mail.subject, mail.text, mail.html);
         out.emailed = 1;
@@ -1360,12 +1358,10 @@ async function deliverSweepMessage(
       errors.push(`Email template: ${errorMessage(e)}`);
     }
     if (mail) {
-      const prefs = await getNotifyPrefsFor(need.map((t) => t.id)).catch(
-        () => new Map<number, Record<string, Record<string, boolean>>>()
-      );
+      const gate = await emailGate(need.map((t) => t.id), msg.kind);
       let attempted = 0;
       for (const t of need) {
-        if (!notifyPrefAllows(prefs.get(t.id), msg.kind, "email")) continue;
+        if (!gate.allows(t.id)) continue;
         try {
           await ctx.mailer([t.email], mail.subject, mail.text, mail.html);
           emailed++;

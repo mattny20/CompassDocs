@@ -404,7 +404,14 @@ export async function sendNewsletter(input: {
   const recipients =
     typeof input.to === "object" && !Array.isArray(input.to)
       ? input.to.emails.map((email) => ({ email }))
-      : (await listAnnouncementRecipients(input.to)).slice(0, MAX_RECIPIENTS);
+      : await (async () => {
+          // 1.19.0: the workspace policy and each account's "newsletter"
+          // choice (lib/notify-policy); explicit test addresses always go.
+          const listed = await listAnnouncementRecipients(input.to as "all" | number[]);
+          const { emailAllowedAddresses } = await import("./notify-policy");
+          const allowed = await emailAllowedAddresses(listed.map((r) => r.email), "newsletter");
+          return listed.filter((r) => allowed.has(r.email.trim().toLowerCase())).slice(0, MAX_RECIPIENTS);
+        })();
   if (recipients.length === 0) return { sent: 0, error: "No recipients matched." };
 
   const html = await renderNewsletterHtml(input);
@@ -433,7 +440,10 @@ export async function sendWorkflowNotice(
 ): Promise<void> {
   if (emails.length === 0) return;
   if (!smtpConfigured(await getSmtpConfig())) return;
-  for (const email of [...new Set(emails)].slice(0, 50)) {
+  // 1.19.0: each account's "newsletter_review" choice (lib/notify-policy).
+  const { emailAllowedAddresses } = await import("./notify-policy");
+  const allowed = await emailAllowedAddresses(emails, "newsletter_review");
+  for (const email of [...new Set(emails)].filter((e) => allowed.has(e.trim().toLowerCase())).slice(0, 50)) {
     try {
       await sendMail([email], subject, text);
     } catch (e) {

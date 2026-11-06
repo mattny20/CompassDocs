@@ -20,7 +20,12 @@ export async function emailAnnouncement(input: {
   origin?: string;
 }): Promise<{ sent: number }> {
   if (!smtpConfigured(await getSmtpConfig())) return { sent: 0 };
-  const recipients = (await listAnnouncementRecipients(input.groupIds)).slice(0, MAX_RECIPIENTS);
+  // 1.19.0: the workspace policy and each account's choice for
+  // "announcement" emails (lib/notify-policy).
+  const listed = await listAnnouncementRecipients(input.groupIds);
+  const { emailAllowedAddresses } = await import("./notify-policy");
+  const allowed = await emailAllowedAddresses(listed.map((r) => r.email), "announcement");
+  const recipients = listed.filter((r) => allowed.has(r.email.trim().toLowerCase())).slice(0, MAX_RECIPIENTS);
   if (recipients.length === 0) return { sent: 0 };
 
   const prefix = input.level === "critical" ? "❗ " : input.level === "warning" ? "⚠️ " : "";

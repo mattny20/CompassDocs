@@ -111,7 +111,7 @@ function escapeHtml(s: string): string {
 export async function maybeSendWeeklyDigests(now = new Date()): Promise<void> {
   if (!smtpConfigured(await getSmtpConfig())) return;
 
-  const recipients = await q<{
+  const candidates = await q<{
     id: number;
     email: string;
     name: string;
@@ -121,8 +121,14 @@ export async function maybeSendWeeklyDigests(now = new Date()): Promise<void> {
     digest_last_week: string;
   }>(
     `SELECT id, email, name, role, timezone, date_format, digest_last_week FROM users
-     WHERE status = 'active' AND email <> '' AND email_notifications = 1 AND weekly_digest = 1`
+     WHERE status = 'active' AND email <> ''`
   );
+  // 1.19.0: who gets the digest is lib/notify-policy's answer for
+  // "weekly_digest" (before 1.19: the master switch and the digest switch,
+  // which prefsFromLegacy carries over unchanged).
+  const { emailGate } = await import("./notify-policy");
+  const gate = await emailGate(candidates.map((u) => u.id), "weekly_digest", { now });
+  const recipients = candidates.filter((u) => gate.allows(u.id));
   if (recipients.length === 0) return;
 
   // Pre-0.73 the claim was one global settings row. Seed unclaimed users from

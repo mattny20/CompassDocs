@@ -1,28 +1,19 @@
-import { requirePermission } from "@/lib/auth";
-import { EMAIL_TEMPLATES, templateOverride } from "@/lib/email-templates";
-import { EmailTemplatesPanel } from "@/components/EmailTemplatesPanel";
-
+import { requireUser } from "@/lib/auth";
+import { redirect } from "next/navigation";
 import { settingsMetadata } from "@/lib/settings-sections";
+import { templatesAccess } from "@/components/email-templates/access";
+import { loadTemplatesList } from "@/components/email-templates/load";
+import { TemplatesList } from "@/components/email-templates/TemplatesList";
+import type { Surface } from "@/components/email-templates/types";
+
 export const dynamic = "force-dynamic";
-export const metadata = settingsMetadata("/admin/notifications", "Templates");
+export const metadata = settingsMetadata("/admin/notifications", "Email templates");
+
+const SURFACE: Surface = { base: "/admin/notifications/templates", mode: "admin" };
 
 export default async function EmailTemplatesPage() {
-  await requirePermission("admin", "integration.email_template_manage");
-  const initial = await Promise.all(
-    EMAIL_TEMPLATES.map(async (t) => {
-      const override = await templateOverride(t.key);
-      return {
-        key: t.key,
-        label: t.label,
-        description: t.description,
-        tags: t.tags,
-        default_subject: t.subject,
-        default_body: t.body,
-        subject: override?.subject ?? t.subject,
-        body: override?.body ?? t.body,
-        customized: !!override,
-      };
-    })
-  );
-  return <EmailTemplatesPanel initial={initial} />;
+  const user = await requireUser();
+  if (!(await templatesAccess(user)).read) redirect("/");
+  const data = await loadTemplatesList(SURFACE);
+  return <TemplatesList surface={SURFACE} {...data} />;
 }

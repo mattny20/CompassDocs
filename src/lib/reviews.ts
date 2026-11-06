@@ -118,16 +118,17 @@ export async function remindDueReviews(): Promise<void> {
   const { getSmtpConfig, smtpConfigured } = await import("./smtp-config");
   if (!smtpConfigured(await getSmtpConfig())) return;
 
-  // Per-user routing: approvers can turn review-reminder emails off
-  // (Account → Notifications) while keeping the inbox nudge.
-  const { notifyPrefAllows } = await import("./notifications");
-  const recipients = (
-    await q<{ id: number; email: string; notify_prefs: Record<string, Record<string, boolean>> }>(
-      `SELECT id, email, notify_prefs FROM users
-       WHERE status = 'active' AND role IN ('approver', 'admin')
-         AND email IS NOT NULL AND email <> ''`
-    )
-  ).filter((r) => notifyPrefAllows(r.notify_prefs, "review_due", "email"));
+  // Per-user routing (1.19.0, lib/notify-policy): approvers can turn
+  // review-reminder emails off or into a digest (Account → Notifications)
+  // while keeping the inbox nudge, unless the workspace decides for them.
+  const { emailGate } = await import("./notify-policy");
+  const candidates = await q<{ id: number; email: string }>(
+    `SELECT id, email FROM users
+     WHERE status = 'active' AND role IN ('approver', 'admin')
+       AND email IS NOT NULL AND email <> ''`
+  );
+  const gate = await emailGate(candidates.map((r) => r.id), "review_due");
+  const recipients = candidates.filter((r) => gate.allows(r.id));
   if (recipients.length === 0) return;
 
   const { renderEmail } = await import("./email-templates");
@@ -153,7 +154,9 @@ export async function remindDueReviews(): Promise<void> {
       );
       for (const r of recipients) {
         try {
-          await sendMail([r.email], subject, text, html);
+          await gate.route(r.id, { title: `"${doc.title}" is due for content review`, body: `In ${doc.space_name}`, link: `/doc/${doc.id}` }, () =>
+            sendMail([r.email], subject, text, html)
+          );
         } catch (e) {
           console.error(`[reviews] reminder to ${r.email} failed:`, e);
         }

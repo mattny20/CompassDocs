@@ -2,13 +2,20 @@ import Link from "next/link";
 import { buttonClass } from "@/components/Button";
 import { FileQuestion, House, Search } from "lucide-react";
 import { PageContainer } from "@/components/PageWidth";
+import { currentPagePath } from "@/lib/auth";
+import { SpaceAccessOffer } from "@/components/helpdesk/help/server-triggers";
 
 // Rendered inside the app shell (sidebar, theme, width preference) whenever a
 // page under (app) calls notFound() — a trashed document, a space the user
 // can't see, a training route behind a disabled feature. Without this, Next's
 // stock white "404" replaces the whole product.
+//
+// On a space address with the helpdesk on (1.19.0) the card also offers
+// "Request access", identically for a space that exists and one that does
+// not (SpaceAccessOffer), so the page never confirms a private space.
 
-export default function AppNotFound() {
+export default async function AppNotFound() {
+  const path = await currentPagePath();
   return (
     <PageContainer>
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
@@ -38,6 +45,7 @@ export default function AppNotFound() {
             <Search className="h-4 w-4" /> Search documents
           </Link>
         </div>
+        <SpaceAccessOffer path={path} />
       </div>
     </PageContainer>
   );

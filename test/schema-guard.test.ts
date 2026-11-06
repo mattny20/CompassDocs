@@ -11,6 +11,24 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { guardAddColumns, guardCreateIndexes } from "../src/lib/db";
+import { HD_ROLES_SCHEMA } from "../src/lib/helpdesk/roles-schema";
+import { HD_CALENDARS_SCHEMA } from "../src/lib/helpdesk/calendars-schema";
+import { HD_INTAKE_SCHEMA } from "../src/lib/helpdesk/intake-schema";
+import { HD_ASSIGNMENT_SCHEMA } from "../src/lib/helpdesk/assignment-schema";
+import { EMAIL_PARTS_SCHEMA } from "../src/lib/email-parts-schema";
+import { NOTIFY_POLICY_SCHEMA } from "../src/lib/notify-policy-schema";
+import { HD_ANALYTICS_SCHEMA } from "../src/lib/helpdesk/analytics/schema";
+
+/** The schema blocks db.ts interpolates into SCHEMA_SQL (1.19.0). */
+const INTERPOLATED: Record<string, string> = {
+  HD_ROLES_SCHEMA,
+  HD_CALENDARS_SCHEMA,
+  HD_INTAKE_SCHEMA,
+  HD_ASSIGNMENT_SCHEMA,
+  HD_ANALYTICS_SCHEMA,
+  EMAIL_PARTS_SCHEMA,
+  NOTIFY_POLICY_SCHEMA,
+};
 
 const COLUMN_PREDICATE = (table: string, column: string) =>
   `SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('${table}') AND attname = '${column}' AND attnum > 0 AND NOT attisdropped`;
@@ -23,7 +41,11 @@ function realSchemaSql(): string {
   const open = src.indexOf("`", start) + 1;
   const close = src.indexOf("\n`;", open);
   assert.ok(close > open, "the template literal closes");
-  return src.slice(open, close);
+  // Substitute the interpolated blocks, as the template literal does at run time.
+  return src.slice(open, close).replace(/\$\{(\w+)\}/g, (m, name: string) => {
+    assert.ok(name in INTERPOLATED, `the test knows the interpolated block ${m}`);
+    return INTERPOLATED[name];
+  });
 }
 
 /** Lines of SQL that are not `--` comments. */
@@ -157,6 +179,7 @@ test("the real schema: every top-level statement is one that takes no lock on an
     /^DO \$\$ BEGIN[\s\S]*END \$\$$/,
     /^CREATE OR REPLACE FUNCTION \w+\(\)/,
     /^DROP INDEX IF EXISTS \w+$/,
+    /^CREATE SEQUENCE IF NOT EXISTS \w+/,
     /^UPDATE \w+/,
   ];
   const offending = statements.filter((s) => !ALLOWED.some((re) => re.test(s)));
@@ -181,4 +204,15 @@ test("the real schema: every top-level statement is one that takes no lock on an
   assert.ok(guarded(/attname = 'ack_revision_at'[\s\S]*ADD COLUMN ack_revision_at/), "the marker block looks the column up in pg_attribute");
   assert.ok(guarded(/attname = 'published_by'[\s\S]*ADD COLUMN published_by/), "the provenance block does too");
   assert.ok(!blocks.some((b) => /information_schema\.columns/.test(b)), "no block looks a column up without a schema");
+});
+
+test("interpolated schema blocks: one ADD COLUMN per ALTER, so the guard checks each column", () => {
+  // guardAddColumns looks up only the first column of a statement: in
+  // `ALTER TABLE t ADD COLUMN IF NOT EXISTS a …, ADD COLUMN IF NOT EXISTS b …;`
+  // a database that already has `a` would never get `b`.
+  for (const stmt of topLevelStatements(codeLines(realSchemaSql()).join("\n"))) {
+    if (!/^ALTER TABLE/i.test(stmt)) continue;
+    const adds = (stmt.match(/ADD COLUMN/gi) ?? []).length;
+    assert.ok(adds <= 1, `split into one ALTER per column: ${stmt.slice(0, 120)}`);
+  }
 });

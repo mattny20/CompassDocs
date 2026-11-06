@@ -2306,3 +2306,938 @@ printed page names who produced it and from which build.
   under the table instead.
 - Secondary text must clear WCAG AA on the canvas tint — that's why our
   `--slate-500` is darker than stock Tailwind; don't "fix" it back.
+
+## Helpdesk: Get help
+
+The requester's side of the helpdesk (1.19.0, Enterprise `helpdesk`):
+`/help` and its sub-pages inside the app shell, the dashboard's two
+helpdesk rows, the sidebar entries and the four CompassDocs triggers.
+Components live in `components/helpdesk/help`; the agents' side is
+§Helpdesk: the desk.
+
+- **Gate and guard.** Every `/help` page calls `helpPageGuard()`
+  (`help/access.ts`): licensed without `helpdesk.request` is the shell's
+  not-found page; unlicensed renders the page's own `PageHeader` and then
+  `HelpGate`, the one `LicenseGate` ("The helpdesk", `helpdesk`, Open
+  License only for someone who can open it). Never a page without its
+  title while the gate shows.
+- **Sub-pages carry a breadcrumb trail**, not a back link: Get help ›
+  My requests › #1052 (`Breadcrumbs className="mb-2"` above the
+  `PageHeader`). The request page's status chip sits in the header's
+  actions slot.
+- **Request-type cards** (`HelpHome`) are one link each in a `card-grid`
+  (`[--card-min:18rem]`): a 40px `bg-compass-50 text-compass-700` tile
+  holding the type's lucide icon, the title, one description sentence and
+  the expected time with a 12px `Clock`. A type stores an icon *name*;
+  `requestTypeIcon()` maps it to lucide (kebab, camel and Pascal case
+  alike) and falls back to `LifeBuoy`. Never an emoji.
+- **The guide search** (`KbSearch`) is a `TextInput` (h-11, 16px on a
+  phone) whose suggestions hang in a `Popover` (`role="dialog"`, "Suggested
+  guides"): the eyebrow "These might solve it", up to five documents with
+  `BookOpen` and "{space} · {n} min read", then a hairline and "Still
+  stuck?" with a `sm` primary **Send a request** to `/help/new?subject=`.
+  Arrows walk the box and the links; Escape is the Popover's. An empty
+  result is a `SectionEmpty`, never a dead panel: the way on stays.
+- **Requester status chips** come from `requesterStatus()` and nothing
+  else: a running workflow is **In progress** (`accent`), Open and New
+  `accent`, **Waiting on you** `warn`, On hold `neutral`, Solved and Closed
+  `ok`. The desk's "Waiting on requester" and "In workflow" never reach a
+  requester.
+- **A request form** renders the type's field definitions: a choice is
+  radio cards (§Forms, the stacked radio group: two to a row from `sm`,
+  the chosen card `border-compass-300 bg-compass-50/60`), one-line fields
+  pair up two to a row, long text and checkboxes take the row, a person is
+  the `EntityPicker`. Optional fields say "(optional)" in the label; a
+  prefilled answer says "From your directory entry" as its help. A type
+  whose questions hold no long answer also asks for a subject and a
+  description (`asksSubject`). Inline validation on Send, first invalid
+  control focused, a refusal is a `FormError` above Cancel and **Send
+  request**.
+- **What happens next** is a 19rem card beside the form (under it below
+  `lg`): an eyebrow, then numbered steps, each a 30px `bg-compass-50`
+  circle with the step's lucide icon (`Stamp` approval, `ListChecks`
+  task, `Hourglass` wait, `CircleCheckBig` finish, `MessageSquare` reply),
+  a bold title with the approver already named ("Sara Haddad approves")
+  and one `text-xs text-slate-500` line ("Your manager, from the
+  directory"). Resolved on the server (`form-data.ts`); a notify step is
+  never shown.
+- **The progress tracker** (`ProgressTracker`) is one card, a row of
+  stages from `sm` (a stack with a line down on a phone): 32px dots,
+  emerald with `Check` when done on an emerald line, the stage under way
+  `bg-compass-600` with its icon and a `ring-4 ring-compass-500/20`, the
+  rest `bg-slate-100 text-slate-400`, a declined stage red with `X`. Each
+  stage says its state for screen readers (", done"). Sent is always the
+  first stage; a request with no workflow shows Sent, "{team} is on it"
+  (or **Waiting on you**) and Solved.
+- **The conversation** shows public messages as cards (someone else's
+  with a `border-l-3 border-l-compass-500` edge, the requester's own as
+  "You") and system events as one `text-xs text-slate-500` line with
+  `Stamp` or `Info`. Bodies are plain text (`whitespace-pre-line`), as
+  comments are. The reply box is a borderless `Textarea` in a card with
+  the paperclip (`AttachButton`, a bordered `md` icon button) and **Send**
+  under a hairline. Attachments upload as they are picked and show as
+  neutral chips with a remove `X`; a refusal (413 too big, 415 a type the
+  store refuses) is a red `text-xs` line under them, never only a toast.
+- **A closed team says so, calmly.** When the team that will answer is
+  out of office hours or on a holiday (`teamOpenState`, lib/helpdesk/
+  calendars), the request form and an open request's page show the
+  calendar's own sentence above the content ("The IT team is closed for
+  Christmas Day. We'll reply from Mon 09:00."): `TeamClosedNotice`, a
+  `notice-warn` line with a 16px `Clock`, `role="status"`. Nothing while
+  the team is open, nothing on a solved request, never a blocker: the
+  request can still be sent.
+- **The satisfaction question** appears once the request is solved, as
+  the first card of the conversation column: "How did we do?", five stars
+  as a radio group (each with "n of 5, {word}" for screen readers), an
+  optional comment and **Send rating**; the done state is one line in
+  the same card.
+- **Approvals** (`ApprovalsClient`): one card open at a time (who and what
+  in the header with a `warn` **Needs your decision** chip, the answers in
+  a three-column `dl`, long ones across the row), then one note box and
+  **Ask a question** (secondary), **Decline** (danger, `X`) and
+  **Approve** (primary, `Check`). Declining and asking require the note;
+  the error is inline under the box and focus goes to it. The others wait
+  as one-line cards with **Open**. A decision removes the card and moves
+  focus to the next.
+- **Sidebar.** **Get help** (`LifeBuoy`) follows Handbooks for anyone
+  with `helpdesk.request` when licensed; its badge counts approvals
+  waiting for the person plus their requests waiting on them ("waiting on
+  you"). **Desk** (`Headset`) follows it for agents, helpdesk admins and
+  report readers: a plain anchor with `target="_blank"`, a 14px
+  `ExternalLink` after the label and "(opens in a new tab)" for screen
+  readers, because the desk is a workspace that stays open in its own
+  tab. The palette marks it "opens in a new tab" and opens it there.
+- **Dashboard.** Needs your attention gains "N requests need your
+  approval" (`Stamp`, to `/help/approvals`) and "N of your requests are
+  waiting on you" (`MessageCircleQuestion`, to `/help/requests`), from
+  `lib/helpdesk/attention`, counted in the card's total.
+- **The triggers** render only when the helpdesk is licensed and the
+  person holds `helpdesk.request` (`helpTrigger()`, server-side), and
+  open one dialog recipe, `HelpRequestDialog` (a `Modal`, `max-w-lg`: a
+  title that says what is sent, one lede naming what it is about, the
+  type's own questions prefilled from what the trigger knows, a subject
+  and description when the type asks none, Cancel and one primary). Their
+  places: **Report a problem with this page**, a `ghost` `sm` button with
+  `Flag` under Suggest an edit in the document rail; **Ask about this
+  policy**, a `secondary` `sm` button with `MessageCircleQuestion` after
+  "Not sure what this means for you?" under the policy's related line;
+  **This link is broken**, a quiet `Unlink` icon button (`data-tt`
+  "Broken?") beside a curated quick link and a Links card, never inside
+  the link, shown on hover and focus and always on a touch screen;
+  **Request access**, on the shell's not-found page for a `/spaces/{slug}`
+  address only. Every trigger is `print:hidden`.
+- **Request access never confirms a space.** The offer reads the same
+  for a private space and an address with nothing behind it ("If this is
+  a space you need for your work, you can ask for access."), and the
+  request carries only the slug from the address, never an id, so neither
+  the page nor its payload says whether a space exists.
+
+## Helpdesk: desk notifications and the desk app
+
+The desk's Settings → Notifications page (1.19.0,
+`components/helpdesk/desk/notifications/`) and the Install Desk prompt
+(`components/helpdesk/desk/pwa/`).
+
+- **Push on this device is a panel inside the Push notifications card**
+  (`rounded-lg border border-slate-200 bg-canvas p-4`, a `SubHeading`
+  naming the device), with one state at a time: the primary **Turn on
+  notifications on this device** (the browser's permission prompt needs
+  the click), an `ok` chip **On** with a secondary **Turn off on this
+  device**, an `error` chip **Blocked** over numbered steps to allow
+  notifications for the browser in hand (Chrome/Edge/Brave, Firefox,
+  Safari, iOS Settings, Android) and one `text-xs` line about the system's
+  own switch, or a `notice-warn` sentence when the page cannot get there
+  (iOS before Add to Home Screen, with **Show me how**; plain HTTP). A
+  refusal from the browser is a `notice-error` paragraph under the button
+  (Brave's sentence names brave://settings/privacy). The panel is
+  `aria-live="polite"`. Never a toast for a state the agent must act on.
+- **Devices are a bordered `divide-y` list**, not a table: a 32px icon
+  tile (Monitor / Smartphone), the label with `sm` chips (**This device**
+  `accent`, **Not delivering** `warn`), a meta line (`deviceLabel` · added
+  · last used as `RelativeTime`) and the push service's refusal in
+  `ink-warn`. Actions: secondary `sm` **Send test**, icon-only Rename
+  (`promptDialog`) and Remove (`confirmDialog({ danger: true })`), each
+  with `data-tt` and `aria-label` naming the device. The text column is
+  `min-w-[12rem] flex-1`, so on a phone the actions wrap under it,
+  indented to the text (`ml-11 sm:ml-0`).
+- **The events × channels matrix** is the Account → Notifications grid:
+  native checkboxes named "{event} by {channel}", a row header with the
+  event and its hint. A cell the workspace policy locks keeps its value,
+  disabled, inside a focusable `role="note"` wrapper with `data-tt="Set by
+  your workspace"`, plus one `text-xs` line under the table. A column that
+  cannot act yet (Push before any device) stays editable and says so in one
+  sentence above the table that the checkboxes reference with
+  `aria-describedby`. Every switch saves at once (optimistic, rolled back
+  with the server's sentence); there is no Save row on this page.
+- **Weekday picks** (quiet hours) are a `fieldset` with a visible legend
+  holding seven bordered labels around native checkboxes, Monday first,
+  the chosen ones `border-compass-300 bg-compass-50 text-compass-700`; the
+  visible text is the short day with the full name `sr-only`.
+- **Pause** is the page header's one action: a secondary menu button
+  (**Pause notifications** → For 1 hour / Until tomorrow at 08:00 / Until I
+  resume, with a one-line `text-xs` lead in the menu) that becomes
+  **Resume notifications** while paused, over a `notice-warn` banner that
+  states the pause and carries no button of its own.
+- **Install Desk** is a `MenuItem` in the desk's user menu (DeskShell
+  `installSlot`, hidden once installed) and a card on the Notifications
+  page. Chromium's own install dialog when the browser offered one
+  (`beforeinstallprompt`, kept by `PwaHead`); otherwise one `Modal` with a
+  40px `bg-compass-50` icon circle, a one-sentence lead and numbered steps
+  for the browser in hand, closed by **Done**. The dialog is mounted once
+  by `PwaHead`, never inside the menu, so a closing popover cannot take it
+  down.
+
+## Email templates in parts
+
+Every email CompassDocs sends (1.19.0) is composed from four parts, each
+from its own library: a **header**, a **body** (one per email, carrying
+the subject), a **signature** and a **footer**. Settings → Notifications →
+Email templates is the worked example (`components/email-templates/`);
+the desk's Settings → Email templates renders the same screens filtered to
+the helpdesk emails. By default every email is branded: the **Standard
+header** and **Standard footer** frame the body, with no signature.
+
+- **Five routed tabs, one row.** Under the Notifications header and its
+  tab row, `TemplatesSubNav` (a `SubNav` with `items`, `aria-label="Email
+  template libraries"`) switches between **Templates**, **Headers**,
+  **Bodies**, **Signatures** and **Footers** (`PanelTop`, `FileText`,
+  `Signature`, `PanelBottom`; Templates is `LayoutTemplate`). They are
+  pages, so links with `aria-current`, never a tablist. The composer is a
+  sub-page (`…/event/[key]`) with a `BackLink` to the Templates tab and the
+  event as a `SectionHeading` (the section layout owns the `h1`).
+- **The Templates tab** groups the emails by area (Documents, Read
+  confirmation, Training, Helpdesk, …) in `padding="none"` Cards, one
+  `ListFilter` above them. Each row is one link: the email's name, its
+  description (`sm:truncate`) and the four parts it uses as `sm` chips
+  separated by a `slate-400` middle dot ("Standard header · Policy
+  reminder · No signature · Standard footer"), `accent` for a part that is not the
+  shipped default, `neutral` otherwise, each with an `sr-only` "Header: "
+  prefix. **Customized** (`warn`, `sm`) marks an email that differs from
+  what ships (a slot off its default, or its built-in body edited); a
+  helpdesk email with team versions adds **N team versions** (`info`). The
+  chips are plain text inside the row link (a chip is never a link).
+- **The composer** is two columns from a 48rem container
+  (`@3xl:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]`, stacked above it):
+  the pickers, then a sticky preview card. A helpdesk email has a **Who
+  it's for** card first: a `Select` "Template for" (All teams, then each
+  team, "(own version)" on the teams that have one) whose help says which
+  template the chosen team sends. The **Parts** card holds four `Field`s,
+  each a `Select` whose first option **inherits**: "Use workspace default"
+  (on a team, "Same as All teams"). The option stays short so it never
+  truncates; the field's help names the part and its source: "Workspace
+  default: Standard header", "Inherited from All teams: Team signature",
+  "Inherited from All teams: Standard footer (workspace default)", or
+  "Chosen for this email" / "Chosen for {team}". Beside it two
+  bordered icon links, **Edit** (`Pencil`, "View" with `Eye` for someone
+  who cannot edit parts) and **New** (`Plus`), into the library with
+  `?part=` / `?new=1` and `?from=` (the library then shows a `BackLink` to
+  the composer). The row wraps under 12rem, so the buttons drop under the
+  select on a phone. One `SaveRow` ("Save template", "Save {team}
+  version", Ctrl/⌘+S) with **Send me a test** as its child; under it a `ghost` `sm`
+  **Reset to defaults** ("Match all teams" on a team), which only changes
+  the pickers (still to be saved), and, on a team with a variant, a
+  `danger` `sm` **Remove team version** behind `confirmDialog`. Switching
+  the team with unsaved changes asks with the leave prompt; the address
+  carries `?scope=`.
+- **The email preview** (`EmailPreview`) is the preview route's own render
+  in an iframe: `sandbox="allow-same-origin"` (no scripts; same origin only
+  so the page can read the body's height and grow the frame to the mail),
+  `inert`, `tabIndex={-1}`, a `title` naming the email, `ring-1
+  ring-slate-200` on a `bg-canvas` well. The subject line sits above it
+  ("Subject: …", `aria-live="polite"`); a `sm` `Segmented` "Preview width"
+  switches **Desktop** (the pane's own width; mail clients are fluid) and
+  **Phone** (375px, scaled down by a transform when the pane is narrower).
+  The mail itself stays white in dark mode, as a mail client shows it. A
+  team's version previews with the team's name in `{{team_name}}`. It
+  follows the form 300 to 400ms behind and dims with `busyClass` while a
+  newer render is on its way; a refusal is an inline `notice-error` line.
+- **A library tab** is the two-pane layout of §Settings pages (the export
+  presets): rail-row buttons in a `padding="none"` Card (`aria-current`
+  on the lit one), chips **Default** (`info`), **Built-in** (`neutral`),
+  **Edited** (`warn`: a built-in changed from the original) and a
+  `text-2xs` "Used by N templates" line (the kind's default reads
+  "Default for N emails", since every email that names no part of its kind
+  uses it); bodies are grouped under their
+  area with `RAIL_GROUP_TEXT` labels, a custom body's line naming its
+  email. One secondary **New {kind}** in the footer row. The editor: the
+  part's name as a `CardTitle` with its chips, "Used by N templates" as a
+  `link` button opening a `Popover` (role dialog) of composer links (team
+  variants carry the team as a `neutral` chip), then the actions **under
+  the name**, never flush right: **Set as default** (`primary` `sm`,
+  `Star`: the one prominent action, headers, signatures and footers;
+  disabled while the part has unsaved changes), **Reset to original**
+  (`RotateCcw`, an edited built-in, `confirmDialog`) and **Delete**
+  (`danger`, `confirmDialog`). When Delete cannot run (a built-in, the
+  default, a part in use) it stays visible but disabled, with the reason
+  as `text-xs text-slate-500` text beside it (`aria-describedby`), never
+  only in a tooltip, so it reads on a phone too ("Used by 2 templates.
+  Choose another header for them first.").
+- **One content editor for every kind.** Markdown in a monospace
+  `Textarea` under an **Insert tag** select that puts `{{tag}}` at the
+  caret (`MarkdownWithTags`; 12 rows for a body, 4 for the others). A
+  textarea keeps the stored markdown byte for byte, which the doc editor
+  did not, and a body adds a Subject field. Under it, "Tags you can use" lists the
+  kind's tags (a body adds its email's) as focusable `code` chips with the
+  meaning in `data-tt`. Validation follows §Forms (`tried`, first invalid
+  control focused, the route's limits checked first); a refusal is a
+  `FormError` under the card. One `SaveRow` ("Save header", "Create
+  header" with Cancel). Beside or under the editor (2 columns from a 56rem
+  container) a sticky preview card shows the unsaved part inside an email
+  (a body in its own; the others in the email chosen in **Preview in**).
+- **Read-only.** Someone who may look but not change (a template reader;
+  a helpdesk admin on the libraries, which every email shares) sees the
+  same screens with disabled pickers, `readOnly` fields, the content as a
+  `pre` block and one `text-sm text-slate-500` sentence in place of the
+  Save row; Edit becomes View and New is not offered.
+- **The frame (the mail itself).** `frameEmailHtml` lays out a framed mail
+  as nested `role="presentation"` tables, inline styles only (no `class`,
+  no `<style>`, no CSS variables: the accent is resolved to `#rrggbb` by
+  `accentHex`), a centred column `width="600"` with `max-width:600px`. No
+  background or text colour is painted, so a client's dark mode recolours
+  it like plain mail; the only fixed colours are the accent rule under the
+  header, a `#e2e8f0` hairline over the footer and the footer's `#64748b`.
+  The logo carries the workspace name as `alt`. With no header, signature
+  or footer the body goes out alone, exactly as before 1.19.0. The text
+  part joins the parts with blank lines; a frame's text has no markdown,
+  image or HTML syntax and no logo. The footer's "Manage your
+  notifications" link goes to Account → Notifications at the email's
+  section (`#notify-helpdesk`, …) and is left out for an outside recipient
+  (no account), for an email whose body has its own manage link and for an
+  email-type notification channel (`manageLink: false`).
+
+## Helpdesk: the desk
+
+The agents' side of the helpdesk (1.19.0, Enterprise `helpdesk`): `/desk`,
+a full-screen workspace in its own `(desk)` route group, meant to stay
+open in its own tab beside CompassDocs. Components live in
+`components/helpdesk/desk`; the requester's side is §Helpdesk: Get help.
+
+- **Its own shell, no sidebar.** `(desk)/layout.tsx` repeats what
+  `(app)/layout.tsx` does first (sign-in, the forced password change, the
+  interface scale, the date settings, one `ToastHost`, one `DialogHost`)
+  and renders `DeskShell`: a `h-13` top bar (the Desk mark: a 32px
+  `bg-compass-600` tile with `LifeBuoy`; the global search; **CompassDocs**
+  with `ExternalLink`, opening in a new tab; the bell; the availability
+  menu) over a `w-sidebar-rail` icon rail (Tickets, Approvals, Workflows,
+  Reports, Settings: 42px squares, `data-tt-pos="right"`, an `aria-label`
+  carrying the badge's count and noun, `aria-current="page"`). Under `md`
+  the rail folds into a **Desk menu** button at the top bar's left (a
+  `Popover role="menu"` of the same destinations). The page area is `flex
+  min-h-0 flex-1` and every screen owns its own scrolling column, so the
+  bar and rail never scroll away. `id="main"` sits on the page area for
+  the skip link.
+- **Gate and guard.** Unlicensed is `DeskLicenceGate` (a bare top bar, the
+  page's `PageHeader` and the house `LicenseGate`); signed in without a
+  desk permission (`helpdesk.agent`, `agent_all`, `admin`, `reports`) is
+  `DeskForbidden`, an `EmptyState` with **Go to Get help**. A page a desk
+  role does not reach renders `DeskPageForbidden` in place, never a 404.
+- **Controls follow the desk role.** Agent J's roles decide what shows
+  (`hdCapsFor` in the layout, `useCan()` in client code): the owner menu
+  offers anyone, the team or only you (`tickets.assign_any` /
+  `assign_team` / `assign_self`); priority, team, status, delete, internal
+  notes, the Workflows rail item and each settings page appear only with
+  their capability. A control the role lacks is **left out**, not
+  disabled, except a property row, which stays as plain text without its
+  chevron.
+- **The split view** (`QueueLayout`): views and teams (`w-rail`, house rail
+  rows with a `tabular-nums` count, the Overdue count in `text-red-600`
+  when above zero), the ticket list (`lg:w-[23rem]`) and the ticket pane.
+  Under `xl` the views fold into the list title's menu; under `lg` the list
+  and the pane stack, and the pane opens with a back link named for the
+  list. The view travels in the address (`?view=overdue`, `?team=3`,
+  `?sort=priority`) and survives opening a ticket
+  (`/desk/tickets/1047?view=overdue`). Report links that carry filters
+  (`team`, `assignee`, `priority`, `request_type`, `channel`, `status`,
+  `tag`, `created_from`/`to`, `solved_from`/`to`, `breached`,
+  `requester`, or `from=reports`) show a **Filtered from Reports · Clear**
+  strip (the invitation strip's tint) over the list.
+- **A queue row** is one link: the 8px priority dot (`PRIORITY_DOT`, with
+  an `sr-only` "High priority"), the number, one `sm` status chip on the
+  right; the subject (`font-semibold`, truncating); the requester and the
+  due. The open ticket is `bg-compass-50` with a 3px accent band
+  (`before:w-0.75`) and `aria-current="page"`. The due is **ink, never a
+  chip**: `slaInk()` (breached `text-red-600 font-semibold`, close
+  `ink-warn`, on track `ink-ok`, paused `text-slate-500`), compacted
+  ("Reply overdue 25m" reads "Overdue 25m") with the full label
+  `sr-only`; a calendar note ("Paused for Christmas Day…") replaces it.
+- **Status chips** are a closed set: New `info`, Open `accent`, Waiting on
+  requester `warn` ("Waiting" in the list's narrow column), On hold
+  `neutral`, Solved `ok`, Closed `neutral`, and the derived **In
+  workflow** `accent` while a request's run is going. On the ticket the
+  status is changed through a **status pill menu** (a `PickMenu`
+  trigger tinted with the status tone, with a `ChevronDown`, §Status
+  chips "A choice is a pill menu button"), never a `<select>`; Solve is
+  the named action beside it.
+- **Keyboard.** `j` / `k` move real focus through the list, `Enter` opens
+  the focused row, `r` reply, `n` internal note, `e` solve, `a` assign to
+  me, `/` the search. Every key goes through `useDeskKeys`
+  (`blockBareKey` plus the account's single-key preference); the empty
+  pane lists them only while single-key shortcuts are on.
+- **The conversation**: a requester's or agent's message is a card (an
+  agent's public reply carries a `border-l-2 border-l-compass-500` edge);
+  an **internal note** is the amber card (`border-amber-200 bg-amber-50`,
+  `dark:border-amber-500/30 dark:bg-amber-500/10`, ink `amber-950` /
+  `dark:amber-100`) with a `warn` `sm` chip "Internal note" and `Lock`;
+  a system event is one `text-xs text-slate-500` line with `RotateCw`. A
+  newbie's held reply carries J's `ReviewStateChip`. Bodies are
+  `MarkdownView` at `text-sm`, `headingOffset={2}`. Attachments link to
+  `/api/helpdesk/attachments/[id]`, images with a thumbnail.
+- **The composer**: a `Segmented size="sm"` (Reply to {first name} |
+  Internal note), never hand-rolled tabs; the box turns amber in note
+  mode. Macro (`Zap`) and Article (`BookOpen`) are `secondary` `sm`
+  buttons opening `Popover` comboboxes; `/` in an empty box opens the
+  macros and `[[` the articles. Attach is a bordered icon button; an
+  upload refusal (413, 415) is an inline `text-xs text-red-600` line under
+  the files, not a toast. **Send** is a split button: the primary and a
+  chevron opening "Send and set Waiting on requester / On hold / Solved".
+  A newbie's button reads **Send for review**. Drafts are kept per ticket
+  in `localStorage` (a per-viewer convenience).
+- **The side column**: the requester card, the properties card (rows of
+  label and a picker-menu value button), Due (eyebrow, first reply and
+  resolve as ink, a `role="img"` bar of the resolution time used), the
+  workflow's progress and task tickets on a request, the request's
+  answers, and **From your docs** (`Sparkles` eyebrow; Insert writes a
+  Markdown link into the reply).
+- **The workflow builder** (`/desk/workflows/[slug]`): the workflows rail,
+  a centred `max-w-[40rem]` column of step cards from the violet **Starts
+  when** card to the emerald Finish, and a `xl:w-80` settings panel for the
+  selected step (it stacks under the steps below `xl`). A step card is a
+  `rounded-xl` card whose title is a `button` stretched over it
+  (`after:absolute after:inset-0`, `aria-pressed`); the selected card is
+  `border-compass-500 ring-2 ring-compass-500/20`. A parallel group is a
+  dashed box headed **At the same time** (`Split`) holding task cards in an
+  auto-fit grid. Between steps a dashed 28px `+` opens the step menu.
+  **Moving is a menu**, not drag and drop: each card's `GripVertical`
+  button opens Move up, Move down (left and right inside a group), Remove.
+  Save draft appears only while dirty (`useUnsavedChanges`, the leave
+  guard); **Publish changes** asks first and says that running requests
+  keep their version.
+- **Settings** (`/desk/settings/*`): a desk settings rail (house rail rows,
+  dense; a sideways-scrolling row under `lg`) beside the page, which is a
+  `PageContainer` with its own `PageHeader`. Pages follow §Settings pages:
+  one primary create action top-right ("New team", "New macro", "New
+  rule", "New request type"), lists in `padding="none"` cards with icon
+  row actions, editors in a `Modal` or the two-pane recipe (Request
+  types), one `SaveRow` per page.
+- **Page titles inside panes.** The queue and the ticket pane carry an
+  `sr-only` `PageHeader` (the visible headings are the list's `h2` and the
+  ticket subject's `h2 text-xl`), so the page still has its one h1 and
+  every desk page title goes through `PageHeader`.
+- **Desk roles** (agent J, `components/helpdesk/desk/roles`). A person's
+  desk role (Newbie, Agent, Team lead, Manager, Admin) is one
+  `RoleChip`: the role's lucide icon (`Sprout`, `Headset`, `Flag`,
+  `BriefcaseBusiness`, `ShieldCheck`) in its tone (Newbie `info`, Agent
+  `neutral`, the rest `accent`); a role that comes from the workspace role
+  shows `Lock` and "(from workspace role)" with a focusable `data-tt`
+  saying where to change it. The top bar's user menu shows it beside the
+  name (`sm`). A newbie's held reply carries `ReviewStateChip`: **Waiting
+  for review** (`warn`, `Hourglass`) or **Returned** (`neutral`, `Undo2`)
+  with the reviewer's note under it; approved and unreviewed replies show
+  nothing. Reviewers reach the held replies from the queue's **Reviews**
+  row (with its count) at `/desk/reviews`.
+- **The capability matrix** (Settings → Roles, `RolesMatrix`): the five
+  roles are columns, the capabilities grouped rows of checkboxes under
+  their section's eyebrow row (Tickets, Replies, Macros, Reports, People
+  and teams, Configuration), in a `Table scroll` with an `sr-only`
+  caption. The Admin column is locked on. A cell the rules forbid (Managers
+  only, a capability the editor does not hold, a role at or above the
+  editor's) is a disabled checkbox inside a focusable wrapper (`tabIndex=
+  {0}`, `role="note"`) that carries the reason as `data-tt` with
+  `data-tt-wrap`, because a disabled control takes neither hover nor
+  focus. Reply to the requester and Reply after review are one choice per
+  role: ticking one clears the other. One `SaveRow` and **Reset to
+  defaults**; the server checks the same rules.
+- **An `sr-only` label inside a table header cell needs the cell to be
+  `relative`.** `sr-only` is `position: absolute`; without a positioned
+  `th` its containing block is outside the table's scroll box, so the
+  label escapes it and widens a phone page into a sideways scroll (J's
+  lesson from the matrix at 390px).
+
+## Workflow conditions and hand-offs
+
+Multi-team workflows (1.19.0, Enterprise `helpdesk`): a step that runs
+only sometimes, a task routed to a team by an answer, what a team does
+when it can't do its task, and what it hands on. Components live in
+`components/helpdesk/desk/workflow-multi`; the builder panel
+(`workflows/StepSettings`) and the ticket pane mount them.
+
+- **Builder panel sections.** Under a step's own settings, each extra is
+  a section under a hairline (`border-t border-slate-100 pt-4`) with a
+  `SUB_HEADING_TEXT` heading and a 14px `slate-400` lucide glyph:
+  **Only if…** (`Filter`, on every step, a parallel group included),
+  and for a task **Route to team by answer** (`Signpost`), **If the team
+  can't do it** (`CircleSlash`) and **Hand-off fields** (`ClipboardList`).
+  Repeated rows (rules, route rows, fields) are `rounded-lg border
+  border-slate-200 p-2.5` boxes with dense controls stacked to fit the
+  320px panel. Their controls are named for screen readers ("Rule 2:
+  what to check"), and remove, move up and move down are quiet `sm` icon
+  buttons with one-word tooltips.
+- **Every rule set says itself in plain words.** Under the rules, a
+  `rounded-lg bg-slate-50 px-3 py-2 text-sm` line says it the way a
+  person would: "Only if Office is London and Needs a laptop is Yes."
+  ("or" for Any of these; "is London or Paris" for is one of). A route
+  says "By Office: London → Facilities UK, Paris → Facilities FR;
+  anything else → Facilities." These sentences come from
+  `workflow-multi/conditions` and nowhere else. The step card's chip
+  tooltip uses the same sentence.
+- **What a rule can check** is one `Select` with `optgroup`s: The request
+  form, The requester's directory entry, Earlier steps' hand-off fields
+  (only tasks that finish before this step; a task in the same parallel
+  group is not earlier). Operators follow the field: a yes/no is
+  **is Yes / is No**; a choice is **is / is not / is one of** with the
+  field's own options (checkboxes for is one of); text adds
+  **contains**. Every field type also has **is empty / is filled in**.
+  Two or more rules show the `Segmented` `sm` **All of these / Any of
+  these**. A rule that cannot be checked yet says why in `ink-warn`
+  `text-xs` under it.
+- **Can't-do choice** is `RadioCards`, two cards: "Stop and hand back to
+  {coordinating team}" (the request type's team, by name) and "Carry on",
+  each with one sentence saying what happens next.
+- **Hand-off fields** show each field's message placeholder in
+  `font-mono text-2xs`: `{{outputs.<step>.<key>}}`. A key follows its
+  label only while the field is new in this sitting. Once saved, a later
+  message may quote the key, so it stays put.
+- **Step card chips** (`StepBadges`) sit under the card's sub-line, `sm`,
+  each `tabIndex={0}` with the full sentence as `data-tt` (`data-tt-wrap`)
+  and in an `sr-only` span, raised above the card's stretched select
+  button (`relative z-10`): **Only if** (`accent`, `Filter`), **By
+  {field}** (`info`, `Signpost`), **{n} hand-off fields** and **Carries
+  on** (`neutral`). They are status, never links.
+- **Step state words** are a closed set (`STEP_STATE_LABEL`): Not
+  started (`neutral`), In progress (`accent`), Done (`ok`), Couldn't be
+  done (`error`), Declined (`error`), Skipped (`neutral`), Cancelled
+  (`neutral`). A run is In progress, Waiting, **Stopped** (`warn`,
+  blocked), Finished, Cancelled or Declined.
+- **A task ticket's outcome bar** (`TaskOutcomeBar`) is a card above the
+  conversation: a 32px `bg-compass-50` `Workflow` tile, "Workflow task:
+  {title}", one line saying what finishing asks for, then **Can't be
+  done** (secondary, `CircleSlash`) and **Mark done** (primary,
+  `CircleCheck`). Once the task is finished it becomes one `notice-ok`
+  line (Done) or one `notice-warn` line (can't be done, with the reason
+  and what happened next).
+- **Mark done** is a `Modal` (`max-w-lg`): the title "Mark "{task}"
+  done", one lede naming who reads the hand-off, the task's fields
+  (optional ones say "(optional)", as on request forms), an optional
+  "Note for the next teams", Cancel and **Mark done**. It validates
+  inline and focuses the first field that needs fixing. When a plain
+  Solve is refused with 409 `missing`, the ticket pane opens this same
+  dialog with those fields marked (`openTaskOutcome(number)`), never only
+  a toast.
+- **Can't be done** is a `Modal` whose lede box (`bg-slate-50`, `Undo2`
+  or `Workflow`) says what happens next in one sentence: "The workflow
+  stops and {team} takes it back. They can retry this step, skip it or
+  cancel the workflow." or "The workflow carries on with its next step."
+  The reason is required. The primary says what it does: **Hand back to
+  {team}** / **Mark can't be done**.
+- **A stopped workflow** (`BlockedRunBanner`) is a `notice-warn` region
+  on the request ticket with `OctagonPause`: "Workflow stopped: {team}
+  can't do "{step}"", the reason, who and when, then `sm` **Retry step**
+  (`RotateCcw`), **Skip and carry on** (`SkipForward`, a `promptDialog`
+  with an optional note) and **Cancel workflow** (`danger`, `Ban`, a
+  danger `confirmDialog` whose body ends "This cannot be undone.").
+  Results toast. Only someone who can work the request sees the
+  actions.
+- **Part of request** (`PartOfRequestCard`, a task's side panel) shows
+  "#1047 · {subject}", then type and requester, then a compact list of
+  each team's step (20px state dot, title, team, state chip). The
+  viewer's own task is tinted `bg-compass-50/60` with "· this task".
+  Below that is one `link`: **Open request (read-only)** with `Eye`, or
+  **Open request** with `ArrowUpRight` when they may work it.
+- **The read-only request view** (`/desk/requests/[number]?from=`) is a
+  desk page with a back link to the task, the `PageHeader` (`Workflow`
+  icon, the subject, "#1047 · type · opened … by …", the status chip),
+  then one neutral banner. A read-only state is not a warning, so it is
+  `rounded-lg border border-slate-200 bg-slate-50` with `Eye`, never a
+  `notice-*`: "**Read-only** · You're seeing this because Facilities has
+  a task on it." The main column holds the workflow timeline (28px dots
+  on a `slate-200` line, groups as a grid of bordered cards) and the
+  public conversation with no composer. The side column holds requester,
+  request details, hand-offs and tasks. A sibling task is a link only
+  when the viewer may open it. The page never renders an internal note,
+  even if one were sent.
+- **Hand-offs** (`HandoffsPanel`, `HandoffList`) list each finished
+  task's fields as a two-column `dl` on `bg-slate-50`, then its note in
+  quotes. When there are none, `SectionEmpty` says "What each team hands
+  on appears here as they finish their tasks."
+
+## Integrations and automated tickets
+
+Helpdesk 1.19.0 (Enterprise). Monitoring tools, bots and automated mail
+open tickets through **Desk → Settings → Integrations**
+(`components/helpdesk/desk/intake`, lucide `Plug`; capability
+`channels.manage`, which `settings.manage` covers).
+
+- **The key is shown once.** Creating a webhook integration, and **Make a
+  new key**, end on `KeyOnce`: a `notice-ok` banner ("Copy the key now. It
+  won't be shown again."), the endpoint and the key each in a mono `code`
+  box with its own `CopyButton` (the key's is `primary`), a curl example in
+  a bordered `pre` with **Copy command**, and the tool's setup steps
+  (`setup-notes.ts`; snippets say `<your key>`, never the key). Making a
+  new key asks first with `confirmDialog({ danger: true })`: the old key
+  stops at once. After that the page shows only the key's prefix
+  (`cdhk_Ab12Cd…`). Never put a key in a URL the app builds, a toast, a log
+  line or an audit row.
+- **The wizard is three steps on one page**, "Step N of 3 · …" as a muted
+  `text-xs` line above one card: choose the tool (radio cards, the
+  RequestForm choice recipe, a lucide icon per kind in a 32px slate tile,
+  focus shown on the card), then the settings (`IntegrationForm`, shared
+  with the integration's page), then the key. Back is a `ghost` button
+  beside the primary.
+- **The list** is one table card: the kind's icon tile, name and kind;
+  team (or "Unrouted"); last used (`RelativeTime`, "Never"); distinct
+  alerts in 24 hours (a count, ink); **On** (`ok`) / **Off** (`neutral`).
+  The row's name is the link to its page. Empty: `EmptyState` with `Plug`
+  and a **New integration** action.
+- **Deliveries** are a table of the newest 50 with a bordered icon
+  **Refresh** (`data-tt`, `aria-label`): when, the status code (mono; red
+  ink from 400), the outcome chip, the ticket link, the reason. Outcome
+  tones are a closed set: **Created** `info`, **Updated** `neutral`,
+  **Reopened** `warn`, **Resolved** `ok`, **Ignored** `neutral`,
+  **Rejected** `error`.
+- **Turn off and Delete** live in the page's one `DangerZone`; both ask
+  first. Turning off is reversible (the button becomes **Turn on**).
+- **An automated ticket carries `AutomatedChip`**: "Automated · Grafana",
+  `info`, with lucide `Activity`, `sm` in queue rows (`inLink`, plain text
+  inside the row link) and `md` under the ticket's subject (with a `data-tt`
+  saying it was opened by the integration and has nobody to reply to).
+  Never a second chip for the same fact; the requester line shows the
+  service identity ("Monitoring (Grafana)") as written.
+- **`AlertDetails`** sits in the ticket's side panel under the contact
+  card, in the side panel's card recipe: the eyebrow "Alert" with
+  **Firing** (`error`) or **Resolved** (`ok`) at the right, the
+  integration's name and kind (a settings cog link for those who may
+  configure it), a two-column `dl` (Fired, First seen, Last seen, Resolved,
+  Severity, Source), the tool's links (http(s) only, `ExternalLink` icon,
+  new tab, `rel="noopener noreferrer nofollow"`, "(opens in a new tab)" for
+  screen readers), the fields folded in a `details` (mono `dl`), and the
+  dedup key as a muted line. Severity is the tool's own word, ink, never a
+  chip.
+- **Alert text is never trusted as markup.** HTML is walked into text,
+  raw tags in markdown are escaped, links and images keep only http(s)
+  targets (an image becomes a link, so nothing loads from the tool when an
+  agent opens the ticket). Repeats and resolutions are internal notes by
+  the service identity ("Fired again (×3)", "Alert resolved."), so the
+  conversation stays readable and no requester is ever written to.
+
+## Helpdesk: contact cards
+
+Contact cards (1.19.0) show who is on a ticket, from the CompassDocs
+directory: the requester's card for agents, the agent's card for the
+requester. One component renders every card, `ContactCard`
+(`components/helpdesk/contacts`), from an `HdContactCard` the server has
+already narrowed. Never a second hand-built person block in the desk or
+Get help.
+
+- **The directory decides what can be seen; the card never re-decides.**
+  The server passes the person through `viewerScope`/`personForViewer`
+  before any slot reads it, so an admins-only mobile or field is blank
+  for non-admin viewers whatever Desk settings → Contact cards ticks.
+  The audience's parts (`agent_sees` / `requester_sees`) only narrow it
+  further. A component that wants another field adds a slot or an extra
+  in settings, never a read of its own.
+- **Variants.** `panel` (the side panel, "Who's helping you"): photo or
+  initials (`h-14`, `bg-compass-100` initials), name (a link to the
+  directory profile when the viewer may read it), `VipChip`, title ·
+  department, pronouns; then the meta lines (lucide `MapPin` office with
+  "local time 14:05", the zone and offset as its `data-tt`; `UserRound`
+  Reports to; `Users` team · desk role; the desk availability dot and
+  Teams `PresenceBadge`); then the contact rows; then the chat buttons;
+  then extras (`dl`); then earlier tickets; then a bordered footer with
+  **Open profile** (`secondary sm`) and the directory's `ProfileActions`
+  (vCard and QR) plus **Schedule a meeting** for Microsoft-synced people.
+  `popover` drops extras, the history list and `ProfileActions`.
+  `compact` is one row (32px photo, name, relation · title, and, unless
+  `actions={false}`, quiet icon buttons to call, email and chat).
+- **Contact rows** sit in one bordered list (`rounded-lg border
+  divide-y`), 44px tall: icon (`Phone` desk, `Smartphone` cell, `Mail`),
+  the value as the link (`tel:` built by `telHref`, `mailto:` by
+  `mailtoHref`, never a raw value in an `href`) with its label under it in
+  `text-xs`, and an icon-only `CopyButton` (`ghost`, label "Copy desk
+  phone") whose `onCopied` toasts "Desk phone copied." Values wrap
+  (`break-words`, an email with a `<wbr>` before the @), never truncate: a phone number cut
+  to "+1 602 555 01…" is useless. Agents get a quiet **Reply in ticket**
+  (`Reply`) icon beside the email that focuses the composer.
+- **Chat buttons** are `secondary sm` buttons with a lucide icon and the
+  service named in words: `MessageSquare` Teams, `Video` Webex, `Hash`
+  Slack. No brand logos. A web link opens in a new tab (`noopener
+  noreferrer`); an app link (`msteams:`, `slack:`, `webexteams:`) opens in
+  place; where a service has both, a quiet `Laptop` icon button beside it
+  ("Open in the Slack app") opens the app.
+- **VIP** is `VipChip`: `warn` with `Crown`, the reason ("VIP list:
+  Board member") as its `data-tt`; `inLink` inside a queue row (plain text,
+  no tab stop). Agents only: a requester-audience card never carries it.
+- **The stack** (`TicketContacts`): the requester's card in the side
+  panel's card recipe with the eyebrow "Requester" (`Contact` icon), then
+  "Also on this ticket (n)" with compact rows that expand in place into
+  the person's `panel` card (a quiet chevron opens it, a `ghost sm` "Show
+  less" under the card closes it, both `aria-expanded`; the compact row
+  gives way to the card, never both, so the card keeps the full width).
+- **Hover cards** (`ContactHoverCard`) open after 350ms on hover or focus
+  of a name (dotted underline), in the house `Popover` (`w-80`), and stay
+  open while the pointer is on the name or the card. In a queue row (one
+  big link) pass `inLink`: hover only, no tab stop.
+- **"Who's helping you"** (`AssignedAgentCard`, Get help's request page,
+  above "Your answers"): eyebrow with `Headset`, the agent's `panel` card,
+  or "Your request is with the IT team. You'll see who's on it here once
+  someone picks it up." Phones are off for requesters by default.
+- **Print** hides copy buttons, chat buttons and the footer; the values
+  stay.
+- **Settings** (Desk settings → Contact cards) is a conventional settings
+  page: a `Select` per slot (options marked "(admins only)" when the
+  directory restricts them), Chat, Extra fields (up to six), VIPs (a
+  directory rule plus the helpdesk list with notes), office time zones (a
+  `TextInput` with a zone datalist) and a "Who sees what" table of
+  checkboxes, one column per audience; one `SaveRow`.
+
+## Business calendars
+
+Helpdesk 1.19.0 (agent L): `/desk/settings/calendars`, the office hours and
+holidays each team's reply targets count in. Components live in
+`components/helpdesk/desk/calendars`; the arithmetic is
+`lib/helpdesk/sla` (`businessSegments`) and the words around it
+`lib/helpdesk/calendars-shared`.
+
+- **Three pages under one header** (§Settings pages: a section with several
+  jobs gets pages): **Office hours**, **Holidays**, **Test a due time**, a
+  `SubNav` row under the `PageHeader` (`CalendarClock`). Gated by the desk
+  capability `sla.manage`; a role without it gets `DeskPageForbidden`.
+- **Office hours and Holidays are the two-pane recipe** (export presets):
+  rail-row buttons on the left (`aria-current="true"`, a **Default** `info`
+  chip, the open-hours summary "Mon–Fri 09:00–17:30 · Europe/London" and
+  the teams on it as `text-2xs` lines with `sr-only` commas), the editor on
+  the right. Both grids carry `grid-cols-[minmax(0,1fr)]` so a table's
+  minimum width can never widen the page on a phone.
+- **The weekly grid** is one row per day, Monday first: a dense `Select`
+  (Closed / Open / Open 24 hours), then `type="time"` interval pairs with
+  an icon-only Remove (`data-tt="Remove"`, the full sentence in
+  `aria-label`) and an **Add hours** link. On a phone the pair stays on one
+  line (`min-w-0 flex-1`, `sm:w-32`); a shift past midnight says "Closes
+  06:00 the next day" under it. An end of 00:00 is midnight (stored
+  24:00). **Copy Monday to weekdays** is a `secondary` `sm` button.
+- **Edits that re-time tickets say so** in the toast ("3 open tickets
+  re-timed."). Holidays, team calendars and team targets act at once
+  (toast, no `SaveRow`); the calendar editor has one `SaveRow`.
+- **A team's calendar and targets** are `<TeamCalendarSelect teamId />`
+  (the hint under it wraps, never truncates: a truncated line widens a
+  host's implicit grid column) and `<TeamSlaTargets teamId framed />`
+  (`framed={false}` inside a host's own card or `<details>`: no second
+  card, Reset moves into its footer; its `SaveRow` is `sticky={false}
+  shortcut={false}` so it never answers the host page's Ctrl/⌘+S).
+- **A scrolling table's `sr-only` header text** sits in a `relative` `Th`:
+  absolutely positioned, it otherwise escapes the scroller and widens a
+  390px page.
+- **Words**: "office hours", "holidays", "closed for Christmas Day",
+  "resumes Mon 09:00", "We'll reply from Mon 09:00". Times are 24-hour
+  wall-clock times in the calendar's zone; the zone is named next to them.
+
+## Desk reports and charts
+
+`/desk/reports` and `/desk/reports/explore` (1.19.0,
+`components/helpdesk/desk/reports/*`, data from
+`/api/helpdesk/analytics/*`). Good defaults first, customisation second:
+the built-in Overview opens on the last 30 days against the 30 before with
+nothing to set up; everything else (filters, other dashboards, Edit,
+Explore, schedules) is one step further.
+
+- **Page**: the desk page skeleton (`PageContainer`, `PageHeader` with
+  `BarChart3`, "Reports"; Explore has `Compass` and a back link). Header
+  actions, once, at full labels: Explore, Export ▾, Schedule, and Edit
+  (or **Duplicate to edit** on a built-in: built-ins are read-only
+  templates). Under the header, one row: the dashboard switcher (a
+  `secondary` button opening a `Popover role="menu"` of
+  `menuitemradio` rows grouped Built in / Yours / Shared, then "New
+  dashboard"), a `sm` chip for where it is shared, and then the filter bar
+  on its own row.
+- **Filter bar** (one row above the widgets, never inside them): the date
+  range (presets as `menuitemradio`, custom dates in the helpdesk's zone,
+  named), the comparison (Previous period / Same period last year / Don't
+  compare), a pill chip per filter in use plus Team, and "Add filter" for
+  the rest. A chip is a `Popover role="menu"` of `menuitemcheckbox`
+  rows; an active chip is `border-compass-200 bg-compass-50
+  text-compass-ink-strong` (the ink token, so it reads in dark mode). "Include
+  alerts and API tickets" appears only when the desk has automated tickets
+  (they are left out by default, and never count in satisfaction). Under
+  `sm` the whole bar folds into one **Filters (n)** button that opens the
+  same controls in a `Modal` sheet with a full-width "Show results". The
+  view lives in the address (`lib/helpdesk/analytics/url-state`), so a
+  copied link opens the same dashboard, dates and filters.
+- **The grid**: a leaf `@container` (no overlay inside it is `fixed`; the
+  widget menus are `Popover`s, the dialogs portal), two columns on a phone
+  so numbers pair up, four from `@5xl`; a widget spans 1–4 columns
+  (`SPAN` in `Widget.tsx`), `gap-3`, `gap-4` from `@2xl`. Never
+  viewport breakpoints for the widget grid.
+- **A widget is a card** (`CARD_CLASS`, `p-3 sm:p-4`, never
+  `overflow-hidden`: its ⋯ menu hangs out of it), an `h3` in the
+  sub-heading tier that wraps to two lines (never truncates on a phone),
+  an optional `text-xs` line ("Own filters: 1", "Top values only"), and
+  one ⋯ `iconButtonClass` menu: Show as table / chart, Download CSV (only
+  with Export tickets), Open in Explore. States in order: a skeleton the
+  chart's shape (`Skeleton`, `aria-busy` on the card); the server's
+  sentence in `text-red-600` with "Try again"; `SectionEmpty` — "Nothing
+  matches these filters in this period." with **Clear filters** when the
+  filters exclude everything, "No tickets in this period yet. Numbers
+  appear here as the desk works." when there is simply nothing; then the
+  chart. Live widgets (open now, unassigned now, breaching now) say "Right
+  now · refreshes every minute" and refetch every 60 s while the tab is
+  visible.
+- **Edit mode**: an invitation strip (`border-compass-200
+  bg-compass-50/70`) "Editing {name}" with Add widget, Settings, Cancel
+  (asks before discarding) and Save. Each card gets a toolbar row above
+  its title: a grip (the card itself drags), then 28px icon buttons with
+  `data-tt` and full-sentence `aria-label`s — Move earlier, Move later
+  (the keyboard path for reordering; focus follows the card), Narrower,
+  Wider, Configure, Remove (`hover-danger`). **Add widget** opens the
+  gallery (`Modal`, `card-grid`): one ready-made card per widget type,
+  drawn live with the dashboard's filters, each with an Add button.
+  **Configure** opens a right-hand panel (`Modal layout="fill"`,
+  `max-w-xl`, `border-l`): a live preview on the canvas tint first, then
+  Title, Shown as, Measure (grouped `optgroup`s, its description as the
+  help), Split by / Then by (only the splits that measure allows; a
+  caveat such as VIP's "today's list" as help), the widget's own filter
+  chips, Width (a `Segmented` ¼ ½ ¾ Full) and a target with an optional
+  "close to target" band (hours for time measures). A choice that cannot
+  work says why in a `notice-warn` instead of the preview, and Apply waits.
+  Dashboard settings (`Modal`): name, description, who can open it (a
+  `Segmented`: Only me / A team / Everyone who reads reports, with "Each
+  person still sees only the tickets they may report on."), the default
+  toggle (reports.all only), and Delete dashboard (`danger`, confirmed).
+- **Exports** follow §Print: Export ▾ lists "Dashboard as CSV",
+  "Dashboard as PDF" (server-rendered with `@react-pdf/renderer`, light,
+  headline tiles then one table per split with an inline bar) and
+  "Print…" last; without Export tickets the menu says so in one line
+  instead of the two downloads. A printed dashboard hides the controls,
+  prints its name and dates, and lets the grid fall to one column with
+  `break-inside-avoid` cards.
+- **Schedules** (`Modal`, "Email this dashboard"): the existing schedules
+  as a divided list (one line of when, one `text-xs` line of to whom,
+  what and the next send; a `Toggle` and a Remove icon button), then the
+  form: Send to (people and "Everyone in {team}"; without the right to
+  send to others, only "you"), How often (`Segmented`), On / At (named
+  zone), What it sends, and one sentence spelling out the cadence, the
+  period covered and the first send before **Add schedule**.
+
+### Charts
+
+Hand-rolled SVG and HTML (`charts.tsx`); no chart library. The method is
+the dataviz one:
+
+- **Form follows the job**: a number (`kpi`) for one total, with its
+  change and a sparkline; a meter (`gauge`) for a percentage against a
+  target; lines or areas over time; ranked horizontal bars for teams,
+  agents and categories; stacked bars only for counts; a donut only for
+  parts of a whole of at most five parts (more falls back to bars); a
+  heatmap for day of the week × hour; a table for anything with two
+  splits or many rows. `widgetProblem` enforces it. One axis, always:
+  two measures are two widgets.
+- **Colour**: slot 1 is the workspace accent (`--compass-500`), slots 2–8
+  the validated categorical order in `charts.module.css` (dark steps are
+  selected for the dark surface, not flipped; print re-declares light).
+  A series keeps its slot when filters change the others: priorities,
+  channels, statuses and origin have fixed slots; other keys hash to a
+  slot. "Other" and the comparison series are slate. Sequential (the
+  heatmap) is one hue: `rgb(var(--compass-600) / α)` in six steps, with a
+  Fewer → More key. Status colours (on target / close / off target) are
+  emerald / amber / red ink and always carry an icon and words ("Off
+  target (at most 4h)").
+- **Marks**: 2px lines with round joins, a 10% area wash for a single
+  series, 8px end dots with a 2px surface ring (`.gapStroke`), bars at
+  most 0.75rem with a 4px rounded data end and square baseline, a 2px
+  surface gap between stacked segments and donut arcs; solid hairline
+  gridlines in `--grid`, axis ticks in `--tick`, four equal steps to a
+  clean top (whole numbers for counts, 15m/30m/1h… for times, 0–100 for
+  percentages). Tick and x labels thin out by width and the latest label
+  always shows. A target is a dashed hairline labelled "Target 4h".
+- **Text never wears the series colour**: values and labels are slate
+  ink; identity comes from a swatch, a line key or the legend. Two or more
+  series always have a legend (a dashed key for the comparison); one
+  series has none (the title names it).
+- **Interaction and keyboard**: every plot has a layer of real buttons
+  over its marks (the x bands of a time chart, each bar, each heatmap
+  cell, each donut legend row) with a roving tabindex — Tab lands once,
+  arrows walk the points (and rows in the heatmap), Home/End jump — each
+  carrying its `data-tt` tooltip and a matching `aria-label` ("Mon 3 Nov
+  2026: 14 · Previous period: 11. Open these tickets"). Focus or hover
+  draws the crosshair or dims the other marks. Clicking opens the matching
+  tickets in the queue (`drillHref` in `lib/helpdesk/analytics/shared`:
+  `/desk?from=reports&team=…&created_from=…`), so a chart is always a way
+  into the work.
+- **Text alternatives**: each chart renders an `sr-only` table with its
+  caption, and the widget menu's Show as table gives everyone the same
+  numbers (sortable `Th`, "Based on" for percentages and medians). Small
+  samples say so ("Based on 3").
+- **Words**: measure names are the registry's (`HD_MEASURES`: "First
+  reply time (median)", "Resolution SLA met", "One-touch resolution");
+  times are business time unless the measure says calendar time;
+  comparisons read "vs previous period" / "vs same period last year";
+  deltas are "+12%" for counts, "+2.6 pts" for percentages, "+16m" for
+  times, and "Same as previous period" when nothing moved.
+
+## Assignment settings
+
+How tickets find an owner (1.19.0, agent N): Settings → Assignment in the
+desk (`/desk/settings/assignment`, lucide `Shuffle`), components in
+`components/helpdesk/desk/assignment`. One `PageHeader` and a `SubNav`
+(**Teams**, **Rules**, **On call**; each tab only for the capability its
+page needs: `agents.manage_team` for Teams and On call, `automations.manage`
+for Rules).
+
+- **One team at a time.** Teams and On call open with a labelled `Select`
+  team switcher (`TeamPicker`); the choice lives in `?team=` so a link or a
+  reload lands on the same team.
+- **Mode cards are a radio group**, not a select: three cards in a
+  `sm:grid-cols-3` grid (`role="radiogroup"`, each card a `role="radio"`
+  button with arrow-key movement), a 36px icon tile (`Hand`, `Repeat`,
+  `Scale`; `bg-compass-600` when chosen), the mode's name as a card title and
+  one plain sentence of what happens. The chosen card is
+  `border-compass-500 ring-2 ring-compass-500/20`, the workflow builder's
+  selected-card recipe.
+- **Settings the mode needs follow it.** "Who takes tickets" and "Extras"
+  appear only for Round robin and Load balanced; switches are `Toggle`,
+  numbers are `TextInput`s where empty means "no limit" / "never" (the
+  placeholder says so). One `SaveRow` for the team's settings.
+- **People save per row, not with the page.** The weight is a stepper (two
+  bordered icon buttons with `aria-label`s and `data-tt`, the number
+  `tabular-nums`), pausing is a `secondary` `sm` button that reads
+  **Pause** / **Resume** with `aria-pressed`; each change toasts. A row
+  shows the presence dot on the initials, the desk role as a neutral `sm`
+  chip, a `warn` **Paused** chip, and why the next ticket would pass them
+  over as `ink-warn` text ("Skipped: away"), never a red error.
+- **"Who's next"** is an eyebrow band at the top of the People card
+  (`bg-slate-50`, `aria-live="polite"`): the person and why ("Next in turn",
+  "Fewest open tickets (3)"), or, in `ink-warn`, why nobody can take a
+  ticket right now.
+- **Rules** follow the Automations list (numbered rows, on/off, icon
+  actions) and add a `GripVertical` drag handle (pointer only; the Move up /
+  Move down buttons are the keyboard way and stay). Chips: **Off**
+  `neutral`, **Carries on** `info` (a rule that does not stop the run). Each
+  row's second line is the rule in one sentence, the same sentence the
+  editor shows under its fields.
+- **The rule editor** is a `Modal` with the workflow builder's "Only if…"
+  pattern (a `Segmented` All / Any once there are two conditions; each
+  condition a bordered box with what to check, how to compare and a value
+  control that fits the field: checkboxes for choices, a text box for
+  words, nothing for yes/no) and a **Then** fieldset (assign to, minimum
+  role, move to team, priority, tags, the Stop toggle).
+- **Test a ticket** is a card under the list: a `Segmented` (a made-up
+  ticket / a ticket number), the sample's fields, a `secondary` **Test**
+  button, then one result sentence and **Rule by rule** lines (a `Check` in
+  `ink-ok` or a slate `X`, plus an `sr-only` "matched" / "no match").
+- **On call**: an "On call now" band (a 36px accent tile with `PhoneCall`,
+  the person, until when, a `warn` **Cover** chip for a stand-in), the rota
+  card (ordered people with Move up / Move down / Remove, turn length,
+  handover time, first handover, timezone; one `SaveRow`), the next four
+  weeks as a 7-column strip of day cells (`grid-cols-7`, each a tinted cell
+  with a chip per person; a person keeps one chip tone across the strip;
+  cover chips are outlined dashed; at phone width the cell shows the day
+  number and initials, and every cell carries the full sentence as its
+  `aria-label`), and the Cover card (upcoming cover rows and an inline add
+  form).
+- **On a ticket**, "Assignment history" is a closed native `<details>` in
+  the side column (the disclosure recipe: `summary` in `text-sm
+  font-semibold` with `History`), loaded on first open; each line says who
+  and how, with the method as an `sm` chip (`accent`, or `neutral` for **By
+  hand**), the rule's name and a `RelativeTime`. A ticket waiting for
+  someone to become available shows an amber `Hourglass` line first.
+- **Pause auto-assign** lives in the top bar's availability menu as a
+  `menuitemcheckbox` under the three availability rows, with a hint line
+  like theirs; it only appears for someone in at least one team.

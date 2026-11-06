@@ -193,7 +193,8 @@ describe("the per-person notice log", () => {
     assert.match(mail.subject, new RegExp(`Action required: confirm "${doc.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"( by .+)?$`));
     assert.match(mail.text, /Not Actor requested that you read and confirm:/);
     assert.ok(mail.text.includes(`${ORIGIN}/doc/${doc.id}#confirm-reading`), "the link lands on the card");
-    assert.match(mail.text, /and confirm at the end that you have read and understood it\.$/);
+    // End of a line, not of the mail: the Standard footer may follow (1.19.0 email parts).
+    assert.match(mail.text, /and confirm at the end that you have read and understood it\.$/m);
     assert.doesNotMatch(mail.text, /acknowledg/i, "glossary");
     assert.doesNotMatch(mail.text, /—/, "no em-dash");
     assert.ok(mail.html.includes("confirm at the end"));

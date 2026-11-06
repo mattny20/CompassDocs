@@ -107,3 +107,70 @@ export async function runPeriodic(opts: PeriodicOptions = {}): Promise<PeriodicR
   });
   return result;
 }
+
+// --- Helpdesk sweeps (1.19.0, Enterprise "helpdesk") ---------------------------
+//
+// Run from the MINUTE tick of src/instrumentation.ts (SLA targets are minutes
+// and hours, so the hourly tick above is too coarse). Licence-gated here,
+// once, before anything loads. Each sweep claims its own work (an UPDATE …
+// RETURNING under a transaction-scoped advisory try-lock, or a row-level
+// claim), so every instance may run this at once and an event is handled
+// exactly once; each step has its own catch, like runPeriodic's.
+//
+// HOOK POINT: a helpdesk module adds its sweep as ONE entry in
+// HELPDESK_SWEEPS below (a name and a lazy import + call). Nothing else in
+// this file changes.
+
+export type HelpdeskSweepName = string;
+
+export interface HelpdeskSweep {
+  name: HelpdeskSweepName;
+  run: (now: Date) => Promise<unknown>;
+}
+
+export const HELPDESK_SWEEPS: HelpdeskSweep[] = [
+  // A (core): breaches and nearing warnings, handed to C's notify.onSlaEvent (notices + sla_* rules).
+  { name: "hd_sla", run: async (now) => (await import("./helpdesk/db-sla")).slaSweep(now) },
+  // A (core): unbound uploads older than a day.
+  { name: "hd_attachments", run: async () => (await import("./helpdesk/attachments")).sweepUnboundAttachments() },
+  // B (workflows): due waits, task dues, approval reminders.
+  { name: "hd_workflows", run: async (now) => (await import("./helpdesk/engine")).sweepWorkflows({ now }) },
+  // N (assignment): queued retries, away and unanswered reassignment.
+  { name: "hd_assignment", run: async (now) => (await import("./helpdesk/assignment/engine")).assignmentSweep(now) },
+  // K (reports): scheduled report emails that are due.
+  { name: "hd_report_schedules", run: async (now) => (await import("./helpdesk/analytics/schedules")).sendDueReportSchedules(now) },
+];
+
+export interface HelpdeskSweepResult {
+  licensed: boolean;
+  ran: HelpdeskSweepName[];
+  failed: { step: HelpdeskSweepName; error: string }[];
+}
+
+/** One minute's helpdesk work. Never throws. `only` limits the steps (tests). */
+export async function runHelpdeskSweeps(
+  opts: { now?: Date; only?: HelpdeskSweepName[]; sweeps?: HelpdeskSweep[] } = {}
+): Promise<HelpdeskSweepResult> {
+  const result: HelpdeskSweepResult = { licensed: false, ran: [], failed: [] };
+  try {
+    const { featureEnabled } = await import("./ee");
+    if (!(await featureEnabled("helpdesk"))) return result;
+  } catch (e) {
+    console.error("[periodic] helpdesk licence check:", e);
+    return result;
+  }
+  result.licensed = true;
+  const now = opts.now ?? new Date();
+  for (const s of opts.sweeps ?? HELPDESK_SWEEPS) {
+    if (opts.only && !opts.only.includes(s.name)) continue;
+    try {
+      await s.run(now);
+      result.ran.push(s.name);
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      result.failed.push({ step: s.name, error });
+      console.error(`[periodic] ${s.name}:`, e);
+    }
+  }
+  return result;
+}
