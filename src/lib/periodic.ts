@@ -151,6 +151,8 @@ export const HELPDESK_SWEEPS: HelpdeskSweep[] = [
   { name: "hd_retention", run: async (now) => (await import("./helpdesk/retention")).retentionSweep(now) },
   // W4 (1.19.2 canned responses): drop use counts older than 90 days (at most every six hours; no lock needed).
   { name: "hd_canned", run: async () => (await import("./helpdesk/canned")).pruneCannedUses() },
+  // 1.19.3 assets: a full Snipe-IT sync every 30 minutes (claims under ASSETS_SYNC_LOCK; quiet when not due).
+  { name: "hd_assets", run: async () => (await import("./helpdesk/assets")).assetsSweep() },
 ];
 
 export interface HelpdeskSweepResult {

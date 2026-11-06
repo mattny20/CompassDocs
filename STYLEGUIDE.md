@@ -1175,11 +1175,11 @@ and `py-1.5` (`dense`) in the settings and account rails. Group labels
   chip is `chipClass("label", "sm")` ("New", violet, the product-label
   tone) on the pages of the release's list (`lib/helpdesk/whats-new-shared`
   `DESK_NEW_PAGES`); it goes, per person, the first time they open the
-  page. The release strip ("New in 1.19.2: A, B and C. The New badge goes
+  page. The release strip ("New in 1.19.3: Assets. The New badge goes
   once you've opened the page.") is the info tint (`border-compass-200
   bg-compass-50`, `Sparkles` in `text-compass-600`, `role="note"`) under
   the Teams page's header, with a quiet `X` icon button (`aria-label`
-  "Dismiss what's new in 1.19.2", `data-tt` "Dismiss"); dismissed, it stays
+  "Dismiss what's new in 1.19.3", `data-tt` "Dismiss"); dismissed, it stays
   gone for that person. A release replaces the list and the version;
   nothing else changes.
 - A destination behind the sidebar's More fold that carries a badge is
@@ -4011,3 +4011,92 @@ live in `components/helpdesk/desk/checklists`.
   picker.
 - Requesters, CCs and portal customers never see checklists: no
   requester route returns them and every timeline line is internal.
+
+## Helpdesk: assets
+
+Assets on tickets (1.19.3; mock-ups i1 to i4). Snipe-IT is the source;
+components live in `components/helpdesk/desk/assets`, the server in
+`lib/helpdesk/assets` (sources behind `lib/helpdesk/assets/providers`).
+
+- **A device's picture** is `AssetGlyph`: a lucide icon picked from the
+  category and model (`assetIcon`: `Laptop`, `Computer`, `Monitor`,
+  `Smartphone`, `Tablet`, `Printer`, else `Package`) in a `bg-compass-50`
+  `text-compass-700` tile, 36px `rounded-lg` in cards and 48px
+  `rounded-xl` as the asset page's masthead; in pickers and tables it is
+  the bare `h-4 w-4 text-slate-500` icon. Never a product logo.
+- **The side card** "Assets" (eyebrow with `Package`) sits under the
+  requester's card. Its header action is a quiet text button **+ Link**
+  in `text-compass-700`. Each linked asset is a hairline block: the
+  tile, the name (`font-semibold`, a link to the asset's page) over
+  "TAG · Snipe-IT" in `text-xs text-slate-500`, a quiet `X` Unlink
+  (`aria-label` "Unlink TAG", `data-tt`), then a `dl` of Status (a `sm`
+  chip: Deployed `ok`, ready `info`, pending `warn`, else `neutral`;
+  `statusText` says "Deployed" for any checked-out asset), Assigned and
+  Warranty ("Until Mar 2027" / "Ended Mar 2024"), then under a hairline
+  two `text-xs` links: `History` "N earlier tickets on this asset" (to
+  the asset's page) and `ExternalLink` "Open in Snipe-IT" (new tab, with
+  an `sr-only` "(opens in a new tab)"). Nothing linked is a
+  `SectionEmpty`. The card is absent when no source is set up and
+  nothing is linked; a closed or merged ticket's links are read-only.
+- **The link picker** is a `Popover` (`role="dialog"`, `align="end"`,
+  26rem) whose first row is a borderless search input with `Search`
+  ("Asset tag, serial or name") as a combobox over a listbox. Groups have
+  eyebrow headings: **Assigned to <requester>** first, then **Matching
+  assets** once something is typed. A row: the bare icon, the name over
+  "TAG · linked" (or the person, for a search hit), and the source as a
+  `neutral` `sm` chip on the right; an already-linked row is
+  `aria-disabled`. The footer line says what the search reaches ("Or
+  search every asset by tag or serial.", or the narrower sentence when
+  "Agents can search all assets" is off), or the source's error when a
+  live lookup failed. Arrow keys walk the pickable rows; Enter links.
+- **The asset page** (`/desk/assets/[id]`) has a trail ("`Package`
+  Assets › TAG", `ChevronRight` separators) instead of a back link, then
+  the masthead: the 48px tile beside the `h1` (the device is the thing
+  itself, so the tile replaces PageHeader's 24px icon, like a person's
+  photo in the directory) and "TAG · serial … · from Snipe-IT", with a
+  secondary **Open in Snipe-IT** on the right. Below, a two-column grid
+  (`lg:grid-cols-[minmax(0,1fr)_20rem]`, stacked under `lg`): the
+  **Tickets on this asset** card (a house table that scrolls sideways on
+  a phone; ticket, requester, status chip, opened, time logged) and the
+  **Details** and **Maintenance in Snipe-IT** (`Wrench`) side cards.
+  Tickets the viewer may not open are never named: one `text-xs` line
+  counts them. The same holds for maintenance: a record naming a ticket
+  ("#1047") the viewer can't open, or an anonymised one, is left out and
+  counted ("1 record from a ticket you can't open"). What CompassDocs
+  posts to Snipe-IT never carries a subject: the title is "CompassDocs
+  #N: <type>" and the note is the agent's own text. When the source can't be reached the page shows the
+  cached details under a `notice-warn` line, never an error page.
+  `/desk/assets` is the search behind the trail.
+- **Desk settings → Assets** (`Package`) is one card per source. Its
+  header is the tile, the source's name, one status line ("Connected ·
+  1,284 assets · synced 6m ago", the last sync's error, "Syncing now")
+  and a chip (Connected `ok`, Sync failed `warn`, Syncing `info`, Not
+  connected `neutral`), with a ghost **Disconnect** (confirmed with
+  `confirmDialog({ danger: true })`). A saved API key is never shown:
+  the field reads as dots with `Lock` and a **Replace** link that turns
+  it into an empty password input; changing the address asks for the
+  key again and starts a new asset list (the old one's linked assets stay
+  on their tickets as "no longer in the source", so a link never moves to
+  another device with the same id). The solve behaviour is `RadioCards`; **Test connection**
+  (`PlugZap`) and **Sync now** (`RefreshCw`) are secondary buttons that
+  toast the result, and the page polls while a sync runs. "Who sees
+  assets" is a plain `Card` with the **Agents can search all assets**
+  `Toggle`. One `SaveRow` for the page.
+- **Solving with a maintenance record** is a `Modal` (max-w-xl) before
+  the solve, never after: "`CircleCheck` Solve #N", the subject, then a
+  bordered panel with a native checkbox **Log a maintenance record in
+  Snipe-IT** (ticked; one checkbox per asset when several are linked),
+  the asset line, Type and Supplier `Select`s side by side (stacked on a
+  phone; Supplier starts at "In house") and a Note `Textarea` that starts
+  "CompassDocs #N.". The primary reads **Solve and log**, or **Solve**
+  once unticked; Cancel keeps the ticket open. The record is posted only
+  after the solve committed; a failure is a toast ("Solved, but the
+  maintenance record wasn't logged: …") and an internal note, and the
+  ticket stays solved. It comes before "Log your time", so cancelling it
+  never stops a timer, and it checks checklists first so a blocked solve
+  never opens it.
+- **Get help's Device picker** is a plain `Select` ("Not about one of my
+  devices" first) under the request's questions, shown only when the
+  requester has devices assigned to their address, and only when that
+  address is confirmed (not typed by them, held by no other account). Requesters never see
+  anyone else's assets, and never see links on their requests.

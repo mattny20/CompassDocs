@@ -408,6 +408,8 @@ export async function anonymiseTicketTx(client: PoolClient, ticketId: number, no
   await (await import("./checklists")).anonymiseChecklistsTx(client, ticketId);
   // 1.19.2: an incident's own ticket: its updates, title and their audit copies (agent W1, lib/helpdesk/incidents).
   await (await import("./incidents")).anonymiseIncidentTx(client, ticketId, ANONYMISED_SUBJECT);
+  // 1.19.3: which device the requester had is theirs too: the asset links go (lib/helpdesk/assets).
+  await (await import("./assets")).anonymiseTicketAssetsTx(client, ticketId);
   const files = await client.query<{ stored_name: string }>("DELETE FROM hd_attachments WHERE ticket_id = $1 RETURNING stored_name", [ticketId]);
   await client.query(
     `UPDATE hd_tickets
@@ -797,6 +799,8 @@ export interface HdPersonalExport {
     answers: { question: string; answer: string }[];
     /** Their own requests: the public conversation. Otherwise: only their own public messages. */
     conversation: { from: string; at: string; text: string; files: string[]; from_request?: number }[];
+    /** 1.19.3: the assets linked to their own request, tag and name only (lib/helpdesk/assets). */
+    assets?: { tag: string; name: string }[];
   }[];
   /** 1.19.2: major incidents they said affect them ("Me too" in Get help; agent W1, lib/helpdesk/incidents). */
   incidents_affected?: { incident: string; at: string }[];
@@ -894,6 +898,8 @@ export async function personalHelpdeskExport(userId: number): Promise<HdPersonal
   const conversations = new Map<number, ReturnType<typeof conversationOf>>();
   for (const t of own) conversations.set(t.id, conversationOf(t));
   for (const t of tickets) if (t.relation !== "requester") conversations.set(t.id, conversationOf(t));
+  // 1.19.3: assets linked to their own requests (lib/helpdesk/assets).
+  const assetsOn = await (await import("./assets")).assetsForExport(own.map((t) => t.id));
   return {
     included: true,
     incidents_affected: incidentsAffected,
@@ -913,6 +919,7 @@ export async function personalHelpdeskExport(userId: number): Promise<HdPersonal
           ? []
           : (t.rt_form ?? []).map((f) => ({ question: f.label, answer: answerText(f, (t.form_answers ?? {})[f.key]) })).filter((a) => a.answer !== ""),
       conversation: conversations.get(t.id) ?? [],
+      ...(t.relation === "requester" && assetsOn.get(t.id)?.length ? { assets: assetsOn.get(t.id) } : {}),
     })),
   };
 }

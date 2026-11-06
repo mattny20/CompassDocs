@@ -247,6 +247,14 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.checklist.item_added": "Added an item to a ticket's checklist",
   "helpdesk.checklist.item_ticked": "Ticked a checklist item",
   "helpdesk.checklist.item_unticked": "Unticked a checklist item",
+  // Assets on tickets, Snipe-IT (1.19.3).
+  "helpdesk.assets.settings_changed": "Changed the asset settings",
+  "helpdesk.assets.disconnected": "Disconnected Snipe-IT",
+  "helpdesk.assets.synced": "Synced assets from Snipe-IT",
+  "helpdesk.asset.linked": "Linked an asset to a ticket",
+  "helpdesk.asset.unlinked": "Unlinked an asset from a ticket",
+  "helpdesk.asset.maintenance_logged": "Logged a maintenance record in Snipe-IT",
+  "helpdesk.asset.maintenance_failed": "Failed to log a maintenance record in Snipe-IT",
   "helpdesk.reports.exported": "Exported helpdesk report",
   "helpdesk.report.exported": "Exported helpdesk report",
   // Workspace notification policy (1.19.0, agent F's helpdesk notifications).

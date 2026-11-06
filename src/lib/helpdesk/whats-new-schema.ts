@@ -4,8 +4,8 @@
 //
 //   hd_desk_seen   what one person has seen: a page of the versioned
 //                  "New" list they opened (item = its path, e.g.
-//                  "/desk/settings/checklists"), or the release strip they
-//                  dismissed (item = "strip:1.19.2"). A row, once there, is
+//                  "/desk/settings/assets"), or the release strip they
+//                  dismissed (item = "strip:1.19.3"). A row, once there, is
 //                  never changed; deleting an account deletes its rows.
 export const HD_WHATS_NEW_SCHEMA = `
   CREATE TABLE IF NOT EXISTS hd_desk_seen (

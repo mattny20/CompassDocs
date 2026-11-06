@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CcPick } from "../ccs/AddPeople";
 import { NewRequestPeople } from "./NewRequestPeople";
+import { RequestDevice } from "./RequestDevice";
 import { useRouter } from "next/navigation";
 import {
   Bell,
@@ -106,6 +107,8 @@ export function RequestForm({
   const uploads = useUploads();
   // People copied on the request once it is sent (1.19.1, agent V3).
   const [ccs, setCcs] = useState<CcPick[]>([]);
+  // The device the request is about, if any (1.19.3, RequestDevice).
+  const [assetId, setAssetId] = useState<number | null>(null);
   const refs = useRef(new Map<string, HTMLElement | null>());
 
   const fields = useMemo(() => type?.form ?? [], [type]);
@@ -160,6 +163,7 @@ export function RequestForm({
           source: "portal",
           attachments: uploads.done,
           cc: ccs.map((p) => ("user_id" in p ? { user_id: p.user_id } : { email: p.email })),
+          ...(assetId ? { asset_id: assetId } : {}),
         }),
       },
       "Couldn't send your request. Try again in a moment."
@@ -250,6 +254,8 @@ export function RequestForm({
             <FormFieldControl key={row[0].key} field={row[0]} value={answers[row[0].key]} onChange={(v) => set(row[0].key, v)} error={errors[row[0].key]} refs={refs} prefilled={row[0].key in defaults} />
           )
         )}
+
+        <RequestDevice value={assetId} onChange={setAssetId} />
 
         <NewRequestPeople value={ccs} onChange={setCcs} />
 

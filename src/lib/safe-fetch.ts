@@ -16,7 +16,7 @@
 import "server-only";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
+import { Agent, EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
 
 const MAX_REDIRECTS = 4;
 
@@ -95,8 +95,25 @@ function blockPrivateRanges(): boolean {
   return true;
 }
 
+type Resolver = (host: string) => Promise<{ address: string; family: number }[]>;
+let resolverForTests: Resolver | null = null;
+
+/** Tests: answer DNS lookups of the checks with `r` (null restores node:dns). */
+export function setSafeFetchResolverForTests(r: Resolver | null): void {
+  resolverForTests = r;
+}
+
 /** Throws when the URL points somewhere server-side fetches must not go. */
 export async function assertPublicTarget(rawUrl: string): Promise<URL> {
+  return (await checkTarget(rawUrl)).url;
+}
+
+/**
+ * The checks behind assertPublicTarget, also returning the address the name
+ * resolved to (null for a literal IP or a proxied request), so a caller can
+ * connect to exactly that address (safeFetchOnce).
+ */
+async function checkTarget(rawUrl: string): Promise<{ url: URL; resolved: { address: string; family: number } | null }> {
   const url = new URL(rawUrl);
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`Blocked URL scheme: ${url.protocol}`);
@@ -108,15 +125,15 @@ export async function assertPublicTarget(rawUrl: string): Promise<URL> {
   const blockPrivate = blockPrivateRanges();
   if (isIP(host)) {
     if (ipBlocked(host, blockPrivate)) throw new Error(`Blocked address: ${host}`);
-    return url;
+    return { url, resolved: null };
   }
   // A proxied request never touches an address this server resolves — the
   // proxy resolves and connects. Skip local resolution (which may not even
   // work on egress-locked networks); the hostname checks above still apply.
-  if (willProxy(host)) return url;
+  if (willProxy(host)) return { url, resolved: null };
   let addrs;
   try {
-    addrs = await lookup(host, { all: true, verbatim: true });
+    addrs = resolverForTests ? await resolverForTests(host) : await lookup(host, { all: true, verbatim: true });
   } catch {
     throw new Error(`Could not resolve host: ${host}`);
   }
@@ -125,7 +142,43 @@ export async function assertPublicTarget(rawUrl: string): Promise<URL> {
       throw new Error(`Blocked address for ${host}: ${a.address}`);
     }
   }
-  return url;
+  if (!addrs.length) throw new Error(`Could not resolve host: ${host}`);
+  return { url, resolved: { address: addrs[0].address, family: addrs[0].family } };
+}
+
+/**
+ * A net/tls `lookup` that always answers with one address: the connection
+ * goes to the address that was checked, never to whatever a second DNS
+ * answer says (DNS rebinding). TLS still verifies the certificate against
+ * the URL's host name.
+ */
+export function pinnedLookup(address: string, family: number) {
+  return (_host: string, opts: unknown, cb?: (...args: unknown[]) => void): void => {
+    const done = (typeof opts === "function" ? opts : cb) as (...args: unknown[]) => void;
+    if (opts && typeof opts === "object" && (opts as { all?: boolean }).all) done(null, [{ address, family }]);
+    else done(null, address, family);
+  };
+}
+
+/**
+ * One hop with the same SSRF validation and proxy routing as safeFetch, but
+ * a redirect comes back as it is (status 3xx with its Location) for the
+ * caller to judge: an integration that must never follow a redirect to
+ * another host (1.19.3 Snipe-IT, lib/helpdesk/assets/http) checks the hop
+ * itself and calls this again for the next one. A direct (unproxied)
+ * request connects to the address the check resolved (pinnedLookup), so a
+ * name that resolves somewhere else a moment later can't steer it.
+ */
+export async function safeFetchOnce(rawUrl: string, init: RequestInit = {}): Promise<Response> {
+  const { url, resolved } = await checkTarget(rawUrl);
+  if (resolved) {
+    const pinned = new Agent({ connect: { lookup: pinnedLookup(resolved.address, resolved.family) as never }, keepAliveTimeout: 1_000, keepAliveMaxTimeout: 1_000 });
+    return (await undiciFetch(url.toString(), { ...(init as any), redirect: "manual", dispatcher: pinned })) as unknown as Response;
+  }
+  const agent = proxyAgent();
+  return agent
+    ? ((await undiciFetch(url.toString(), { ...(init as any), redirect: "manual", dispatcher: agent })) as unknown as Response)
+    : await fetch(url, { ...init, redirect: "manual" });
 }
 
 /**

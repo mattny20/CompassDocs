@@ -42,6 +42,7 @@ import { RelatedCard } from "../merge/MergeCards";
 import { TimeCard } from "../time/TimeCard";
 import { IncidentSideCards } from "../incidents/IncidentSideCards";
 import { ChecklistsSideCard } from "../checklists/TicketChecklists";
+import { TicketAssetsCard } from "../assets/TicketAssets";
 import { TicketLanguageRow } from "../skills/TicketLanguageRow";
 
 interface Agent {
@@ -133,6 +134,9 @@ export function SidePanel({
 
       {/* The people on the ticket, the requester's card first (agent O). */}
       <TicketContacts ticket={t.number} onReply={onReply} refreshKey={d.messages.length} />
+
+      {/* Linked assets from Snipe-IT and "+ Link", next to the requester (1.19.3, assets/TicketAssets). */}
+      <TicketAssetsCard number={t.number} canWork={d.can_work} refreshKey={t.updated_at} />
 
       {/* An integration's ticket: the alert behind it (agent P). */}
       <AlertDetails ticket={t} canManage={can$("channels.manage") || can$("settings.manage")} />

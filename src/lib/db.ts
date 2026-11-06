@@ -24,6 +24,7 @@ import { HD_INCIDENTS_SCHEMA } from "./helpdesk/incidents-schema";
 import { HD_WHATS_NEW_SCHEMA } from "./helpdesk/whats-new-schema";
 import { HD_IMPORT_CHECK_SCHEMA } from "./helpdesk/import-check-schema";
 import { HD_STATUS_TEAMS_SCHEMA } from "./helpdesk/status-teams-schema";
+import { HD_ASSETS_SCHEMA } from "./helpdesk/assets-schema";
 import { createHash, randomBytes } from "node:crypto";
 import { SEED_SPACES, SEED_DOCS } from "./seed-data";
 import { hashPassword } from "./password";
@@ -2324,6 +2325,8 @@ const SCHEMA_SQL = `
   ${HD_IMPORT_CHECK_SCHEMA}
   -- Status page services per team (1.19.2, agent W6, lib/helpdesk/status-teams-schema; after hd_incidents).
   ${HD_STATUS_TEAMS_SCHEMA}
+  -- Assets on tickets, Snipe-IT (1.19.3, lib/helpdesk/assets-schema; after hd_tickets).
+  ${HD_ASSETS_SCHEMA}
   --- end Helpdesk 1.19.0 ---------------------------------------------------
   ${EMAIL_PARTS_SCHEMA}
   ${NOTIFY_POLICY_SCHEMA}
