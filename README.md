@@ -5,7 +5,8 @@
 **The open-source, self-hosted team knowledge base.**
 
 Write, organize, and search SOPs, technical docs, and policies — with AI answers
-grounded in your own documents, a people directory, and an approval workflow.
+grounded in your own documents, a people directory, policy handbooks, and an
+approval workflow. Enterprise adds an internal helpdesk, compliance, and SSO.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-orange)](./LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/mattny20/CompassDocs)](https://github.com/mattny20/CompassDocs/releases)
@@ -42,14 +43,17 @@ pricing on the core product, ever.
 **Organize**
 - **Spaces** with three visibility tiers — internal, **private** (granted groups only), or **public** (a branded, read-only site for the open internet, off by default).
 - **Per-space edit rights** — restrict who can author in a space, per person or group, with an org-wide override switch.
+- **Policy handbooks** — bring published policies and SOPs from any space into one numbered handbook with an introduction; read it as one, keep a policy "handbook only", and print a paper copy with an acknowledgement page.
 - **People directory** — profiles, custom fields, assistants, and each person's authored docs; clickable article bylines.
-- **Quick links** — a launchpad of categorized shortcuts to your other tools, group-restricted, with auto-fetched icons.
+- **Personal dashboard** — what needs your attention, the latest in the spaces you follow, popular this week, your quick links, your team from the directory, new starters and anniversaries, and your open training; show or hide any tile.
+- **Quick links** — a launchpad of categorized shortcuts to your other tools, group-restricted, with auto-fetched icons. Pin your own on the dashboard, see your most used, feature links for everyone, and put chosen links on the sign-in page.
 
 **Communicate**
 - **Announcements** — org-wide dashboard alerts (info/warning/critical) with a sidebar unread badge, optional email and chat delivery.
 - **Newsletter** — branded HTML email written in the doc editor, sent to everyone or selected groups.
 - **Subscriptions** — anyone can follow a space and get an email when its docs change; admins can auto-subscribe groups.
-- **Notifications** — Webex, Microsoft Teams, Slack, email, or any webhook on review/publish/announcement events.
+- **Notifications** — Webex, Microsoft Teams, Slack, email, or any webhook on review/publish/announcement events. Workspace policies set each event's default per channel (locked on, locked off, or person chooses); everyone gets a personal matrix with quiet hours, a pause, and hourly or daily email digests.
+- **Email templates in parts** — every email is a header, a body, a signature, and a footer, with a branded Standard header and footer on by default; preview at desktop or phone width, or send yourself a test.
 
 **Govern**
 - **Roles & approval workflow** — Viewer/Editor/Approver/Admin, with a review queue for changes to live docs (strict mode) or direct publishing (open mode), plus suggestions from any reader.
@@ -63,10 +67,13 @@ pricing on the core product, ever.
 **Administer & integrate**
 - **Your brand** — fetch your website's icon or upload a logo, pick an accent color, and the whole app re-tints (light/dark/auto).
 - **Groups** — manual or synced from Microsoft Entra ID (enterprise); **custom domain with automatic HTTPS**; a system console with storage and resource usage.
-- **Claude connector (MCP)** — connect the Claude app with one click and draft, search, and revise docs from Claude; approvals still apply.
+- **Claude connector (MCP)** — connect the Claude app with one click and draft, search, and revise docs from Claude; approvals still apply. Claude can also read the handbooks you can read, tell you where you stand, and build draft handbooks and training decks — it never publishes a handbook or confirms a policy for you.
 
-**Enterprise** *(separate licensed build — [pricing](https://compassdocs.io/pricing): flat $599/yr, unlimited users)*
-- **SSO** (OIDC, one-click Microsoft Entra setup) · **SCIM provisioning** (Entra creates, updates, and deactivates accounts automatically) · **Microsoft 365 directory & group sync** · **Policy acknowledgements** ("I've read this" compliance records with CSV export) · **audit-log export** · optional dedicated support.
+**Enterprise** *(separate licensed build — [pricing](https://compassdocs.io/pricing): flat $599/yr, unlimited users, Helpdesk included)*
+- **Helpdesk** — employees ask in **Get help** inside CompassDocs; IT, HR, and Facilities work tickets in the **desk**, which installs as an app with push notifications. Workflows across teams with approvals, tasks, and hand-offs; office hours, holidays, and reply targets per team; assignment rules and on-call rotas; tickets from email, monitoring alerts, and API bots; contact cards from the directory; and dashboards you build.
+- **Read confirmations & compliance** — who must confirm each policy, due dates, automatic reminders and escalation, typed signatures, whole-handbook confirmation, a compliance portal, team views for leads, and tamper-evident snapshots and audit packages.
+- **Training & onboarding** — turn any doc into a slide deck with quizzes, assign it, bundle onboarding programs for new hires, and keep completion records.
+- **SSO** (SAML 2.0 and OIDC, one-click Microsoft Entra setup) · **SCIM provisioning** (Entra creates, updates, and deactivates accounts automatically) · **Microsoft 365 directory & group sync** · **audit-log export** · optional dedicated support.
 - Licenses are offline, cryptographically signed keys — no phone-home, air-gap friendly. The Community edition is complete on its own.
 
 ## Screenshots
@@ -77,6 +84,8 @@ pricing on the core product, ever.
 | *Ask CompassDocs — cited answers* | *Documents — rich rendering, print to PDF* |
 | ![The people directory](https://compassdocs.io/img/directory.webp) | ![The anonymous public site](https://compassdocs.io/img/public-site.webp) |
 | *People directory* | *Optional public site* |
+| ![The helpdesk desk](https://compassdocs.io/img/helpdesk-desk.webp) | ![A helpdesk workflow across teams](https://compassdocs.io/img/helpdesk-workflow.webp) |
+| *Helpdesk — the desk (Enterprise)* | *Helpdesk — workflows across teams* |
 
 ## Roles & permissions
 
@@ -91,6 +100,8 @@ pricing on the core product, ever.
 
 ¹ In **open** approval mode, Editors can publish and edit live docs directly. In **strict** mode (the default) those changes become pending change requests for an Approver.
 
+The four roles are presets: build custom roles from around 200 individual permissions and grant them to a person or a group, workspace-wide or in one space. Enterprise adds built-in **Helpdesk agent** and **Helpdesk manager** roles.
+
 ## First-run setup
 
 The first time you open a fresh install, CompassDocs shows a **setup wizard** at
@@ -102,7 +113,7 @@ Prefer to provision headlessly (CI, automation)? Set `COMPASSDOCS_ADMIN_USER`
 and `COMPASSDOCS_ADMIN_PASSWORD` (see `.env.example`) and the admin is created on
 first launch instead, skipping the wizard.
 
-> **Authentication** uses local accounts (username + password hashed with Node's `scrypt`) and secure HTTP-only cookie sessions — no external services required. Authenticator-app **2FA** is available to every user. Single sign-on (OIDC, with one-click Microsoft Entra setup) ships in the Enterprise build.
+> **Authentication** uses local accounts (username + password hashed with Node's `scrypt`) and secure HTTP-only cookie sessions — no external services required. Authenticator-app **2FA** is available to every user. Single sign-on (SAML 2.0 and OIDC, with one-click Microsoft Entra setup) ships in the Enterprise build.
 
 ## Tech stack
 
