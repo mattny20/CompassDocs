@@ -295,12 +295,14 @@ export function ClaudePanel() {
       if (card.kind === "change" || card.kind === "checklist") {
         await sendJson(`/api/helpdesk/claude/cards/${card.id}`, "POST", { state: how }).catch(() => {});
       }
+      // The card's buttons give way to its state: focus stays in the panel, on the question box.
+      // It moves before the buttons go (React may remove them after the next frame), and only
+      // when it is still in the panel or lost, never away from where the agent has since gone.
+      const active = document.activeElement;
+      const inPanel = !active || active === document.body || !!document.getElementById("claude-desk-panel")?.contains(active);
+      if (inPanel) input.current?.focus();
       setTurns((all) => all.map((t) => ({ ...t, cards: t.cards.map((c) => (c.id === card.id ? { ...c, state: how } : c)) })));
       if (how === "applied" && card.kind === "change") toast("ok", `${card.title}. Done.`);
-      // The card's buttons give way to its state: focus stays in the panel, on the question box.
-      requestAnimationFrame(() => {
-        if (!document.activeElement || document.activeElement === document.body) input.current?.focus();
-      });
     } catch (e) {
       toast("error", (e as Error).message);
     }

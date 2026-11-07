@@ -183,6 +183,8 @@ test.describe("claude in the desk (licensed, fake Messages API)", () => {
 
     await panel.getByRole("button", { name: "Apply" }).click();
     await slow(panel.getByText("Applied", { exact: true })).toBeVisible();
+    // The Apply button gives way to "Applied": focus stays in the panel, on the question box.
+    await expect(panel.getByLabel("Ask Claude")).toBeFocused();
     expect((await db.query("SELECT status FROM hd_tickets WHERE number = $1", [number])).rows[0].status).toBe("pending");
     const audit = await db.query("SELECT details FROM audit_log WHERE action = 'helpdesk.ticket.updated' AND details->>'via' = 'claude_desk' AND (details->>'number')::int = $1", [number]);
     expect(audit.rowCount).toBe(1);
