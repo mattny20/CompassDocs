@@ -124,6 +124,11 @@ const timeLib = require("../src/lib/helpdesk/time") as typeof import("../src/lib
 
 import type { HdRole, HdRoleMatrix } from "../src/lib/helpdesk/roles-shared";
 
+// Secrets are sealed at rest: give secretbox a key so it never needs the
+// uploads key file (CI has no writable /uploads), as the push tests do.
+process.env.COMPASSDOCS_SECRET_KEY ||= "7c4f0d5e8a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5";
+
+
 type Handler = (req: Request, ctx: { params: Promise<Record<string, string>> }) => Promise<Response>;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -239,6 +239,10 @@ test.describe("transparent desk (licensed)", () => {
           return !!hit?.closest(s);
         }, sel);
       await expect(p.getByText("Unsaved changes")).toBeVisible();
+      // The upload toasts (fixed bottom-right, z-50: above everything by design) are still up in a fast
+      // build and sit over the menu's lower rows in this short window; this checks the desk's own layers.
+      const dismiss = p.getByRole("button", { name: "Dismiss" });
+      while ((await dismiss.count()) > 0) await dismiss.first().click();
       await p.getByRole("button", { name: /^Lena Lead:/ }).click();
       const row = p.getByRole("menuitem", { name: "Desk background…" });
       expect(await onTop('[role="menu"]', row), "the user menu is above the pinned Save row").toBe(true);

@@ -98,6 +98,11 @@ for 30 days.
   agents, rules) are shown as plain text.
 - **Video posters** in documents now show.
 
+### Fixed
+- **Desk settings → Agents:** the Add agent and Change teams dialogs
+  scroll on a short screen, so Add to desk stays reachable on a desk with
+  many teams.
+
 ### Upgrading
 - **Additive schema, applied on start:** new tables for chat apps, API
   tokens and webhooks, the help centre, desk artwork and each agent's

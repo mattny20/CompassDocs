@@ -24,7 +24,7 @@ export async function uploadArt<T>(url: string, file: File): Promise<T> {
 export function ArtThumb({ art, selected = false, className = "" }: { art: HdArtView; selected?: boolean; className?: string }) {
   return (
     <span
-      className={`block overflow-hidden rounded-lg ${selected ? "border-2 border-compass-600 ring-[3px] ring-compass-100" : "border border-slate-200"} ${className}`.trim()}
+      className={`block overflow-hidden rounded-lg ${selected ? "border-2 border-compass-600 ring-4 ring-compass-100" : "border border-slate-200"} ${className}`.trim()}
       style={{ background: art.tint }}
     >
       {/* Decorative: the label beside it names the picture. */}

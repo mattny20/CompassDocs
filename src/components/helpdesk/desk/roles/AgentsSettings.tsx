@@ -409,7 +409,7 @@ function AddAgentModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} labelledBy={titleId} className="w-full max-w-lg rounded-xl border border-slate-200 bg-surface p-5 shadow-modal">
+    <Modal open={open} onClose={onClose} labelledBy={titleId} className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-slate-200 bg-surface p-5 shadow-modal">
       <form onSubmit={submit} noValidate>
         <div className="flex items-start justify-between gap-3">
           <h2 id={titleId} className="text-base font-semibold text-slate-900">
@@ -487,7 +487,7 @@ function TeamsModal({ agent, me, teams, onClose, onSaved }: { agent: AgentRow; m
   }
 
   return (
-    <Modal open onClose={onClose} labelledBy={titleId} className="w-full max-w-md rounded-xl border border-slate-200 bg-surface p-5 shadow-modal">
+    <Modal open onClose={onClose} labelledBy={titleId} className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-xl border border-slate-200 bg-surface p-5 shadow-modal">
       <div className="flex items-start justify-between gap-3">
         <h2 id={titleId} className="text-base font-semibold text-slate-900">
           {agent.name}&rsquo;s teams
