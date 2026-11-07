@@ -7,10 +7,12 @@
 //          open major incident's own ticket. A binned ticket: GET answers 410 { binned: true } to an
 //          agent who works it (the desk then reads GET /api/helpdesk/recycle-bin/[number]); 404 otherwise.
 // Each PATCH field needs its desk capability (lib/helpdesk/patch-caps patchRefusal).
+// 1.20.0: `via: "claude_desk"` in the body marks a change applied from a Claude in the desk
+// card; it is audited (helpdesk.ticket.updated, via "claude_desk") and changes no rule.
 // Helpdesk 1.19.0 (helpdesk.agent). 404 for a ticket outside the caller's queues.
 
 import { NextResponse } from "next/server";
-import { ipFrom } from "@/lib/audit";
+import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { helpdeskGate, readJson } from "@/lib/helpdesk/access";
 import { ticketDetail } from "@/lib/helpdesk/detail";
 import { HdTicketError, parseTicketNumber, updateTicket, validateTicketPatch } from "@/lib/helpdesk/tickets";
@@ -71,8 +73,27 @@ export async function PATCH(req: Request, { params }: Ctx) {
     if (missing) return NextResponse.json(missing, { status: 409 });
   }
   try {
-    const r = await updateTicket(found.ticket.id, patch, { id: gate.id, name: gate.name || gate.username, role: gate.role }, { origin: originOf(req) });
+    // 1.20.0: Apply on a Claude in the desk card sends via "claude_desk": the same checks, the
+    // timeline says "via Claude in the desk", and the change is audited with that via.
+    const viaClaude = b.via === "claude_desk";
+    const r = await updateTicket(
+      found.ticket.id,
+      patch,
+      { id: gate.id, name: gate.name || gate.username, role: gate.role, ...(viaClaude ? { via: "claude_desk" as const } : {}) },
+      { origin: originOf(req) }
+    );
     if (!r) return notFound();
+    if (viaClaude && r.changed.length) {
+      await audit({
+        actor: actorFrom(gate),
+        action: "helpdesk.ticket.updated",
+        targetType: "helpdesk_ticket",
+        targetId: r.ticket.id,
+        targetLabel: `#${r.ticket.number} ${r.ticket.subject}`.slice(0, 200),
+        details: { number: r.ticket.number, changed: r.changed, via: "claude_desk", via_label: "via Claude in the desk" },
+        ip: ipFrom(req),
+      });
+    }
     if (r.changed.includes("assignee_id")) {
       const { recordManualAssignment } = await import("@/lib/helpdesk/assignment/engine");
       void recordManualAssignment(r.ticket.id, {

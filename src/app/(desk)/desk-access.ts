@@ -111,6 +111,8 @@ export const SETTINGS_CAP: Record<string, string[]> = {
   appearance: ["settings.manage"],
   // API tokens and outgoing webhooks (1.19.4 C2, lib/helpdesk/api-tokens, webhooks).
   api: ["settings.manage"],
+  // Claude in the desk (1.20.0, lib/helpdesk/claude).
+  "claude-desk": ["settings.manage"],
 };
 
 /** May this person open that settings page? */

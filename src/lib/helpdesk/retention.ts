@@ -420,6 +420,8 @@ export async function anonymiseTicketTx(client: PoolClient, ticketId: number, no
   await (await import("./webhooks")).anonymiseWebhookDeliveriesTx(client, ticketId);
   // 1.19.4: where the request lived in Teams or Slack is the requester's: its chat threads go (lib/helpdesk/chat/privacy).
   await (await import("./chat/privacy")).anonymiseChatTx(client, ticketId);
+  // 1.20.0: every Claude in the desk chat that touched the ticket, and its cards, hold its text (lib/helpdesk/claude/chats).
+  await (await import("./claude/chats")).purgeClaudeForTicketTx(client, ticketId);
   const files = await client.query<{ stored_name: string }>("DELETE FROM hd_attachments WHERE ticket_id = $1 RETURNING stored_name", [ticketId]);
   await client.query(
     `UPDATE hd_tickets
@@ -475,6 +477,8 @@ export async function deleteTicketTx(client: PoolClient, ticketId: number): Prom
   const files = await client.query<{ stored_name: string }>("DELETE FROM hd_attachments WHERE ticket_id = $1 RETURNING stored_name", [ticketId]);
   // 1.19.4: its undelivered webhook events go with it, payloads and all (C2, lib/helpdesk/webhooks).
   await (await import("./webhooks")).dropTicketWebhookDeliveriesTx(client, ticketId);
+  // 1.20.0: Claude in the desk chats that touched it go with it (lib/helpdesk/claude/chats).
+  await (await import("./claude/chats")).purgeClaudeForTicketTx(client, ticketId);
   await client.query("DELETE FROM hd_tickets WHERE id = $1", [ticketId]);
   await dropOrphanPortalContact(client, contact);
   return files.rows.map((r) => r.stored_name);
@@ -742,6 +746,9 @@ export async function anonymiseRemovedAccountTx(client: PoolClient, userId: numb
     );
   }
   const elsewhere = new Set([...copied, ...msgs.rows.map((r) => r.ticket_id)]);
+  // 1.20.0: Claude in the desk chats that touched those tickets hold the person's words too.
+  const { purgeClaudeForTicketTx } = await import("./claude/chats");
+  for (const t of elsewhere) await purgeClaudeForTicketTx(client, t);
   return { result: { requester: own.length, cc: elsewhere.size }, files };
 }
 

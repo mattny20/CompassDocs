@@ -157,6 +157,8 @@ export const HELPDESK_SWEEPS: HelpdeskSweep[] = [
   { name: "hd_recycle_bin", run: async (now) => (await import("./helpdesk/recycle-bin")).recycleBinSweep(now) },
   // 1.19.4 C2 webhooks: requeue stale claims (WEBHOOK_SWEEP_LOCK), then send the due deliveries and retries.
   { name: "hd_webhooks", run: async (now) => (await import("./helpdesk/webhooks")).webhookSweep(now) },
+  // 1.20.0 Claude in the desk: chats with no ticket, idle for 90 days (those on tickets follow the ticket's retention).
+  { name: "hd_claude", run: async (now) => void (await (await import("./helpdesk/claude/chats")).pruneClaudeChats(now)) },
 ];
 
 export interface HelpdeskSweepResult {

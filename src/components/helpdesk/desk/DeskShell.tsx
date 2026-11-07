@@ -29,6 +29,8 @@ import { TeamStatusProvider } from "./team-status/data";
 import type { HdDeskLook } from "@/lib/helpdesk/appearance-shared";
 import { DeskLookRoot } from "./appearance/DeskLook";
 import { DeskBackgroundMenuItem, MyDeskBackgroundPanel } from "./appearance/MyDeskBackground";
+// Claude in the desk (1.20.0): the top bar's button, Ctrl/⌘+J and the docked panel.
+import { ClaudeButton, ClaudeDeskProvider, type ClaudeDeskProps } from "./claude/ClaudeDesk";
 
 export interface DeskCaps {
   agent: boolean;
@@ -100,6 +102,7 @@ export function DeskShell({
   roleCaps,
   look = null,
   lookMenu = false,
+  claude = null,
   children,
 }: {
   user: { id: number; name: string };
@@ -114,6 +117,8 @@ export function DeskShell({
   look?: HdDeskLook | null;
   /** The user menu offers "Desk background…". */
   lookMenu?: boolean;
+  /** Claude in the desk, when it is on for this agent (1.20.0). */
+  claude?: ClaudeDeskProps | null;
   children: ReactNode;
 }) {
   const pathname = usePathname() || "/desk";
@@ -130,6 +135,7 @@ export function DeskShell({
     <DeskMeContext.Provider value={{ id: user.id, name: user.name, agent: caps.agent, admin: caps.admin, reports: caps.reports, role, caps: roleCaps }}>
     <DeskCountsContext.Provider value={{ counts, refresh }}>
     <TeamStatusProvider enabled={caps.agent}>
+    <ClaudeHost claude={claude}>
       <DeskLookRoot look={look} menu={lookMenu} className="flex h-dvh flex-col overflow-hidden bg-canvas print:h-auto print:overflow-visible">
         <a
           href="#main"
@@ -189,6 +195,7 @@ export function DeskShell({
             <DeskSearch />
           </div>
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            {claude && <ClaudeButton />}
             {caps.agent && <StatusPill />}
             <a
               href="/"
@@ -252,8 +259,14 @@ export function DeskShell({
         </div>
       </DeskLookRoot>
       {caps.agent && <StatusPopups />}
+    </ClaudeHost>
     </TeamStatusProvider>
     </DeskCountsContext.Provider>
     </DeskMeContext.Provider>
   );
+}
+
+/** The Claude provider when Claude is on for this agent; the page as it is otherwise. */
+function ClaudeHost({ claude, children }: { claude: ClaudeDeskProps | null; children: ReactNode }) {
+  return claude ? <ClaudeDeskProvider props={claude}>{children}</ClaudeDeskProvider> : <>{children}</>;
 }

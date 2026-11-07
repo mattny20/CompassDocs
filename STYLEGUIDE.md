@@ -3689,6 +3689,118 @@ reply: `hd_draft_reply` saves a draft, and a person sends it.
   `lib/helpdesk/claude-connector-shared` so the page, the tools and the
   tests read the same words.
 
+## Helpdesk: Claude in the desk
+
+1.20.0 (mocks c1 to c3; `components/helpdesk/desk/claude/`,
+`lib/helpdesk/claude/`). A chat with Claude inside the desk, working on the
+open ticket as the agent. It drafts and suggests; a person sends and
+applies. The copy lives in `lib/helpdesk/claude/shared` so the panel, the
+settings page, the server and the tests read the same words.
+
+- **The Claude button** sits first in the top bar's right-hand group: a
+  pill `h-8.5 rounded-full bg-slate-900 px-3 text-sm font-semibold
+  text-slate-50` with a 14px lucide `Sparkle` and "Claude" (both tokens
+  flip, so it is a dark pill in light mode and a light one in dark mode);
+  under `sm` it is a 34px circle with the word `sr-only`. Its `data-tt` is
+  "Claude ({mod} J)" and it carries `aria-keyshortcuts`. It opens the
+  **launcher** (`Popover role="menu"`, `w-72`, end-aligned): "Ask Claude
+  about #1047" in `text-sm font-semibold`, the five quick prompts as
+  `menuitem` rows each with a muted `Sparkle`, "Open the chat", and the line
+  "Or press {mod} J anywhere in the desk." with the SaveRow keycap recipe.
+  With no ticket open the prompts give way to one `text-xs text-slate-500`
+  line. Shown only when Claude is on for this agent (licensed, switched
+  on, a key in Settings → AI, an agent, a team not switched off).
+- **Ctrl/⌘+J** toggles the panel anywhere in the desk, typing included
+  (`blockModKey`, never a bare key); with the panel open but focus
+  elsewhere it moves focus into the question box first.
+- **The panel** is an `aside` labelled by its "Claude" heading, docked
+  `fixed` at the right (`sm:top-15 sm:right-4 sm:bottom-4`, 430px,
+  `rounded-2xl border border-slate-200 bg-surface shadow-modal`) and
+  **full screen under 640px** (`inset-0`, no radius). It is not a modal:
+  the desk stays usable beside it, so it takes no focus trap and no scrim.
+  Focus starts in the question box; Escape (when focus is inside and no
+  overlay is open), Minimise and Close hand focus back to whatever opened
+  it. `print:hidden`.
+  - Header: a 28px `bg-slate-900 text-slate-50` circle with `Sparkle`,
+    "Claude" (`h2`), a `neutral sm` chip "On #1047", then three quiet icon
+    buttons with `data-tt` and `aria-label`: History (a `Popover role="menu"`
+    with "New chat" and the earlier chats on this ticket as
+    `menuitemradio`), Minimise (`Minimize2`) and Close (`X`, which also
+    stops a running answer).
+  - The conversation is a `role="log"` with `aria-busy` while an answer
+    streams, so a screen reader reads the answer once, complete; an
+    `sr-only` `role="status"` says "Claude is answering." / "Claude
+    answered.". The agent's words are a bubble `max-w-[85%] self-end
+    rounded-[12px_12px_4px_12px] bg-compass-600 px-3 py-2 text-white`.
+    Claude's answer is `MarkdownView` in the flow, no bubble.
+  - **Tool activity line** above the answer: `text-xs text-slate-500`
+    items with a 12px lucide icon ("Searched solved tickets", "Read 2
+    articles", "Checked ASSET-00421"), one per kind, no verbs in the
+    future tense. "Thinking…" with a pulsing `Sparkle` (`motion-reduce`
+    stills it) only until the first words arrive.
+  - **Source chips** under the answer are links, not status chips:
+    `rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700` with a
+    12px `Ticket`, `BookOpen` or `Globe`, hover `bg-slate-200`. Only what
+    the answer names (a ticket by its number, an article by its title, a
+    web citation); a web chip opens in a new tab and says so `sr-only`.
+  - **Cards** are `rounded-xl border border-compass-200 bg-compass-50 px-3
+    py-2.5` (dark: `border-compass-500/40`, `bg-compass-500/10`), a solid
+    edge, since nothing on them was sent (the dashed edge is the connector's
+    saved draft, §Helpdesk: drafts from Claude). A **draft card** ("Reply
+    draft for Daniel" / "Internal note draft", `Pencil`) shows three lines
+    of the text and, at the right, "in your reply box" once
+    `ComposerHandle.fill(text, mode, replace)` has put it there; the agent
+    edits and sends it under the normal rules (a newbie's reply still waits
+    for review). A refined draft **replaces** the earlier Claude draft the
+    box still holds unchanged (`mergeDraft`); anything the agent typed or
+    edited stays. A draft written while other tickets were in view, or that
+    names another ticket (`cites_other`), is never put in the box on
+    arrival: its card shows a secondary `sm` **Put in reply box** instead. A **change card** ("Set status to Waiting on requester",
+    `SlidersHorizontal`; a checklist uses `ListChecks`) has its hint line
+    ("After you send the reply.") and primary `sm` **Apply** with secondary
+    `sm` **Skip**; once decided, an `ok` chip "Applied" or a `neutral` chip
+    "Skipped". Apply goes through the ticket pane's own patch (the desk's
+    PATCH with `via: "claude_desk"`), so every desk rule and prompt applies.
+    Solving or closing another ticket from a card is refused with the toast
+    "Open #N to solve it there.": the solve flow (time, maintenance,
+    required checklist items) runs in the open ticket.
+  - "Claude is still answering in this chat" (a second tab) and the
+    limits come back as the panel's error line before anything streams.
+  - A refusal, a cut-off answer or an error is one `text-xs` line with
+    `TriangleAlert` in `ink-warn` (or `text-red-600` and `role="alert"`
+    for an error), never a toast.
+  - Footer: the **context chips** (the source-chip recipe, as a list
+    labelled "What Claude can use": "#1047 and its notes", "Your articles",
+    "Web: vendor sites" when web search is on), the question box (a
+    one-row auto-growing textarea, Enter sends, Shift+Enter breaks a line;
+    a `.frame-input` in its bordered frame, which carries the one focus
+    outline; Send `ArrowUp` and, while streaming, Stop `CircleStop`, both icon
+    buttons with `data-tt`), with a ticket open and drafts allowed the
+    checkbox "May quote internal notes in a reply (this question only)" in
+    `text-xs text-slate-600` (the agent's explicit say-so; it clears after
+    each question), then the fixed line "Claude works as you, with
+    your desk role. It drafts and suggests; you send and apply." in
+    `text-xs text-slate-500`.
+  - Empty: the centred `Sparkle`, "Ask Claude about #1047" and one
+    sentence of what it does (the panel's own region, not an
+    `EmptyState` card).
+- **Desk settings → Claude in the desk** (`ClaudeDeskSettings`, rail
+  `Sparkle`, `settings.manage`, New in 1.20.0): `PageHeader` with the page
+  subtitle from c3, then three cards. The first is the master `Toggle`
+  ("Uses the key and model set in Settings → AI · Claude Opus 5.5"), a
+  `notice-warn` when there is no usable key, and **Teams**: `neutral`
+  chips for the teams Claude is on for and "{team}: off" in `text-xs
+  text-slate-500` for the others, with a ghost `sm` "Choose teams…" menu
+  button whose `Popover role="menu"` rows are `menuitemcheckbox` (chips
+  stay statuses, never pickers). "What Claude can do" is five `Toggle`
+  rows in `divide-y` with the c3 labels and hints; Search the web is left
+  out where the model or provider has no web search (one `text-xs` line
+  says so) and, when on, opens the allowed sites (`Textarea`, checked as
+  hostnames) and searches per answer. "Spending" has the two monthly
+  limits (empty for none), this month's figures as a `dl` (This month,
+  Chats, Drafts used, Top user; `text-lg font-bold`), and the data notice
+  plus "Costs are estimates…". One `SaveRow`.
+
 ## Helpdesk: merge and bulk edit
 
 Merging duplicate tickets and changing many at once from the queue

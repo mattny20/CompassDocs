@@ -341,6 +341,11 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.reply_draft.created": "Saved a reply draft",
   "helpdesk.reply_draft.used": "Used a reply draft",
   "helpdesk.reply_draft.discarded": "Discarded a reply draft",
+  // Claude in the desk (1.20.0, lib/helpdesk/claude): a turn (token counts, tools, the ticket
+  // number; never content) and the agent's Apply or Skip on a card. Applied changes are
+  // helpdesk.ticket.updated / helpdesk.checklist.added with details.via "claude_desk".
+  "helpdesk.claude.chat": "Asked Claude in the desk",
+  "helpdesk.claude.card": "Decided on a suggestion from Claude",
   // Ticket import from Zoho Desk or CSV (1.19.1, agent V7): details carry the counts.
   "helpdesk.import.started": "Started a ticket import",
   "helpdesk.import.completed": "Finished a ticket import",

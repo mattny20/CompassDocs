@@ -176,7 +176,7 @@ To enable synthesized, cited AI answers, set in `.env`:
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...
 # optional override:
-# COMPASSDOCS_AI_MODEL=claude-opus-4-8
+# COMPASSDOCS_AI_MODEL=claude-opus-5-5
 ```
 
 The AI answer flow is a lightweight RAG pipeline: the question is used to

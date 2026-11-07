@@ -1389,6 +1389,15 @@ describe("after Snipe-IT is disconnected", () => {
     const mcp = await assets.assetLookupForMcp(agent(), `${TAGP}-0040`);
     assert.deepEqual(mcp.assets.map((x: any) => x.id), [linkedId]);
     assert.ok(mcp.notice);
+    // 1.20.0: hd_asset_lookup's ticket count leaves out a ticket in the recycle bin, as the desk's does.
+    const before = (mcp.assets[0] as any).tickets as number;
+    const binned = await ticket("Binned with the asset");
+    await pool().query("INSERT INTO hd_ticket_assets (ticket_id, asset_id) VALUES ($1, $2)", [binned.id, linkedId]);
+    const count = async () => ((await assets.assetLookupForMcp(agent(), `${TAGP}-0040`)).assets[0] as any).tickets;
+    assert.equal(await count(), before + 1);
+    await pool().query("UPDATE hd_tickets SET deleted_at = now() WHERE id = $1", [binned.id]);
+    assert.equal(await count(), before);
+    await pool().query("DELETE FROM hd_ticket_assets WHERE ticket_id = $1", [binned.id]);
   });
 
   test("the asset page: a linked asset's history stays readable (with the notice); an unlinked one is not found", async () => {
