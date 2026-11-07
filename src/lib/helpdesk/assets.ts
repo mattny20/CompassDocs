@@ -1836,7 +1836,12 @@ export async function assetLookupForMcp(user: U & { id: number }, query: string,
   const { rows, notice } = await searchAssets(user, query, { limit });
   const counts = rows.length
     ? new Map(
-        (await hq<{ asset_id: number; n: number }>("SELECT asset_id, count(*)::int AS n FROM hd_ticket_assets WHERE asset_id = ANY($1::int[]) GROUP BY asset_id", [rows.map((r) => r.id)])).map(
+        // 1.20.0: a ticket in the recycle bin is not counted (as the desk's own count, 1.19.4 C7).
+        (await hq<{ asset_id: number; n: number }>(
+          `SELECT l.asset_id, count(*)::int AS n FROM hd_ticket_assets l JOIN hd_tickets t ON t.id = l.ticket_id
+            WHERE l.asset_id = ANY($1::int[]) AND t.deleted_at IS NULL GROUP BY l.asset_id`,
+          [rows.map((r) => r.id)]
+        )).map(
           (r) => [r.asset_id, r.n]
         )
       )

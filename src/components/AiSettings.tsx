@@ -28,9 +28,9 @@ interface AiState {
 // Mirrors AI_MODELS in lib/ai-config.ts. Kept here so this client component
 // doesn't import the server-only config module.
 const MODEL_OPTIONS: { value: string; label: string }[] = [
-  { value: "claude-opus-4-8", label: "Claude Opus 4.8 — most capable" },
-  { value: "claude-sonnet-5", label: "Claude Sonnet 5 — balanced" },
-  { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 — fastest" },
+  { value: "claude-opus-5-5", label: "Claude Opus 5.5 — most capable" },
+  { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5 — balanced" },
+  { value: "claude-haiku-5-5", label: "Claude Haiku 5.5 — fastest" },
 ];
 
 export function AiSettings({ initial }: { initial: AiState }) {

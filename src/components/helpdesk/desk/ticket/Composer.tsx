@@ -33,14 +33,20 @@ import { useDeskMe } from "../me";
 import { askTimeOnSolve } from "../time/TimeCard";
 import { askMaintenanceOnSolve, logMaintenanceAfterSolve, type MaintenancePlan } from "../assets/SolveMaintenance";
 
+import { mergeDraft } from "../claude/draft-fill";
+
 export type ComposerMode = "public" | "internal";
 
 export interface ComposerHandle {
   focus: (mode?: ComposerMode) => void;
   /** Write a Markdown link to a document at the caret (the side column's Insert). */
   insertLink: (title: string, url: string) => void;
-  /** Put this text in the public reply box, after anything already written there ("Use as reply" on a Claude draft, 1.19.1). */
-  fill: (text: string) => void;
+  /**
+   * Put this text in the public reply box, after anything already written there ("Use as reply" on a Claude draft, 1.19.1);
+   * 1.20.0: or in the internal note box (a Claude in the desk note draft). With `replace`, the earlier
+   * Claude draft still in that box unchanged is swapped for this one (a refined draft never stacks).
+   */
+  fill: (text: string, target?: ComposerMode, replace?: string | null) => void;
 }
 
 const THEN: { status: HdStatus; label: string }[] = [
@@ -151,15 +157,17 @@ export const Composer = forwardRef<
     insertLink(title, url) {
       insertAtCursor(`[${title}](${absolute(url)})`);
     },
-    fill(draft) {
-      // What the agent already wrote in the reply box stays, above the draft.
-      const had = (mode === "public" ? text : readDraft(number, "public")).trim();
-      const next = had ? `${had}\n\n${draft}` : draft;
-      writeDraft(number, "public", next);
-      if (mode === "public") setText(next);
+    fill(draft, target = "public", replace = null) {
+      // A note needs the note capability; without it a note draft is not put anywhere.
+      if (target === "internal" && !allowNotes) return;
+      // What the agent already wrote in that box stays, above the draft; an earlier Claude draft is replaced.
+      const had = mode === target ? text : readDraft(number, target);
+      const next = mergeDraft(had, draft, replace);
+      writeDraft(number, target, next);
+      if (mode === target) setText(next);
       else {
         filled.current = next;
-        setMode("public");
+        setMode(target);
       }
       requestAnimationFrame(() => area.current?.focus());
     },

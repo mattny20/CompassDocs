@@ -15,17 +15,92 @@ import { safeFetch } from "./safe-fetch";
 const KEY_SETTING = "anthropic_api_key";
 const MODEL_SETTING = "ai_model";
 
-export const DEFAULT_AI_MODEL = process.env.COMPASSDOCS_AI_MODEL || "claude-opus-4-8";
+export const DEFAULT_AI_MODEL = process.env.COMPASSDOCS_AI_MODEL || "claude-opus-5-5";
 
-// Models offered in the settings dropdown. Admins can still store any id via the
-// COMPASSDOCS_AI_MODEL env var; an unknown stored value is preserved and shown.
+// Models offered in the settings dropdown (1.20.0: the current generation,
+// exact IDs with no date suffix). Admins can still store any id via the
+// COMPASSDOCS_AI_MODEL env var; an unknown stored value is preserved and shown,
+// and is called the way it was before 1.20.0 (see modelProfile).
 export const AI_MODELS: { value: string; label: string }[] = [
-  { value: "claude-opus-4-8", label: "Claude Opus 4.8 — most capable" },
-  { value: "claude-sonnet-5", label: "Claude Sonnet 5 — balanced" },
-  { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 — fastest" },
+  { value: "claude-opus-5-5", label: "Claude Opus 5.5 — most capable" },
+  { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5 — balanced" },
+  { value: "claude-haiku-5-5", label: "Claude Haiku 5.5 — fastest" },
 ];
 
+/** A model's display name for the UI ("Claude Opus 5.5"), or the raw id for an unknown one. */
+export function modelLabel(model: string): string {
+  const hit = AI_MODELS.find((m) => m.value === model);
+  return hit ? hit.label.split(" — ")[0] : model;
+}
+
+export type AiEffort = "low" | "medium" | "high";
+
+/**
+ * What a model accepts, so a request only sends what that model takes.
+ * The three current models (1.20.0) always think adaptively and take
+ * `output_config.effort`; Opus 5.5 and Sonnet 5.5 take server-side refusal
+ * fallbacks (`fallbacks: "default"`) on the first-party API (Haiku 5.5 has
+ * none), and both run the dynamic-filtering web search. Any other stored id
+ * (an older model, or one set through COMPASSDOCS_AI_MODEL) is "legacy": its
+ * requests go out exactly as before 1.20.0, with no thinking, effort,
+ * fallback or web search fields, so nothing that used to work starts to 400.
+ */
+export interface ModelProfile {
+  current: boolean;
+  /** `fallbacks: "default"` (beta server-side-fallback-2026-07-01) on the first-party API. */
+  fallbacks: boolean;
+  /** `web_search_20260209` is documented for this model. */
+  webSearch: boolean;
+}
+
+export function modelProfile(model: string): ModelProfile {
+  switch (model) {
+    case "claude-opus-5-5":
+    case "claude-sonnet-5-5":
+      return { current: true, fallbacks: true, webSearch: true };
+    case "claude-haiku-5-5":
+      return { current: true, fallbacks: false, webSearch: false };
+    default:
+      return { current: false, fallbacks: false, webSearch: false };
+  }
+}
+
+/** The beta that turns on `fallbacks: "default"`. */
+export const FALLBACK_BETA = "server-side-fallback-2026-07-01";
+
+/**
+ * Room for adaptive thinking on top of the visible reply: thinking counts
+ * toward max_tokens even when its text is not returned.
+ */
+export function thinkingHeadroom(effort: AiEffort): number {
+  return effort === "low" ? 4_000 : effort === "medium" ? 8_000 : 16_000;
+}
+
+/**
+ * The one place an Anthropic client is made. COMPASSDOCS_ANTHROPIC_BASE_URL
+ * points it somewhere else (the in-process fake Messages API in tests, the
+ * fake server the e2e rig starts); unset, the SDK's default applies.
+ */
+export function anthropicClient(apiKey: string): Anthropic {
+  const baseURL = process.env.COMPASSDOCS_ANTHROPIC_BASE_URL?.trim() || undefined;
+  return new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) });
+}
+
+/** Claude declined the request (stop_reason "refusal"); the message is safe to show. */
+export class AiRefusalError extends Error {
+  constructor(message = "Claude declined this request.") {
+    super(message);
+    this.name = "AiRefusalError";
+  }
+}
+
 export type AiKeySource = "settings" | "env" | "none";
+
+let testAi: { key?: string; model?: string; provider?: "anthropic" | "openai" } | null = null;
+/** Tests: answer these instead of the stored key, model and provider in this process (null = the stored ones). */
+export function setAiConfigForTests(v: { key?: string; model?: string; provider?: "anthropic" | "openai" } | null): void {
+  testAi = v;
+}
 
 async function storedKey(): Promise<string> {
   return (await getSetting(KEY_SETTING))?.trim() || "";
@@ -33,6 +108,7 @@ async function storedKey(): Promise<string> {
 
 /** The effective API key: the GUI-stored one, else the environment variable. */
 export async function getAnthropicKey(): Promise<string | undefined> {
+  if (testAi?.key !== undefined) return testAi.key || undefined;
   return (await storedKey()) || process.env.ANTHROPIC_API_KEY || undefined;
 }
 
@@ -54,6 +130,7 @@ export async function clearAnthropicKey(): Promise<void> {
 
 /** The model id to use for AI requests. */
 export async function getAiModel(): Promise<string> {
+  if (testAi?.model) return testAi.model;
   return (await getSetting(MODEL_SETTING))?.trim() || DEFAULT_AI_MODEL;
 }
 
@@ -69,7 +146,7 @@ export async function validateAnthropicKey(
   key: string
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const client = new Anthropic({ apiKey: key });
+    const client = anthropicClient(key);
     await client.messages.create({
       model: await getAiModel(),
       max_tokens: 1,
@@ -113,6 +190,7 @@ export interface AiProviderConfig {
 }
 
 export async function getAiProvider(): Promise<AiProvider> {
+  if (testAi?.provider) return testAi.provider;
   return (await getSetting(PROVIDER_SETTING)) === "openai" ? "openai" : "anthropic";
 }
 
@@ -166,7 +244,14 @@ export async function aiAvailable(): Promise<boolean> {
 export async function chatComplete(input: {
   system: string;
   user: string;
+  /** The visible reply's budget; a current model gets thinking headroom on top. */
   maxTokens: number;
+  /**
+   * How hard a current model thinks (1.20.0): low for summaries and quick
+   * answers, medium for drafts, high for research. Set per task, never left
+   * to the model's default. Ignored by legacy models and other providers.
+   */
+  effort?: AiEffort;
 }): Promise<string> {
   metric("ai_requests");
   const provider = await getAiProvider();
@@ -174,17 +259,45 @@ export async function chatComplete(input: {
   if (provider === "anthropic") {
     const apiKey = await getAnthropicKey();
     if (!apiKey) throw new Error("No Anthropic API key configured.");
-    const client = new Anthropic({ apiKey });
-    const response = await client.messages.create({
-      model: await getAiModel(),
-      max_tokens: input.maxTokens,
+    const client = anthropicClient(apiKey);
+    const model = await getAiModel();
+    const profile = modelProfile(model);
+    if (!profile.current) {
+      // A stored older model: the request exactly as before 1.20.0.
+      const response = await client.messages.create({
+        model,
+        max_tokens: input.maxTokens,
+        system: input.system,
+        messages: [{ role: "user", content: input.user }],
+      });
+      if (response.stop_reason === "refusal") throw new AiRefusalError();
+      return response.content
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join("\n")
+        .trim();
+    }
+    // Current models: adaptive thinking (the only mode they take), an explicit
+    // effort, no sampling parameters, no prefill; streamed so a long proofread
+    // never meets an HTTP timeout. Opus 5.5 and Sonnet 5.5 retry a classifier
+    // decline on Anthropic's recommended model (fallbacks: "default").
+    const effort = input.effort ?? "medium";
+    const stream = client.beta.messages.stream({
+      model,
+      max_tokens: input.maxTokens + thinkingHeadroom(effort),
+      thinking: { type: "adaptive" },
+      output_config: { effort },
       system: input.system,
       messages: [{ role: "user", content: input.user }],
+      ...(profile.fallbacks ? { betas: [FALLBACK_BETA], fallbacks: "default" as const } : {}),
     });
-    return response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    const message = await stream.finalMessage();
+    // Check the stop reason before reading content: a refusal's partial text is not an answer.
+    if (message.stop_reason === "refusal") throw new AiRefusalError();
+    return message.content
+      .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
       .map((b) => b.text)
-      .join("\n")
+      .join("")
       .trim();
   }
 

@@ -457,8 +457,12 @@ export interface UpdateActor {
   id: number | null;
   name: string;
   role?: Role;
-  /** "mcp": the change came through the Claude connector; each timeline line ends "via Claude" (1.19.1). "api": an API token (1.19.4 C2), "via API". */
-  via?: "mcp" | "api";
+  /**
+   * "mcp": the change came through the Claude connector; each timeline line ends "via Claude" (1.19.1).
+   * "api": an API token (1.19.4 C2), "via API".
+   * "claude_desk": the agent applied a change Claude in the desk proposed; lines end "via Claude in the desk" (1.20.0).
+   */
+  via?: "mcp" | "api" | "claude_desk";
 }
 
 /** May `userId` be assigned a ticket of `teamId`: active, and a member of that team (any team when none) or an agent_all holder. */
@@ -657,7 +661,7 @@ export async function updateTicket(
       await client.query(
         `INSERT INTO hd_messages (ticket_id, author_id, author_name, kind, body, via, created_at)
          VALUES ($1, $2, $3, $4, $5, 'system', $6)`,
-        [ticketId, actor.id, actor.name, l.kind, actor.via === "mcp" ? `${l.body} via Claude` : actor.via === "api" ? `${l.body} via API` : l.body, now]
+        [ticketId, actor.id, actor.name, l.kind, actor.via === "mcp" ? `${l.body} via Claude` : actor.via === "api" ? `${l.body} via API` : actor.via === "claude_desk" ? `${l.body} via Claude in the desk` : l.body, now]
       );
     }
     return { before, changed, assigneeChangedTo, solved };
@@ -684,7 +688,10 @@ export async function updateTicket(
 /** Delete a ticket (admin). Its messages, runs and approvals go with it. */
 export async function deleteTicket(ticketId: number): Promise<HdTicketRow | undefined> {
   // Never a ticket on legal hold (1.19.1, lib/helpdesk/retention; the route answers 409 first).
-  return hqOne<HdTicketRow>("DELETE FROM hd_tickets WHERE id = $1 AND legal_hold = 0 RETURNING *", [ticketId]);
+  const row = await hqOne<HdTicketRow>("DELETE FROM hd_tickets WHERE id = $1 AND legal_hold = 0 RETURNING *", [ticketId]);
+  // 1.20.0: Claude in the desk chats that touched it go too (their links outlive the ticket for this).
+  if (row) await (await import("./claude/chats")).purgeClaudeForTicket(ticketId);
+  return row;
 }
 
 // --- The desk's queues -----------------------------------------------------------

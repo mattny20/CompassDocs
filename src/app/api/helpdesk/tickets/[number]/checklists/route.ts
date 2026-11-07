@@ -41,7 +41,8 @@ export async function POST(req: Request, { params }: Ctx) {
       targetType: "helpdesk_ticket",
       targetId: t.id,
       targetLabel: `#${t.number} ${t.subject}`.slice(0, 200),
-      details: { number: t.number, checklist_id: r.checklist_id, template_id: templateId, name: r.name },
+      // 1.20.0: added from a Claude in the desk suggestion (Apply sends via "claude_desk").
+      details: { number: t.number, checklist_id: r.checklist_id, template_id: templateId, name: r.name, ...(b?.via === "claude_desk" ? { via: "claude_desk", via_label: "via Claude in the desk" } : {}) },
       ip: ipFrom(req),
     });
   } catch (e) {

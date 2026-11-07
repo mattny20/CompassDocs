@@ -28,6 +28,7 @@ import { deskPwaMetadata, deskPwaViewport } from "@/components/helpdesk/desk/pwa
 import { firstSettingsHref } from "@/components/helpdesk/desk/settings/settings-nav";
 import { agentAvailability, deskAccess, deskRoleCaps } from "./desk-access";
 import { deskLookFor } from "@/lib/helpdesk/appearance";
+import { claudeDeskClientProps } from "@/lib/helpdesk/claude/desk-props";
 
 export const dynamic = "force-dynamic";
 
@@ -56,12 +57,14 @@ export default async function DeskLayout({ children }: { children: React.ReactNo
   } else if (!access.any) {
     body = <DeskForbidden />;
   } else {
-    const [unread, availability, role, look] = await Promise.all([
+    const [unread, availability, role, look, claude] = await Promise.all([
       unreadNotificationCount(user.id),
       agentAvailability(user.id),
       deskRoleCaps(user),
       // The desk background artwork (1.19.4 C5, lib/helpdesk/appearance).
       deskLookFor(user.id),
+      // Claude in the desk (1.20.0): null unless it is on for this agent.
+      claudeDeskClientProps(user),
     ]);
     const reports = access.reports || role.can("reports.own") || role.can("reports.team") || role.can("reports.all");
     body = (
@@ -76,6 +79,7 @@ export default async function DeskLayout({ children }: { children: React.ReactNo
         }}
         role={role.role}
         roleCaps={role.caps}
+        claude={claude}
         unread={unread}
         availability={availability}
         installSlot={<InstallDeskMenuItem />}

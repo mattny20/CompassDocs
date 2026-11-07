@@ -40,6 +40,7 @@ import { Composer, type ComposerHandle } from "./Composer";
 import { TicketPresence } from "../presence/TicketPresence";
 import { latestMessageId } from "../presence/presence";
 import { ClaudeDraftCard } from "./ClaudeDraftCard";
+import { useClaudeTicket } from "../claude/ClaudeDesk";
 import { Conversation } from "./Conversation";
 import { FollowButton, TicketCcRow, useTicketPeople } from "./TicketPeople";
 import { SidePanel } from "./SidePanel";
@@ -105,17 +106,18 @@ export function TicketPane({ number }: { number: number }) {
     return () => clearInterval(t);
   }, [load]);
 
+  // Returns whether the change went through (1.20.0: Claude's Apply cards read it).
   const patch = useCallback(
-    async (p: HdTicketPatch, ok?: string) => {
+    async (p: HdTicketPatch & { via?: "claude_desk" }, ok?: string): Promise<boolean> => {
       // 1.19.3: a linked asset may log a maintenance record once solved (lib/helpdesk/assets); cancelling keeps it open.
       let maintenance: MaintenancePlan | null = null;
       if (p.status === "solved") {
         const plan = await askMaintenanceOnSolve(number, d?.ticket.subject ?? "");
-        if (plan === false) return;
+        if (plan === false) return false;
         maintenance = plan;
       }
       // A team that records time asks for it before a solve (1.19.1, agent V8); cancelling keeps it open.
-      if (p.status === "solved" && !(await askTimeOnSolve(number, me.id))) return;
+      if (p.status === "solved" && !(await askTimeOnSolve(number, me.id))) return false;
       setBusy(true);
       try {
         const r = await sendJson(`/api/helpdesk/tickets/${number}`, "PATCH", p, "Couldn't update the ticket.");
@@ -126,6 +128,7 @@ export function TicketPane({ number }: { number: number }) {
         if (ok) toast("ok", ok);
         if (maintenance) void logMaintenanceAfterSolve(number, maintenance);
         refreshQueue();
+        return true;
       } catch (e) {
         // A workflow task with required hand-off fields is solved through Mark done (agent M).
         // 1.19.2: required checklist items first (agent W3): say so and show them.
@@ -134,11 +137,25 @@ export function TicketPane({ number }: { number: number }) {
           revealChecklists(number);
         } else if (e instanceof ApiError && e.status === 409 && p.status === "solved" && d?.parent) openTaskOutcome(number);
         else toast("error", (e as Error).message);
+        return false;
       } finally {
         setBusy(false);
       }
     },
     [number, load, refreshQueue, d?.parent, d?.ticket.subject, me.id]
+  );
+
+  // Claude in the desk (1.20.0): the panel works on this ticket while it is open here.
+  useClaudeTicket(
+    d && d.can_work
+      ? {
+          number: d.ticket.number,
+          subject: d.ticket.subject,
+          fill: (text, mode, replace) => composer.current?.fill(text, mode, replace),
+          apply: (p) => patch(p as HdTicketPatch & { via?: "claude_desk" }),
+          reload: () => void load(true),
+        }
+      : null
   );
 
   async function afterSend({ macro }: { macro: HdMacro | null; status: HdStatus | null }) {

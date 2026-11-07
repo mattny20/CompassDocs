@@ -103,10 +103,12 @@ test.describe("helpdesk 1.19.2 loose ends (licensed)", () => {
     await desk.goto("/desk/settings/teams");
     await expect(desk.getByRole("heading", { level: 1, name: "Teams" })).toBeVisible({ timeout: 120_000 });
     const rail = desk.getByRole("navigation", { name: "Desk settings" });
-    // The release's first New page (1.19.4: Appearance; the list grows as areas land).
+    // The release's first New page (1.20.0: Claude in the desk; the list grows as areas land).
     const assets = rail.getByRole("link", { name: new RegExp(`^${FIRST_NEW.label}`) });
     await expect(assets).toContainText("New");
     await expect(rail.getByRole("link", { name: /^Teams$/ })).not.toContainText("New");
+    // 1.19.4's pages are no longer New.
+    await expect(rail.getByRole("link", { name: /^Appearance/ })).not.toContainText("New");
     const strip = desk.getByRole("note").filter({ hasText: `New in ${DESK_NEW_RELEASE}` });
     await expect(strip).toBeVisible();
     await expect(strip).toContainText("badge goes once you've opened the page");

@@ -1,7 +1,7 @@
 import { hybridRetrieveForAnswer } from "./embeddings";
 import { searchPeopleForAnswer } from "./directory";
 import type { DirectoryPerson } from "./directory";
-import { aiAvailable, chatComplete } from "./ai-config";
+import { AiRefusalError, aiAvailable, chatComplete } from "./ai-config";
 import type { Document } from "./types";
 import type { SpaceScope } from "./space-scope";
 import type { FindScope } from "./handbook-visibility";
@@ -177,6 +177,8 @@ Strict rules:
       system,
       user: `Proofread this document:\n\n${input}`,
       maxTokens: 8192,
+      // An edit the author reviews: draft-level effort (1.20.0).
+      effort: "medium",
     });
 
     const parsed = extractJson(raw);
@@ -206,6 +208,7 @@ Strict rules:
       message: changes.length === 0 ? "Looks clean — no changes suggested." : undefined,
     };
   } catch (err) {
+    if (err instanceof AiRefusalError) return { mode: "unavailable", message: "Claude declined to proofread this document." };
     console.error("Proofread failed:", err);
     return { mode: "unavailable", message: "Proofreading failed (API error). Please try again." };
   }
@@ -312,6 +315,8 @@ export async function writeAssist(input: {
       system: writeSystem(action, tone, docType),
       user: userMessage,
       maxTokens,
+      // 1.20.0: a summary is a quick task; drafts and rewrites are drafting.
+      effort: action === "summarize" ? "low" : "medium",
     });
 
     if (!text) {
@@ -325,6 +330,7 @@ export async function writeAssist(input: {
 
     return { mode: "ai", text, truncated: truncated && action !== "draft" };
   } catch (err) {
+    if (err instanceof AiRefusalError) return { mode: "unavailable", message: "Claude declined this writing request." };
     console.error("Writing assist failed:", err);
     return { mode: "unavailable", message: "Writing assist failed (API error). Please try again." };
   }
@@ -374,6 +380,8 @@ Rules:
       system,
       user: `Question: ${question}\n\nKnowledge base excerpts:\n\n${buildContext(docs) || "(no matching documents)"}${peopleContext(people)}`,
       maxTokens: 1024,
+      // A grounded short answer from retrieved excerpts: summary-level effort (1.20.0).
+      effort: "low",
     });
 
     return {
@@ -383,6 +391,15 @@ Rules:
       mode: "ai",
     };
   } catch (err) {
+    // A refusal is said plainly, with the documents that matched (1.20.0).
+    if (err instanceof AiRefusalError) {
+      return {
+        answer: "Claude declined to answer this question. The documents that matched it are listed below.",
+        sources: toSources(docs),
+        people,
+        mode: "ai",
+      };
+    }
     // Any API failure (bad key, rate limit, network) degrades gracefully.
     console.error("AI answer failed, falling back to snippets:", err);
     return fallbackAnswer(question, docs, people);

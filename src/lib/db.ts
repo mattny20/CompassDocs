@@ -32,6 +32,7 @@ import { HD_API_SCHEMA } from "./helpdesk/api-schema";
 import { HD_CHAT_SCHEMA } from "./helpdesk/chat-schema";
 import { HD_APPEARANCE_SCHEMA } from "./helpdesk/appearance-schema";
 import { HD_SHARE_SCHEMA } from "./helpdesk/share-schema";
+import { HD_CLAUDE_SCHEMA } from "./helpdesk/claude-schema";
 import { createHash, randomBytes } from "node:crypto";
 import { SEED_SPACES, SEED_DOCS } from "./seed-data";
 import { hashPassword } from "./password";
@@ -2348,6 +2349,8 @@ const SCHEMA_SQL = `
   ${HD_APPEARANCE_SCHEMA}
   -- Share a ticket: hd_messages.event, the share line's marker (1.19.4 C6, lib/helpdesk/share-schema; after hd_messages).
   ${HD_SHARE_SCHEMA}
+  -- Claude in the desk: chats, cards and usage (1.20.0, lib/helpdesk/claude-schema; after hd_tickets).
+  ${HD_CLAUDE_SCHEMA}
   --- end Helpdesk 1.19.0 ---------------------------------------------------
   ${EMAIL_PARTS_SCHEMA}
   ${NOTIFY_POLICY_SCHEMA}

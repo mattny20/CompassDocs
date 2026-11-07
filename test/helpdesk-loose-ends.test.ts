@@ -619,6 +619,9 @@ describe("New badges in the desk settings rail", () => {
     assert.deepEqual(s0.unseen, ALL);
     assert.equal(s0.strip, true);
     assert.equal(s0.release, whatsNew.DESK_NEW_RELEASE);
+    // 1.20.0 lists one page, Claude in the desk.
+    assert.equal(whatsNew.DESK_NEW_RELEASE, "1.20.0");
+    assert.deepEqual(ALL, ["/desk/settings/claude-desk"]);
     const narrow = await whatsNew.deskNewState(U.agent.id, [FIRST]);
     assert.deepEqual(narrow.unseen, [FIRST], "only pages this person's rail shows");
     const none = await whatsNew.deskNewState(U.agent.id, ["/desk/settings/teams"]);
@@ -664,7 +667,11 @@ describe("New badges in the desk settings rail", () => {
     assert.equal(whatsNew.deskNewPageFor(`${first}x`), undefined);
     assert.equal(whatsNew.andList(["A", "B", "C"]), "A, B and C");
     assert.equal(whatsNew.isDeskNewItem(`strip:${whatsNew.DESK_NEW_RELEASE}`), true);
+    assert.equal(whatsNew.isDeskNewItem("strip:1.19.4"), false);
     assert.equal(whatsNew.isDeskNewItem("strip:1.19.2"), false);
+    for (const p of ["/desk/settings/appearance", "/desk/settings/chat", "/desk/settings/api"]) {
+      assert.equal(whatsNew.isDeskNewItem(p), false, `1.19.4's ${p} is no longer New`);
+    }
     assert.equal(whatsNew.isDeskNewItem("/desk/settings/assets"), false, "1.19.3's page is no longer New");
     assert.equal(whatsNew.isDeskNewItem("/desk/settings/canned"), false, "1.19.2's pages are no longer New");
   });

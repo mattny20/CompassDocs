@@ -9,6 +9,9 @@ import path from "node:path";
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 
+// Secrets are sealed at rest (sso_client_secret below): give secretbox a key so it never needs the uploads key file.
+process.env.COMPASSDOCS_SECRET_KEY ||= "7c4f0d5e8a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5";
+
 // next/headers and lib/ee as a licensed enterprise build sees them, before
 // anything that imports them loads (the route reads headers() for the
 // cross-origin check, the routing reads featureEnabled("sso")).

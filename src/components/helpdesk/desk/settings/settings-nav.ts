@@ -79,6 +79,8 @@ const NEED: Record<string, string[]> = {
   "/desk/settings/appearance": ["settings.manage"],
   // API tokens and outgoing webhooks (1.19.4 C2, lib/helpdesk/api-tokens, webhooks).
   "/desk/settings/api": ["settings.manage"],
+  // Claude in the desk (1.20.0, lib/helpdesk/claude).
+  "/desk/settings/claude-desk": ["settings.manage"],
 };
 
 const HELPDESK: SettingsNavItem[] = [
@@ -107,6 +109,7 @@ const HELPDESK: SettingsNavItem[] = [
   { href: "/desk/settings/api", label: "API and webhooks", icon: Webhook },
   { href: "/desk/settings/assets", label: "Assets", icon: Package },
   { href: "/desk/settings/appearance", label: "Appearance", icon: Sparkle },
+  { href: "/desk/settings/claude-desk", label: "Claude in the desk", icon: Sparkle },
 ];
 const PEOPLE: SettingsNavItem[] = [
   { href: "/desk/settings/agents", label: "Agents", icon: UsersRound },

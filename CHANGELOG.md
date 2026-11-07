@@ -4,6 +4,56 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.20.0] - 2026-11-07
+
+Claude in the desk. A Claude chat docked beside the ticket you're working
+on: ask it what fixed this before, what your articles say, or to draft the
+reply, and it works on the desk with you. It acts as you, with your desk
+role and teams, drafts into your reply box and suggests changes you apply
+with a click. A person always sends.
+
+### Added
+- **Claude in the desk:** a Claude chat docked beside the open ticket. Open
+  it with the Claude button in the top bar or Ctrl/Cmd+J, with quick prompts
+  to summarise, find earlier fixes, draft or translate a reply.
+- **Claude works as the agent,** with their desk role and teams. It reads
+  the ticket and its notes and searches solved tickets, articles and assets,
+  and shows the tickets and articles it used. It never reads or acts on a
+  ticket in the recycle bin.
+- **Drafts go into the reply or note box,** and a person always sends; a
+  newbie's reply still waits for review. Changes to status, priority, tags,
+  team or owner wait for the agent to Apply. Internal notes are kept out of
+  reply drafts unless the agent ticks "May quote internal notes" for that
+  question.
+- **Chats are kept per ticket for each agent.** Retention, anonymising,
+  deleting a ticket for good, removing an account and the personal data
+  export cover them, and chats with no ticket are removed after 90 idle
+  days.
+- **Desk settings → Claude in the desk:** on or off, per team, what Claude
+  can do, web search on listed sites only, and monthly spending limits for
+  the workspace and per agent, with this month's estimated use. Every chat
+  turn and every applied change is in the audit log.
+
+### Changed
+- **AI features use the current Claude models,** with Opus by default and
+  Sonnet and Haiku as options. A model chosen before is kept.
+- **Proofreading, writing help and Ask** say plainly when Claude declines.
+
+### Upgrading
+- **Additive schema, applied on start:** new tables for Claude in the desk's
+  chats, messages, cards, usage and the tickets each chat touched. No
+  existing data changes.
+- **Nothing changes until an admin turns it on:** Claude in the desk is off
+  by default, and so is its web search.
+- **Claude in the desk needs the Anthropic provider** in Settings → AI and
+  the helpdesk licence. It uses the workspace's API key and is billed per
+  use.
+- **The Anthropic SDK** moves to its current major version, now under the
+  Apache-2.0 licence.
+- **New sweep:** chats with no ticket are removed after 90 idle days, with
+  the other helpdesk sweeps.
+- **Rolling back to 1.19.4 is safe:** it ignores the new tables.
+
 ## [1.19.4] - 2026-11-07
 
 Teams and Slack, an API with webhooks, a help centre for customers, Intune
