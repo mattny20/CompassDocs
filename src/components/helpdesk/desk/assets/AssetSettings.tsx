@@ -9,9 +9,15 @@
 // polls while it runs). The "Who sees assets" card holds "Agents can search
 // all assets". One Save for the page. GET/PUT /api/helpdesk/admin/assets,
 // POST …/test and …/sync (settings.manage).
+//
+// 1.19.4: the Microsoft Intune card (IntuneCard; mock-up i3). Intune signs in
+// with the Microsoft 365 directory sync's app registration, so the card has
+// no fields: one switch that applies straight away (turning it on tests
+// Graph first and says why it can't, e.g. the missing permission), the
+// device count and "matched to Snipe-IT by serial", and Sync now.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Lock, Package, PlugZap, RefreshCw } from "lucide-react";
+import { Laptop, Lock, Package, PlugZap, RefreshCw } from "lucide-react";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { chipClass } from "@/components/Chip";
@@ -25,7 +31,7 @@ import { SaveRow } from "@/components/SaveRow";
 import { LoadingRow } from "@/components/Spinner";
 import { toast } from "@/components/Toasts";
 import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
-import type { HdAssetOnSolve, HdAssetSettingsView } from "@/lib/helpdesk/assets-shared";
+import { INTUNE_PERMISSION, type HdAssetOnSolve, type HdAssetSettingsView } from "@/lib/helpdesk/assets-shared";
 import { getJson, sendJson } from "../api";
 
 const URL_ = "/api/helpdesk/admin/assets";
@@ -63,13 +69,19 @@ export function AssetSettings() {
   );
 
   useEffect(() => {
+    // Only the live run's answer fills the form: a superseded load (React runs this twice in
+    // development) arriving late must never reset what the admin has typed since.
+    let live = true;
     getJson<HdAssetSettingsView>(URL_, "Couldn't load the asset settings.")
-      .then((v) => apply(v, true))
-      .catch((e: Error) => setError(e.message));
+      .then((v) => live && apply(v, true))
+      .catch((e: Error) => live && setError(e.message));
+    return () => {
+      live = false;
+    };
   }, [apply]);
 
   // While a sync runs, look again every few seconds (the form is left alone).
-  const running = !!view?.snipeit.sync.running;
+  const running = !!view?.snipeit.sync.running || !!view?.intune.sync.running;
   useEffect(() => {
     if (!running) return;
     const t = setInterval(() => {
@@ -286,6 +298,8 @@ export function AssetSettings() {
           </div>
         </section>
 
+        <IntuneCard view={view} snipeConnected={connected} onView={(v) => apply(v, false)} />
+
         <Card title="Who sees assets">
           <p className="text-sm text-slate-600">
             Agents see the assets of the people whose tickets they can work. Requesters see their own devices when they raise a request, so they can pick the one with the problem.
@@ -301,5 +315,134 @@ export function AssetSettings() {
       </div>
       <SaveRow dirty={dirty} busy={busy === "save"} onSave={save} label="Save asset settings" />
     </PageContainer>
+  );
+}
+
+// --- Microsoft Intune (1.19.4) ------------------------------------------------------------
+
+function IntuneCard({ view, snipeConnected, onView }: { view: HdAssetSettingsView; snipeConnected: boolean; onView: (v: HdAssetSettingsView) => void }) {
+  const it = view.intune;
+  const [busy, setBusy] = useState<"" | "toggle" | "sync">("");
+  const [problem, setProblem] = useState("");
+  const devices = `${it.sync.count.toLocaleString()} ${it.sync.count === 1 ? "device" : "devices"}`;
+  const parts = ["Uses your Microsoft 365 directory sync"];
+  if (it.on) parts.push(it.sync.running ? `syncing now, ${devices} so far` : it.sync.at ? devices : "not synced yet");
+  if (snipeConnected) parts.push("matched to Snipe-IT by serial");
+  const line =
+    it.unavailable === "licence"
+      ? "Uses your Microsoft 365 directory sync, which needs an enterprise licence."
+      : it.unavailable === "credentials"
+        ? "Uses your Microsoft 365 directory sync. Set that up first, then switch Intune on here."
+        : parts.join(" · ");
+  const error = problem || it.check_error || (it.on && it.sync.ok === false ? it.sync.error : "");
+
+  async function toggle(next: boolean) {
+    if (!next) {
+      const ok = await confirmDialog({
+        title: "Turn Intune off?",
+        body: "Syncing stops and Intune devices can't be linked to tickets. Devices already linked stay on their tickets, as they were last synced.",
+        confirmLabel: "Turn off",
+        danger: true,
+      });
+      if (ok !== true) return;
+    }
+    setBusy("toggle");
+    setProblem("");
+    try {
+      const v = await sendJson<HdAssetSettingsView>(URL_, "PUT", { intune: next }, next ? "Couldn't turn Intune on." : "Couldn't turn Intune off.");
+      onView(v);
+      if (next) {
+        toast("ok", "Intune is on. Its devices sync now and every 30 minutes.");
+        // The first sync: started here, carried on by the server (the page polls while it runs).
+        sendJson<{ settings: HdAssetSettingsView }>(`${URL_}/sync`, "POST", { provider: "intune" })
+          .then((r) => onView(r.settings))
+          .catch(() => {});
+      } else toast("ok", "Intune is off.");
+    } catch (e) {
+      setProblem((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function sync() {
+    setBusy("sync");
+    setProblem("");
+    try {
+      const r = await sendJson<{ ok: boolean | null; seen: number; error: string | null; running: boolean; settings: HdAssetSettingsView }>(
+        `${URL_}/sync`,
+        "POST",
+        { provider: "intune" },
+        "Couldn't sync."
+      );
+      onView(r.settings);
+      if (r.running) toast("ok", "Syncing. This page updates when it's done.");
+      else if (r.ok) toast("ok", `Synced ${r.seen.toLocaleString()} ${r.seen === 1 ? "device" : "devices"} from Intune.`);
+      else toast("error", r.error || "The sync failed.");
+    } catch (e) {
+      toast("error", (e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  // Graph's 403 names the permission; say where it goes.
+  const permission = error.includes(INTUNE_PERMISSION);
+  return (
+    <section aria-labelledby="assets-intune" className="rounded-xl border border-slate-200 bg-surface p-5 shadow-xs" data-testid="assets-intune">
+      <h2 id="assets-intune" className="sr-only">
+        Microsoft Intune
+      </h2>
+      <div className="flex items-start gap-3">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-compass-50 text-compass-700" aria-hidden>
+          <Laptop className="h-5 w-5" />
+        </span>
+        <Toggle
+          size="full"
+          className="min-w-0 flex-1"
+          label={<span className="font-semibold text-slate-900">Microsoft Intune</span>}
+          help={<span className="text-sm" data-testid="assets-intune-line">{line}</span>}
+          checked={it.on}
+          disabled={busy === "toggle" || (!it.on && it.unavailable !== null)}
+          onChange={toggle}
+        />
+      </div>
+      {it.unavailable === "credentials" && (
+        <p className="mt-2 pl-12 text-sm">
+          <a className="link" href="/admin/directory/sync">
+            Set up Microsoft 365 directory sync
+          </a>
+        </p>
+      )}
+      {error && (
+        <div role="alert" className="notice-warn mt-3 rounded-lg border px-3 py-2 text-sm sm:ml-12" data-testid="assets-intune-error">
+          {error}
+          {permission && (
+            <>
+              {" "}
+              <a className="link" href="https://learn.microsoft.com/graph/permissions-reference#devicemanagementmanageddevicesreadall" target="_blank" rel="noopener noreferrer">
+                About this permission
+                <span className="sr-only"> (opens in a new tab)</span>
+              </a>
+            </>
+          )}
+        </div>
+      )}
+      {it.on && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 sm:pl-12">
+          {it.sync.at ? (
+            <span>
+              Synced <RelativeTime value={it.sync.at} />
+              {it.matched ? ` · ${it.matched.toLocaleString()} shown as their Snipe-IT asset` : ""}
+            </span>
+          ) : (
+            <span>Not synced yet</span>
+          )}
+          <Button variant="ghost" size="sm" icon={<RefreshCw />} busy={busy === "sync" || it.sync.running} onClick={sync}>
+            Sync now
+          </Button>
+        </div>
+      )}
+    </section>
   );
 }

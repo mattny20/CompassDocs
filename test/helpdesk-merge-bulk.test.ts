@@ -422,7 +422,8 @@ describe("merge", () => {
     assert.ok(await row(held.id));
     const plain = await ticket();
     assert.equal((await del(plain.number)).status, 200);
-    assert.equal(await row(plain.id), undefined);
+    // 1.19.4 (C7): Delete moves it to the recycle bin (test/helpdesk-recycle-bin); the purge removes it later.
+    assert.ok((await row(plain.id)).deleted_at, "in the recycle bin");
   });
 
   test("refuses other teams' tickets (as not found) and roles without tickets.merge", async () => {

@@ -1322,7 +1322,10 @@ describe("after Snipe-IT is disconnected", () => {
     const off = await assets.saveAssetSettings({ disconnect: true });
     assert.deepEqual(off.changed, ["disconnected"]);
     assert.equal(await assets.assetsConnected(), false);
-    assert.ok(await assets.getAsset(unlinkedId), "the cache is kept");
+    // 1.19.4 review: the unlinked rows can never be shown again, so they go; linked ones stay as history.
+    assert.equal(await assets.getAsset(unlinkedId), undefined, "an unlinked row is deleted");
+    assert.ok(await assets.getAsset(linkedId), "a linked row is kept");
+    assert.equal((await pool().query("SELECT 1 FROM settings WHERE key = $1", [`helpdesk_assets_sync:${PROVIDER}`])).rowCount, 0, "and the sync record");
   });
 
   after(() => {
@@ -1433,10 +1436,13 @@ describe("after Snipe-IT is disconnected", () => {
     assert.equal(card.can_edit, true);
     const o = await assets.assetOptions(agent(), (await ticketOf(t.id))!, `${TAGP}-00401`);
     assert.equal(o.connected, true, "the picker's groups are back");
-    assert.deepEqual(o.results.map((x) => x.id), [unlinkedId]);
-    const a = await assets.linkAsset(agent(), (await ticketOf(t.id))!, unlinkedId, { id: P.agent.id, name: P.agent.name });
-    assert.equal(a.id, unlinkedId);
-    assert.deepEqual((await assets.linkedAssets(t.id)).map((x) => x.id).sort((x, y) => x - y), [linkedId, unlinkedId].sort((x, y) => x - y));
+    // Its row went at the disconnect; the exact tag is looked up live again.
+    const again = (await cacheId(401))!;
+    assert.ok(again && again !== unlinkedId);
+    assert.deepEqual(o.results.map((x) => x.id), [again]);
+    const a = await assets.linkAsset(agent(), (await ticketOf(t.id))!, again, { id: P.agent.id, name: P.agent.name });
+    assert.equal(a.id, again);
+    assert.deepEqual((await assets.linkedAssets(t.id)).map((x) => x.id).sort((x, y) => x - y), [linkedId, again].sort((x, y) => x - y));
   });
 });
 

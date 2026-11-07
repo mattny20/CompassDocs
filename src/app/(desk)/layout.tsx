@@ -27,6 +27,7 @@ import { InstallDeskMenuItem } from "@/components/helpdesk/desk/pwa/InstallDesk"
 import { deskPwaMetadata, deskPwaViewport } from "@/components/helpdesk/desk/pwa/metadata";
 import { firstSettingsHref } from "@/components/helpdesk/desk/settings/settings-nav";
 import { agentAvailability, deskAccess, deskRoleCaps } from "./desk-access";
+import { deskLookFor } from "@/lib/helpdesk/appearance";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,13 @@ export default async function DeskLayout({ children }: { children: React.ReactNo
   } else if (!access.any) {
     body = <DeskForbidden />;
   } else {
-    const [unread, availability, role] = await Promise.all([unreadNotificationCount(user.id), agentAvailability(user.id), deskRoleCaps(user)]);
+    const [unread, availability, role, look] = await Promise.all([
+      unreadNotificationCount(user.id),
+      agentAvailability(user.id),
+      deskRoleCaps(user),
+      // The desk background artwork (1.19.4 C5, lib/helpdesk/appearance).
+      deskLookFor(user.id),
+    ]);
     const reports = access.reports || role.can("reports.own") || role.can("reports.team") || role.can("reports.all");
     body = (
       <DeskShell
@@ -72,6 +79,8 @@ export default async function DeskLayout({ children }: { children: React.ReactNo
         unread={unread}
         availability={availability}
         installSlot={<InstallDeskMenuItem />}
+        look={look.look}
+        lookMenu={look.menu}
       >
         {children}
       </DeskShell>

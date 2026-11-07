@@ -9,6 +9,10 @@
 // naming a ticket the viewer can't open is only counted). The
 // details are refreshed from the source when it answers; when it doesn't,
 // a notice says the page shows what was synced last.
+// 1.19.4: a device Intune also manages says "from Snipe-IT, matched to
+// Intune" and its Details end with "Intune: Compliant · macOS 15.2"; an
+// Intune-only device says "from Intune" (no tag: the serial leads), with
+// Last seen, no maintenance card, and opens in the Intune admin centre.
 // GET /api/helpdesk/assets/[id] (agents; 404 for an asset they may not see).
 
 import { useEffect, useState } from "react";
@@ -23,7 +27,7 @@ import { PageContainer } from "@/components/PageWidth";
 import { LoadingRow } from "@/components/Spinner";
 import { Table, TABLE_HEAD_ROW, Td, Th, TR } from "@/components/Table";
 import { formatMinutes } from "@/lib/helpdesk/time-shared";
-import { dayMonth, maintenanceTypeLabel, monthYear, statusText, warrantyLabel, type HdAssetPage } from "@/lib/helpdesk/assets-shared";
+import { dayMonth, intuneOsLine, maintenanceTypeLabel, monthYear, providerBase, seenAgo, sourceLine, statusText, warrantyLabel, type HdAssetPage } from "@/lib/helpdesk/assets-shared";
 import type { HdStatus } from "@/lib/helpdesk/types";
 import { ApiError, getJson } from "../api";
 import { statusChip, ticketHref } from "../ui";
@@ -60,7 +64,9 @@ export function AssetPageView({ id }: { id: number }) {
   }
   if (!page) return <PageContainer><LoadingRow className="py-10" /></PageContainer>;
   const a = page.asset;
-  const sub = [a.tag, a.serial ? `serial ${a.serial}` : "", `from ${a.provider_label}`].filter(Boolean).join(" · ");
+  const sub = [a.tag, a.serial ? `serial ${a.serial}` : "", sourceLine(a)].filter(Boolean).join(" · ");
+  const intuneOnly = providerBase(a.provider) === "intune";
+  const seen = a.intune && intuneOnly ? seenAgo(a.intune.last_seen) : "";
   const details: [string, string][] = (
     [
       ["Status", statusText(a)],
@@ -70,6 +76,8 @@ export function AssetPageView({ id }: { id: number }) {
       ["Location", a.location],
       ["Purchased", monthYear(a.purchase_date)],
       ["Warranty", warrantyLabel(a.warranty_end)],
+      ["Intune", a.intune ? intuneOsLine(a.intune) : ""],
+      ["Last seen", seen ? `In Intune ${seen}` : ""],
     ] as [string, string][]
   ).filter(([, v]) => v);
 
@@ -82,7 +90,7 @@ export function AssetPageView({ id }: { id: number }) {
         </Link>
         <ChevronRight className="h-3.5 w-3.5" aria-hidden />
         <span aria-current="page" className="truncate text-slate-700">
-          {a.tag || a.name}
+          {a.tag || a.serial || a.name}
         </span>
       </nav>
 
@@ -172,6 +180,8 @@ export function AssetPageView({ id }: { id: number }) {
               ))}
             </dl>
           </section>
+          {/* Intune keeps no maintenance records: the card is the source's own, so an Intune-only device has none. */}
+          {!intuneOnly && (
           <section aria-labelledby="asset-maintenance" className={`${CARD_CLASS} px-4 py-3.5`} data-testid="asset-maintenance">
             <h2 id="asset-maintenance" className={`${EYEBROW_TEXT} flex items-center gap-1.5`}>
               <Wrench className="h-3.5 w-3.5" aria-hidden /> Maintenance in {a.provider_label}
@@ -199,6 +209,7 @@ export function AssetPageView({ id }: { id: number }) {
               </p>
             )}
           </section>
+          )}
         </div>
       </div>
     </PageContainer>

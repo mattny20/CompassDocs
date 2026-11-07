@@ -120,7 +120,7 @@ export async function loadOf(userIds: number[], client?: HdQueryable): Promise<M
   if (!userIds.length) return out;
   const rows = await q<{ user_id: number; open_count: number; last_assigned_at: string | null }>(
     `SELECT x.id AS user_id,
-            (SELECT count(*)::int FROM hd_tickets t WHERE t.assignee_id = x.id AND t.status IN ('new', 'open', 'pending', 'on_hold')) AS open_count,
+            (SELECT count(*)::int FROM hd_tickets t WHERE t.assignee_id = x.id AND t.status IN ('new', 'open', 'pending', 'on_hold') AND t.deleted_at IS NULL) AS open_count,
             (SELECT max(l.at) FROM hd_assignment_log l WHERE l.to_user_id = x.id) AS last_assigned_at
        FROM unnest($1::int[]) AS x(id)`,
     [userIds],

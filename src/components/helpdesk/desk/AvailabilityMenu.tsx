@@ -122,7 +122,10 @@ export function AvailabilityMenu({
         {extra && (
           <>
             <MenuSeparator />
-            {extra}
+            {/* A row marked data-closes-menu (1.19.4: "Desk background…") opens a panel of its own, so the menu closes. */}
+            <div role="none" onClick={(e) => (e.target as Element).closest("[data-closes-menu]") && setOpen(false)}>
+              {extra}
+            </div>
           </>
         )}
         <MenuSeparator />

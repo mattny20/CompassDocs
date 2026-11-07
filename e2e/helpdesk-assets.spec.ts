@@ -85,6 +85,12 @@ test.describe("assets (licensed)", () => {
     // Desk settings → Assets.
     await page.goto("/desk/settings/assets");
     await slow(page.getByRole("heading", { level: 1, name: "Assets" })).toBeVisible({ timeout: 60_000 });
+    // Microsoft Intune (1.19.4) signs in with the Microsoft 365 directory sync's app registration.
+    // This rig has none saved, so the switch is off and disabled, and the line says why.
+    const intune = page.getByTestId("assets-intune");
+    await expect(intune.getByRole("switch", { name: /^Microsoft Intune/ })).toBeDisabled();
+    await expect(intune.getByRole("switch", { name: /^Microsoft Intune/ })).toHaveAttribute("aria-checked", "false");
+    await expect(intune.getByTestId("assets-intune-line")).toHaveText(/^Uses your Microsoft 365 directory sync(, which needs an enterprise licence\.|\. Set that up first, then switch Intune on here\.)$/);
     const card = page.getByTestId("assets-snipeit");
     await card.getByLabel("Address").fill(`https://assets-${stamp}.example.com`);
     await card.getByLabel("API key").fill(`e2e-key-${stamp}`);

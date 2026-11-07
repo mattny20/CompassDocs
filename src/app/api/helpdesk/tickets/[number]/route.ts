@@ -2,16 +2,18 @@
 // PATCH  /api/helpdesk/tickets/[number]   { status?, priority?, team_id?, assignee_id?, category?, tags?, subject? }
 //          → { ticket, changed }. Each change leaves a timeline line; solving
 //          runs the workflow's and the survey's hooks after commit.
-// DELETE /api/helpdesk/tickets/[number]   desk capability tickets.delete; audited (helpdesk.ticket.deleted)
+// DELETE /api/helpdesk/tickets/[number]   desk capability tickets.delete: moves it to the recycle bin
+//          (1.19.4, lib/helpdesk/recycle-bin; audited helpdesk.ticket.binned). 409 on legal hold or an
+//          open major incident's own ticket. A binned ticket: GET answers 410 { binned: true } to an
+//          agent who works it (the desk then reads GET /api/helpdesk/recycle-bin/[number]); 404 otherwise.
 // Each PATCH field needs its desk capability (lib/helpdesk/patch-caps patchRefusal).
 // Helpdesk 1.19.0 (helpdesk.agent). 404 for a ticket outside the caller's queues.
 
 import { NextResponse } from "next/server";
-import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { ipFrom } from "@/lib/audit";
 import { helpdeskGate, readJson } from "@/lib/helpdesk/access";
 import { ticketDetail } from "@/lib/helpdesk/detail";
-import { deleteTicket, HdTicketError, updateTicket, validateTicketPatch } from "@/lib/helpdesk/tickets";
-import { deleteTicketFiles } from "@/lib/helpdesk/attachments";
+import { HdTicketError, parseTicketNumber, updateTicket, validateTicketPatch } from "@/lib/helpdesk/tickets";
 import { badRequest, loadTicketFor, notFound, originOf } from "@/lib/helpdesk/routes";
 import { hdCan, HD_FORBIDDEN } from "@/lib/helpdesk/roles";
 import { patchRefusal } from "@/lib/helpdesk/patch-caps";
@@ -24,8 +26,16 @@ type Ctx = { params: Promise<{ number: string }> };
 export async function GET(_req: Request, { params }: Ctx) {
   const gate = await helpdeskGate("agent");
   if (gate instanceof NextResponse) return gate;
-  const found = await loadTicketFor(gate, (await params).number, "work");
-  if (found instanceof NextResponse) return found;
+  const raw = (await params).number;
+  const found = await loadTicketFor(gate, raw, "work");
+  if (found instanceof NextResponse) {
+    // 1.19.4 (C7): a ticket in the recycle bin that this agent works answers 410 (the pane shows the bin banner).
+    const n = parseTicketNumber(raw);
+    if (found.status === 404 && n && (await (await import("@/lib/helpdesk/recycle-bin")).binnedTicketFor(gate, n))) {
+      return NextResponse.json({ error: "This ticket is in the recycle bin.", binned: true }, { status: 410 });
+    }
+    return found;
+  }
   return NextResponse.json(await ticketDetail(gate, found.ticket, true));
 }
 
@@ -91,24 +101,10 @@ export async function DELETE(req: Request, { params }: Ctx) {
   if (Number((found.ticket as { legal_hold?: number }).legal_hold ?? 0) === 1) {
     return NextResponse.json({ error: `#${found.ticket.number} is on legal hold. Take it off hold before deleting it.` }, { status: 409 });
   }
-  // 1.19.2: a major incident's own ticket ends the incident (its Status page incident too) before it goes (agent W1).
-  await (await import("@/lib/helpdesk/incidents")).onIncidentTicketEnded(found.ticket.id, gate.name || gate.username);
-  await deleteTicketFiles(found.ticket.id);
-  const row = await deleteTicket(found.ticket.id);
-  if (!row) return notFound();
-  // A workflow task's ticket: its run moves on now (the sweep would within a minute).
-  if (row.source === "workflow") {
-    const { onTaskTicketDeleted } = await import("@/lib/helpdesk/engine");
-    await onTaskTicketDeleted(row.source_ref).catch((e) => console.error("[helpdesk] advancing a run after a task ticket was deleted:", e));
-  }
-  await audit({
-    actor: actorFrom(gate),
-    action: "helpdesk.ticket.deleted",
-    targetType: "helpdesk_ticket",
-    targetId: row.id,
-    targetLabel: `#${row.number} ${row.subject}`.slice(0, 200),
-    details: { number: row.number, requester_id: row.requester_id, team_id: row.team_id, status: row.status },
-    ip: ipFrom(req),
-  });
-  return NextResponse.json({ ok: true });
+  // 1.19.4 (C7): deleting moves the ticket to the recycle bin (lib/helpdesk/recycle-bin),
+  // restorable for 30 days; the purge sweep or "Delete for good" removes it and its files.
+  const { binTickets } = await import("@/lib/helpdesk/recycle-bin");
+  const [r] = await binTickets(gate, [found.ticket.number], { ip: ipFrom(req), origin: originOf(req) });
+  if (!r?.ok) return NextResponse.json({ error: r?.error ?? "Couldn't delete the ticket." }, { status: 409 });
+  return NextResponse.json({ ok: true, binned: true });
 }

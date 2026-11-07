@@ -89,7 +89,17 @@ export const HD_CAPABILITIES = {
   "incidents.manage": { section: "tickets", label: "Run major incidents", hint: "Declare one, post updates to everyone affected, set its Get help banner and solve it with its linked tickets" },
   "tickets.sla_override": { section: "tickets", label: "Override a ticket's SLA", hint: "Change the due times of one ticket" },
   "tickets.export": { section: "tickets", label: "Export tickets", hint: "Download tickets and reports as CSV" },
-  "tickets.delete": { section: "tickets", label: "Delete tickets", hint: "Remove a ticket and its conversation for good" },
+  // 1.19.4 (C7, lib/helpdesk/recycle-bin): deleting moves a ticket to the
+  // recycle bin, restorable for 30 days; emptying it early is its own
+  // capability, Admin only by default. A role customised before 1.19.4
+  // keeps "Delete tickets" as stored and never gains "Delete for good"
+  // (no default but Admin's holds it, so resolveMatrix lifts nothing).
+  "tickets.delete": {
+    section: "tickets",
+    label: "Delete tickets",
+    hint: "Move their teams' tickets to the recycle bin, one at a time or in bulk, and restore them within 30 days",
+  },
+  "tickets.purge": { section: "tickets", label: "Delete for good", hint: "Empty tickets from the recycle bin before their 30 days are up" },
   "tickets.reply_public": { section: "replies", label: "Reply to the requester", hint: "Public replies are sent straight away" },
   "tickets.reply_needs_review": { section: "replies", label: "Reply after review", hint: "Public replies wait for a team lead to approve them" },
   "tickets.internal_note": { section: "replies", label: "Add internal notes", hint: "Notes only agents see" },
@@ -139,6 +149,9 @@ export const HD_CAP_SCOPE: Partial<Record<HdCap, HdCap>> = {
   "incidents.link": "tickets.view_all",
   "incidents.manage": "tickets.view_all",
   "tickets.sla_override": "tickets.view_all",
+  // 1.19.4 (C7): deleting, restoring and deleting for good are per team, like every other ticket change.
+  "tickets.delete": "tickets.view_all",
+  "tickets.purge": "tickets.view_all",
   "tickets.reply_public": "tickets.view_all",
   "tickets.reply_needs_review": "tickets.view_all",
   "tickets.internal_note": "tickets.view_all",

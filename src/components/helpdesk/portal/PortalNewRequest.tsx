@@ -5,6 +5,9 @@
 // definitions, no directory prefill: a customer is not in the directory),
 // say it in your own words, attach files, send. Inline validation on Send,
 // the first invalid control focused; the server's refusal shows above Send.
+// With the help centre on (1.19.4, C3), articles that might answer it show
+// under the subject (RequestSuggestions), and raising the request tells the
+// help centre's stats the tab's journey ended in a request.
 
 import { useMemo, useRef, useState } from "react";
 import { Send } from "lucide-react";
@@ -13,6 +16,8 @@ import { Field, FormError, Select, TextInput, Textarea } from "@/components/form
 import type { HdFormField } from "@/lib/helpdesk/types";
 import { portalFetch } from "./client";
 import { PortalAttachButton, PortalFileChips } from "./PortalFiles";
+import { RequestSuggestions } from "./help/RequestSuggestions";
+import { endJourney, journeyId } from "./help/journey";
 
 export interface PortalTypeForForm {
   id: number;
@@ -24,7 +29,18 @@ export interface PortalTypeForForm {
 
 type Answers = Record<string, string | boolean>;
 
-export function PortalNewRequest({ types, askName, initialType }: { types: PortalTypeForForm[]; askName: boolean; initialType: number | null }) {
+export function PortalNewRequest({
+  types,
+  askName,
+  initialType,
+  helpCentre = false,
+}: {
+  types: PortalTypeForForm[];
+  askName: boolean;
+  initialType: number | null;
+  /** The help centre is on: suggest articles from the subject. */
+  helpCentre?: boolean;
+}) {
   const [typeId, setTypeId] = useState<number | null>(initialType && types.some((t) => t.id === initialType) ? initialType : types.length === 1 ? types[0].id : null);
   const type = useMemo(() => types.find((t) => t.id === typeId) ?? null, [types, typeId]);
   const [answers, setAnswers] = useState<Answers>({});
@@ -82,8 +98,11 @@ export function PortalNewRequest({ types, askName, initialType }: { types: Porta
     }
     form.append("answers", JSON.stringify(clean));
     for (const f of files) form.append("files", f);
+    // The help centre journey this request ends (the server records it).
+    if (helpCentre && journeyId()) form.append("j", journeyId());
     const r = await portalFetch<{ number: number }>("/support/api/requests", { method: "POST", body: form }, "Couldn't send your request. Try again.");
     if (r.ok) {
+      if (helpCentre) endJourney();
       window.location.assign(`/support/requests/${r.data.number}`);
       return;
     }
@@ -135,6 +154,7 @@ export function PortalNewRequest({ types, askName, initialType }: { types: Porta
           <Field label="Subject (optional)">
             <TextInput value={subject} maxLength={300} placeholder={type.title} onChange={(e) => setSubject(e.target.value)} />
           </Field>
+          {helpCentre && <RequestSuggestions text={subject} />}
           {type.form.map((f) => (
             <div key={f.key} data-field={f.key}>
               <FormFieldInput field={f} value={answers[f.key]} error={errors[f.key]} onChange={(v) => set(f.key, v)} />

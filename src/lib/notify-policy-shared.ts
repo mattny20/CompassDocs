@@ -215,6 +215,8 @@ const DESK_TEMPLATES: Record<string, string[]> = {
   task_assigned: ["hd_task_assigned"],
   sla_warning: ["hd_sla_warning"],
   sla_breach: ["hd_sla_breach"],
+  // 1.19.4 (area C6, lib/helpdesk/share).
+  shared_with_me: ["hd_shared"],
 };
 
 const DESK_NAMES: string[] = [
@@ -273,6 +275,8 @@ export const NOTIFY_EVENTS: readonly NotifyEventDef[] = [
   { id: "hd_report_digest", section: "desk", label: "Report digests", hint: "A scheduled summary of a desk dashboard you're on the schedule for", channels: { email: true }, digest: false, audience: "People on a report schedule", templates: ["hd_report_digest"] },
   // 1.19.2 (agent W5, lib/helpdesk/import-check): a background dry run or rescan finished.
   { id: "hd_import_ready", section: "desk", label: "Import checks", hint: "A dry run of a ticket import you started is ready, or stopped", channels: { bell: true }, digest: false, audience: "Helpdesk admins" },
+  // 1.19.4 (C2, lib/helpdesk/webhooks): a webhook that failed for 24 hours turned itself off.
+  { id: "hd_webhook_disabled", section: "desk", label: "Webhook turned off", hint: "An outgoing helpdesk webhook failed for 24 hours and was turned off", channels: { bell: true }, digest: false, audience: "Helpdesk admins" },
   // Training
   { id: "training_assigned", section: "training", label: "Training assigned", hint: "A training deck is assigned to you", channels: BWE, digest: true, templates: ["training_assigned"] },
   { id: "training_due", section: "training", label: "Training due", hint: "An assigned training is due soon or overdue, and manager reminders", channels: BWE, digest: true, templates: ["training_due"] },

@@ -73,7 +73,8 @@ function toEntry(r: EntryRow, canEdit: boolean): HdTimeEntry {
 }
 
 export async function getTimeEntry(id: number): Promise<EntryRow | undefined> {
-  return hqOne<EntryRow>(`${ENTRY_SELECT} WHERE e.id = $1`, [id]);
+  // 1.19.4 (C7): a binned ticket's time is read-only (its routes answer 404 until it is restored).
+  return hqOne<EntryRow>(`${ENTRY_SELECT} WHERE e.id = $1 AND t.deleted_at IS NULL`, [id]);
 }
 
 /** The viewer's running timer, wherever it is. */
@@ -249,7 +250,8 @@ export async function exportTimeCsv(user: SessionUser, f: TimeExportFilters, tz:
     params.push(v);
     return `$${params.length}`;
   };
-  const where: string[] = [];
+  // 1.19.4 (C7): never a ticket in the recycle bin.
+  const where: string[] = ["t.deleted_at IS NULL"];
   const scope = await agentTeamIds(user);
   if (scope !== "all") {
     const me = bind(user.id);

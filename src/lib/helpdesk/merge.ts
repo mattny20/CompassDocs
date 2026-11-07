@@ -34,6 +34,7 @@ import "server-only";
 import type { PoolClient } from "pg";
 import { hq, hqOne, withTx } from "./db-core";
 import type { HdQueryable } from "./db-core";
+import { mdInline } from "./md-inline";
 import { canWorkTicket } from "./access";
 import { hdCan } from "./roles";
 import { cleanTicketTags, getTicketByNumber, parseTicketNumber, TICKET_LIMITS } from "./tickets";
@@ -205,6 +206,9 @@ export async function mergeTickets(user: MergeActor, input: MergeInput, ctx: { o
     const k = byId.get(keep.id);
     // Re-checked under the locks: a concurrent merge got there first.
     if (!k || k.merged_into || k.status === "closed") throw new HdMergeError(`#${keep.number} changed while merging. Try again.`, 409);
+    // 1.19.4 (C7): a ticket moved to the recycle bin meanwhile is neither kept nor merged.
+    const binned = locked.find((r) => (r as { deleted_at?: string | null }).deleted_at);
+    if (binned) throw new HdMergeError(`#${binned.number} was moved to the recycle bin while merging. Try again.`, 409);
     const moved = { messages: 0, attachments: 0, ccs: 0, followers: 0, requesters_ccd: 0, time_entries: 0, timers: 0 };
     const attachmentIds: number[] = [];
     const merged: { id: number; number: number; requester_id: number | null }[] = [];
@@ -234,6 +238,8 @@ export async function mergeTickets(user: MergeActor, input: MergeInput, ctx: { o
       await (await import("./checklists")).moveChecklistsTx(client, m.id, k.id);
       // 1.19.3: its linked assets too, every one, even past ten (lib/helpdesk/assets moveAssetLinksTx).
       await (await import("./assets")).moveAssetLinksTx(client, m.id, k.id);
+      // 1.19.4: where it lives in Teams or Slack too: desk replies keep reaching that chat (lib/helpdesk/chat/privacy).
+      await (await import("./chat/privacy")).moveChatTx(client, m.id, k.id);
       moved.ccs += await moveCcs(m.id, k.id, client);
       moved.followers += await moveFollowers(m.id, k.id, client);
       // The merged ticket's requester follows the conversation as a CC
@@ -260,7 +266,7 @@ export async function mergeTickets(user: MergeActor, input: MergeInput, ctx: { o
     // A union over the tag limit keeps the kept ticket's own first.
     tags = cleanTicketTags(tags.slice(0, TICKET_LIMITS.tags)) ?? k.tags ?? [];
     await client.query(`UPDATE hd_tickets SET tags = $2, updated_at = $3 WHERE id = $1`, [k.id, tags, now]);
-    await insertLine(client, k.id, user, "internal", `${who} merged ${listNumbers(merged.map((m) => m.number))} into this ticket`, now);
+    await insertLine(client, k.id, user, "internal", `${mdInline(who)} merged ${listNumbers(merged.map((m) => m.number))} into this ticket`, now);
     return { merged, moved, attachmentIds };
   });
   if (!res) {
@@ -282,6 +288,21 @@ export async function mergeTickets(user: MergeActor, input: MergeInput, ctx: { o
         console.error("[helpdesk] merge note:", e)
       );
       void notifyMerged(m.id, keep.number, { origin: ctx.origin, actorId: user.id, actorName: who });
+    }
+  }
+  // 1.19.4: webhooks hear that each merged ticket was closed (ticket.updated, then ticket.solved when it was still
+  // open), and of the kept ticket's tags when the merge added any (C2, lib/helpdesk/webhooks; never throws).
+  {
+    const { emitHelpdeskWebhookEvent } = await import("./webhooks");
+    const hookActor = { id: user.id, name: who };
+    for (const m of res.merged) {
+      const was = checked.merge.find((t) => t.id === m.id)?.status;
+      await emitHelpdeskWebhookEvent("ticket.updated", { ticketId: m.id, changed: ["status"], actor: hookActor, origin: ctx.origin });
+      if (was !== "solved" && was !== "closed") await emitHelpdeskWebhookEvent("ticket.solved", { ticketId: m.id, actor: hookActor, origin: ctx.origin });
+    }
+    const after = await hqOne<{ tags: string[] }>("SELECT tags FROM hd_tickets WHERE id = $1", [keep.id]);
+    if (after && JSON.stringify(after.tags ?? []) !== JSON.stringify(keep.tags ?? [])) {
+      await emitHelpdeskWebhookEvent("ticket.updated", { ticketId: keep.id, changed: ["tags"], actor: hookActor, origin: ctx.origin });
     }
   }
   return {
@@ -309,15 +330,18 @@ export type { HdMergeInfo };
 /** What the ticket pane shows about merges (agents only). */
 export async function mergeInfo(ticketId: number): Promise<HdMergeInfo> {
   const [into, mergedIn, origins] = await Promise.all([
-    hqOne<{ number: number; subject: string }>(
-      "SELECT p.number, p.subject FROM hd_tickets t JOIN hd_tickets p ON p.id = t.merged_into WHERE t.id = $1",
+    // 1.19.4 (C7): a kept ticket in the recycle bin is "a deleted ticket"; binned sources aren't listed.
+    hqOne<{ number: number; subject: string; deleted: boolean }>(
+      `SELECT CASE WHEN p.deleted_at IS NULL THEN p.number ELSE 0 END AS number, CASE WHEN p.deleted_at IS NULL THEN p.subject ELSE '' END AS subject,
+              (p.deleted_at IS NOT NULL) AS deleted
+         FROM hd_tickets t JOIN hd_tickets p ON p.id = t.merged_into WHERE t.id = $1`,
       [ticketId]
     ),
-    hq<{ number: number; subject: string }>("SELECT number, subject FROM hd_tickets WHERE merged_into = $1 ORDER BY number", [ticketId]),
+    hq<{ number: number; subject: string }>("SELECT number, subject FROM hd_tickets WHERE merged_into = $1 AND deleted_at IS NULL ORDER BY number", [ticketId]),
     hq<{ id: number; merged_from: number }>("SELECT id, merged_from FROM hd_messages WHERE ticket_id = $1 AND merged_from IS NOT NULL", [ticketId]),
   ]);
   return {
-    into: into ?? null,
+    into: into ? (into.deleted ? { number: 0, subject: "", deleted: true } : { number: into.number, subject: into.subject }) : null,
     merged_in: mergedIn,
     message_origins: Object.fromEntries(origins.map((o) => [o.id, Number(o.merged_from)])),
   };
@@ -348,6 +372,8 @@ export async function mergedLock(t: HdTicketRow): Promise<string | null> {
   const into = (t as LockedRow).merged_into;
   if (!into) return null;
   const target = await mergedReplyTarget(t);
+  // 1.19.4 (C7): never name a kept ticket that is in the recycle bin.
+  if ((target as { deleted_at?: string | null }).deleted_at) return `#${t.number} was merged into a ticket that has since been deleted.`;
   const n = target.id !== t.id ? target.number : null;
   return n ? `#${t.number} was merged into #${n}. Reply and change its status on #${n}.` : `#${t.number} was merged into another ticket.`;
 }

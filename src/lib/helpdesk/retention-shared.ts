@@ -152,7 +152,7 @@ export function planSentence(p: Pick<HdRetentionPlan, "counts" | "purge_before" 
   const parts: string[] = [];
   if (p.counts.close) parts.push(`${n(p.counts.close, "ticket closes", "tickets close")}`);
   if (p.counts.anonymise) parts.push(`${p.counts.anonymise.toLocaleString("en-GB")} ${p.counts.anonymise === 1 ? "is" : "are"} anonymised (closed before ${when})`);
-  if (p.counts.delete) parts.push(`${p.counts.delete.toLocaleString("en-GB")} ${p.counts.delete === 1 ? "is" : "are"} deleted (closed before ${when})`);
+  if (p.counts.delete) parts.push(`${p.counts.delete.toLocaleString("en-GB")} ${p.counts.delete === 1 ? "goes" : "go"} to the recycle bin (closed before ${when})`);
   const head = parts.length ? `Tonight: ${parts.join(", ")}.` : "Tonight: nothing to close, anonymise or delete.";
   const tail = p.counts.delete ? "" : parts.length ? " Nothing is deleted." : "";
   const held = p.counts.held ? ` ${n(p.counts.held, "ticket is", "tickets are")} on legal hold and kept.` : "";

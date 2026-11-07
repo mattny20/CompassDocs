@@ -37,7 +37,8 @@ export async function POST(req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
   const ticket = await hqOne<Pick<HdTicketRow, "id" | "requester_id" | "team_id" | "assignee_id" | "status" | "priority" | "source">>(
-    "SELECT id, requester_id, team_id, assignee_id, status, priority, source FROM hd_tickets WHERE number = $1",
+    // 1.19.4 (C7): not a ticket in the recycle bin.
+    "SELECT id, requester_id, team_id, assignee_id, status, priority, source FROM hd_tickets WHERE number = $1 AND deleted_at IS NULL",
     [number]
   );
   if (!ticket || !(await canWorkTicket(gate, ticket))) return NextResponse.json({ error: "Ticket not found." }, { status: 404 });

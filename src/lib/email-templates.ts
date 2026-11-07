@@ -635,6 +635,31 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       "{{message}}\n\n" +
       "[Open #{{ticket_number}} in the desk]({{ticket_url}}) to answer. Don't reply to this email: notes are not sent by email.",
   },
+  // 1.19.4 (area C6, lib/helpdesk/share): an agent shares a ticket with another.
+  {
+    key: "hd_shared",
+    label: "Helpdesk: ticket shared with you",
+    description:
+      "Sent to an agent when another agent shares a ticket with them, with their message. Only agents who can already see the ticket can be sent it. The email is not a reply thread (a reply becomes an internal note), so answer in the desk.",
+    tags: [
+      T("ticket_number", "Ticket number"),
+      T("subject", "Ticket subject"),
+      T("sharer_name", "Who shared it"),
+      T("message", "Their message (blank when they wrote none)"),
+      T("follow_line", "\"You now follow it…\" when the share made them follow it"),
+      T("ticket_url", "Link to the ticket in the desk"),
+      T("org_name", "Workspace name"),
+    ],
+    text: ["subject", "sharer_name", "message"],
+    optional: ["message", "follow_line"],
+    subject: "[{{org_name}}] {{sharer_name}} shared #{{ticket_number}} with you: {{subject}}",
+    body:
+      "**{{sharer_name}}** shared **#{{ticket_number}}** with you:\n\n" +
+      "> {{subject}}\n\n" +
+      "{{message}}\n\n" +
+      "{{follow_line}}\n\n" +
+      "[Open #{{ticket_number}} in the desk]({{ticket_url}}) to answer. Don't reply to this email: the requester never sees it, and a reply is kept as an internal note.",
+  },
   {
     key: "hd_merged",
     label: "Helpdesk: requests joined",
@@ -935,6 +960,14 @@ export const SAMPLE_VARS: Record<string, Record<string, string>> = {
     subject: "VPN drops every few minutes",
     author_name: "Dana Whitfield",
     message: "Legal is reviewing the contract. Don't promise a date to the requester yet.",
+    ticket_url: "/desk/tickets/1047",
+  },
+  hd_shared: {
+    ticket_number: "1047",
+    subject: "Laptop won't connect to VPN from home",
+    sharer_name: "Ana Kowalski",
+    message: "Can you check the MFA side? You re-enrolled Daniel's phone yesterday.",
+    follow_line: "You now follow it, so you'll hear about its new replies and notes.",
     ticket_url: "/desk/tickets/1047",
   },
   hd_merged: {

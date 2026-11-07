@@ -271,7 +271,8 @@ describe("the run", () => {
     assert.equal(existsSync(path.join(UPLOADS, stored)), false, "the file is gone from the uploads volume");
   });
 
-  test("delete removes the ticket, its rows and its files", async () => {
+  // 1.19.4 (C7): delete moves the ticket to the recycle bin; the bin's purge removes the rows and files 30 days later.
+  test("delete moves the ticket to the recycle bin; the bin's purge removes its rows and files", async () => {
     const id = await ticket({ status: "closed" });
     const att = await saveHelpdeskAttachment({ buf: Buffer.from("x"), filename: "a.txt", ticketId: id, userId: requesterId });
     const stored = (await pool().query("SELECT stored_name FROM hd_attachments WHERE id = $1", [att.id])).rows[0].stored_name as string;
@@ -279,9 +280,35 @@ describe("the run", () => {
     assert.deepEqual(plan.counts, { close: 0, anonymise: 0, delete: 1, held: 0 });
     const ran = await runRetention({ now: NOW, settings: DEL, only: [id] });
     assert.deepEqual(ran.deleted, plan.ids!.purge);
+    const binned = (await pool().query("SELECT deleted_at, deleted_by, deleted_by_name FROM hd_tickets WHERE id = $1", [id])).rows[0];
+    assert.ok(binned?.deleted_at, "in the recycle bin");
+    assert.equal(binned.deleted_by, null);
+    assert.equal(binned.deleted_by_name, "Retention rule");
+    assert.ok(existsSync(path.join(UPLOADS, stored)), "its file stays while it can be restored");
+    // A binned ticket is not picked again.
+    assert.deepEqual((await planRetention({ at: NOW, settings: DEL, only: [id], withIds: true })).ids!.purge, []);
+    // 30 days on (the database's clock), the bin's purge removes it with its rows and files.
+    await pool().query("UPDATE hd_tickets SET deleted_at = now() - interval '31 days' WHERE id = $1", [id]);
+    const { purgeExpired } = await import("../src/lib/helpdesk/recycle-bin");
+    assert.deepEqual((await purgeExpired({ only: [id] })).purged, [id]);
     assert.equal(await row(id), undefined);
     assert.equal((await pool().query("SELECT count(*)::int AS n FROM hd_messages WHERE ticket_id = $1", [id])).rows[0].n, 0);
     assert.equal(existsSync(path.join(UPLOADS, stored)), false);
+  });
+
+  // 1.19.4 review (C7, high): retention's Delete bins only what its own rule selected. A closed request's
+  // open task tickets stay live, as they did when the request was deleted outright (parent_ticket_id SET NULL).
+  test("delete bins a closed request but never its open task tickets", async () => {
+    const parent = await ticket({ status: "closed" });
+    const task = await ticket({ status: "open" });
+    await pool().query("UPDATE hd_tickets SET parent_ticket_id = $1, source = 'workflow' WHERE id = $2", [parent, task]);
+    const ran = await runRetention({ now: NOW, settings: DEL, only: [parent, task] });
+    assert.deepEqual(ran.deleted, [parent]);
+    assert.ok((await row(parent)).deleted_at, "the closed request is in the bin");
+    const t = await row(task);
+    assert.equal(t.deleted_at, null, "its open task stays live");
+    assert.equal(t.status, "open");
+    assert.equal((await pool().query("SELECT count(*)::int AS n FROM hd_messages WHERE ticket_id = $1 AND body LIKE '%recycle bin%'", [task])).rows[0].n, 0);
   });
 
   test("delete also removes tickets anonymised earlier; anonymise skips them", async () => {

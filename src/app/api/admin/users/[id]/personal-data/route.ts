@@ -4,13 +4,16 @@
 // gave and the public conversation, never internal notes), and only while Desk
 // settings → Retention and privacy → "Include tickets in a person's data export" is
 // on. Needs user.delete (the right that handles a person's erasure, as for
-// anonymise-compliance) and is audited (user.personal_data_exported).
+// anonymise-compliance) and is audited (user.personal_data_exported). 1.19.4: plus
+// their desk background (their choice and their own uploaded artwork, as a data URL),
+// whatever the tickets setting says: it is theirs, not a ticket.
 
 import { NextResponse } from "next/server";
 import { getUserById } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { personalHelpdeskExport } from "@/lib/helpdesk/retention";
+import { deskArtForExport } from "@/lib/helpdesk/appearance";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -23,19 +26,22 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const target = await getUserById(Number(id));
   if (!target) return NextResponse.json({ error: "User not found." }, { status: 404 });
   const helpdesk = await personalHelpdeskExport(target.id);
+  // 1.19.4 (C5): their desk background choice and own artwork, with the picture (lib/helpdesk/appearance).
+  const deskBackground = await deskArtForExport(target.id);
   await audit({
     actor: actorFrom(admin),
     action: "user.personal_data_exported",
     targetType: "user",
     targetId: target.id,
     targetLabel: target.username,
-    details: { helpdesk_requests: helpdesk.requests.length, helpdesk_included: helpdesk.included },
+    details: { helpdesk_requests: helpdesk.requests.length, helpdesk_included: helpdesk.included, desk_background: !!deskBackground?.own_artwork },
     ip: ipFrom(req),
   });
   const body = {
     exported_at: new Date().toISOString(),
     person: { username: target.username, name: target.name, email: target.email },
     helpdesk,
+    ...(deskBackground ? { desk_background: deskBackground } : {}),
   };
   return new NextResponse(JSON.stringify(body, null, 2), {
     headers: {

@@ -6,16 +6,98 @@
 // Snipe-IT; the provider registry (lib/helpdesk/assets/providers) takes a
 // second (Intune, 1.19.4) without changing any caller: every caller asks by
 // provider key and reads the same HdAsset shape.
+//
+// 1.19.4 adds Microsoft Intune (lib/helpdesk/assets/intune): managed devices
+// read through the Microsoft 365 directory sync's app registration. A device
+// whose serial a connected Snipe-IT asset has is shown as that asset (its
+// `intune` line); the rest are assets of their own (provider "intune").
 
-export type HdAssetProviderKey = "snipeit";
+export type HdAssetProviderKey = "snipeit" | "intune";
 
 export const HD_ASSET_PROVIDER_LABEL: Record<string, string> = {
   snipeit: "Snipe-IT",
+  intune: "Intune",
 };
+
+/** The base key of a provider key ("snipeit:<stamp>", "intune:retired:<ms>" read as their base). */
+export function providerBase(key: string): string {
+  return key.split(":")[0];
+}
 
 /** The label of a provider key (a test's stamped key reads as its base). */
 export function providerLabel(key: string): string {
-  return HD_ASSET_PROVIDER_LABEL[key] ?? HD_ASSET_PROVIDER_LABEL[key.split(":")[0]] ?? key;
+  return HD_ASSET_PROVIDER_LABEL[key] ?? HD_ASSET_PROVIDER_LABEL[providerBase(key)] ?? key;
+}
+
+/** Intune's view of a device: on an Intune asset, or on the Snipe-IT asset with its serial (while Intune is on). */
+export interface HdIntuneInfo {
+  /** Intune's complianceState: compliant, noncompliant, inGracePeriod, unknown, error, conflict, configManager. */
+  compliance: string;
+  /** lastSyncDateTime (ISO) or null. */
+  last_seen: string | null;
+  /** "macOS", "Windows", "iOS"… */
+  os: string;
+  os_version: string;
+}
+
+const COMPLIANCE_LABEL: Record<string, string> = {
+  compliant: "Compliant",
+  noncompliant: "Not compliant",
+  ingraceperiod: "In grace period",
+  unknown: "Compliance unknown",
+  error: "Compliance error",
+  conflict: "Compliance conflict",
+  configmanager: "Managed by Configuration Manager",
+};
+
+/** "Compliant", "Not compliant"… */
+export function complianceLabel(state: string): string {
+  return COMPLIANCE_LABEL[(state || "unknown").toLowerCase()] ?? "Compliance unknown";
+}
+
+/** The chip tone of a compliance state. */
+export function complianceTone(state: string): "ok" | "warn" | "neutral" {
+  const s = (state || "").toLowerCase();
+  if (s === "compliant") return "ok";
+  if (s === "noncompliant" || s === "ingraceperiod" || s === "error" || s === "conflict") return "warn";
+  return "neutral";
+}
+
+/** "macOS 15.2". */
+export function intuneOs(i: Pick<HdIntuneInfo, "os" | "os_version">): string {
+  return [i.os, i.os_version].filter(Boolean).join(" ");
+}
+
+/** "2h ago" from an ISO time ("" when unknown). */
+export function seenAgo(iso: string | null | undefined, now: number = Date.now()): string {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (!Number.isFinite(t)) return "";
+  const mins = Math.max(0, Math.floor((now - t) / 60_000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 60) return `${days}d ago`;
+  return `${Math.floor(days / 30)} months ago`;
+}
+
+/** The card's Intune line: "Compliant · seen 2h ago". */
+export function intuneSeenLine(i: HdIntuneInfo, now?: number): string {
+  const ago = seenAgo(i.last_seen, now);
+  return [complianceLabel(i.compliance), ago ? `seen ${ago}` : ""].filter(Boolean).join(" · ");
+}
+
+/** The asset page's Intune line: "Compliant · macOS 15.2". */
+export function intuneOsLine(i: HdIntuneInfo): string {
+  return [complianceLabel(i.compliance), intuneOs(i)].filter(Boolean).join(" · ");
+}
+
+/** Where an asset comes from, as the asset page says it: "from Snipe-IT, matched to Intune". */
+export function sourceLine(a: Pick<HdAsset, "provider" | "intune">): string {
+  const label = providerLabel(a.provider);
+  const matched = a.intune && providerBase(a.provider) !== "intune";
+  return `from ${label}${matched ? ", matched to Intune" : ""}`;
 }
 
 /** What happens in the source when a ticket with a linked asset is solved. */
@@ -71,6 +153,8 @@ export interface HdAsset {
   synced_at: string;
   /** Missing from the source's latest sync (deleted or archived there). */
   gone: boolean;
+  /** Intune's line: an Intune asset's own, or the matched device's on a Snipe-IT asset (1.19.4). Null otherwise. */
+  intune: HdIntuneInfo | null;
 }
 
 /** An asset linked to a ticket, as the side card shows it. */
@@ -116,6 +200,8 @@ export interface HdAssetOption {
   provider_label: string;
   assigned_name: string;
   linked: boolean;
+  /** Intune's view of the device (1.19.4), as on the card. */
+  intune: HdIntuneInfo | null;
 }
 
 /** GET /api/helpdesk/tickets/[number]/assets/options */
@@ -169,8 +255,31 @@ export interface HdAssetSettingsView {
     on_solve: HdAssetOnSolve;
     sync: HdAssetSyncState;
   };
+  /** Microsoft Intune (1.19.4): the directory sync's app registration, switched on here. */
+  intune: HdIntuneSettingsView;
   agents_search_all: boolean;
 }
+
+export interface HdIntuneSettingsView {
+  on: boolean;
+  /**
+   * Why it can't be switched on: "licence" (Microsoft 365 directory sync is
+   * an enterprise feature), "credentials" (no tenant, client ID or secret in
+   * Settings, Directory). Null when it can.
+   */
+  unavailable: "licence" | "credentials" | null;
+  sync: HdAssetSyncState;
+  /** Intune devices shown as a Snipe-IT asset (same serial). */
+  matched: number;
+  /**
+   * New directory credentials couldn't sign in yet, so Intune is paused
+   * (nothing retired) until they do: why, or "" (1.19.4 review).
+   */
+  check_error: string;
+}
+
+/** The Graph permission Intune needs (shown when Graph answers 403). */
+export const INTUNE_PERMISSION = "DeviceManagementManagedDevices.Read.All";
 
 export interface HdAssetSyncState {
   /** The last sync that finished (ok or not). */

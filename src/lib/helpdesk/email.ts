@@ -107,6 +107,15 @@ export function threadMessageIds(token: string, fromAddress: string): { messageI
  */
 export const HD_NOTE_NOTICE_TEMPLATE = "hd_internal_note";
 
+/**
+ * Agent-only notices that go out like the internal-note notice: no Reply-To,
+ * no subject reference, a note-notice Message-ID, so an agent's reply to one
+ * becomes an internal note and never a public reply to the requester.
+ * 1.19.4 (area C6, lib/helpdesk/share): hd_shared, which carries one
+ * agent's private message to another.
+ */
+export const HD_AGENT_ONLY_TEMPLATES: ReadonlySet<string> = new Set([HD_NOTE_NOTICE_TEMPLATE, "hd_shared"]);
+
 /** The Message-ID of an internal-note notice: <hd-note-<token>-<random>@domain>. */
 export function noteNoticeMessageId(token: string, fromAddress: string): string {
   return `<hd-note-${token}-${randomBytes(6).toString("hex")}@${domainOf(fromAddress)}>`;
@@ -245,13 +254,15 @@ export async function sendHelpdeskTemplate(
 ): Promise<boolean> {
   const address = to.trim();
   if (!address || !/^[^\s@<>]+@[^\s@<>]+$/.test(address)) return false;
+  // 1.19.4 (C7): nothing is sent about a ticket in the recycle bin.
+  if (thread && (await (await import("./recycle-bin-guard")).ticketIsBinned({ id: thread.ticketId }))) return false;
   try {
     const transport = await smtpTransport();
     if (!transport) return false;
     const settings = await getHelpdeskSettings();
     const base = await helpdeskOrigin(origin);
     let token: string | null = null;
-    const note = templateKey === HD_NOTE_NOTICE_TEMPLATE;
+    const note = HD_AGENT_ONLY_TEMPLATES.has(templateKey);
     const v: Record<string, string> = { ...vars };
     if (thread) {
       token = await ensureReplyToken(thread.ticketId);

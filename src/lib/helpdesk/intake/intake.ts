@@ -37,6 +37,8 @@ import { createHash } from "node:crypto";
 import { logEvent } from "../../log";
 import { audit } from "../../audit";
 import { hqOne, withTx } from "../db-core";
+// 1.19.4 review: the shared escaper (it also breaks literal autolinks and text directives).
+import { mdInline } from "../md-inline";
 import { HD_OPEN_STATUSES } from "../types";
 import type { HdPriority, HdStatus, HdTicketRow } from "../types";
 import { cleanFields, cleanLinks, markdownLink, plainLine, sanitizeDescription } from "./sanitize";
@@ -139,7 +141,6 @@ export function prepareAlert(integration: Pick<HdIntegrationRow, "severity_map" 
   };
 }
 
-const mdInline = (s: string) => s.replace(/[\r\n]+/g, " ").replace(/([\\`*_[\]{}<>()#!|~&])/g, "\\$1");
 
 /** The opening message: the description, then a line of facts and the links. */
 export function openingBody(p: PreparedAlert, earlier: number | null): string {
@@ -253,7 +254,8 @@ export async function processAlerts(integration: HdIntegrationRow, alerts: HdNor
         await client.query<KeyRow>(
           `SELECT k.ticket_id, k.count, k.state, k.last_seen, k.resolved_at, t.status AS ticket_status, t.number AS ticket_number
              FROM hd_alert_keys k JOIN hd_tickets t ON t.id = k.ticket_id
-            WHERE k.integration_id = $1 AND k.dedup_key = $2`,
+            -- 1.19.4 (C7): a ticket in the recycle bin is not the alert's any more: firing again opens a new one.
+            WHERE k.integration_id = $1 AND k.dedup_key = $2 AND t.deleted_at IS NULL`,
           [integration.id, p.dedup_key]
         )
       ).rows[0];

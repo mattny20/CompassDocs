@@ -34,7 +34,8 @@ export async function GET(req: Request) {
       `SELECT count(*) FILTER (WHERE status IN ('new', 'open', 'pending', 'on_hold'))::int AS open,
               count(*) FILTER (WHERE status IN ('solved', 'closed'))::int AS solved
          FROM hd_tickets
-        WHERE (requester_id = $1 OR id IN (SELECT ticket_id FROM hd_ticket_ccs WHERE user_id = $1)) AND parent_ticket_id IS NULL`,
+        WHERE (requester_id = $1 OR id IN (SELECT ticket_id FROM hd_ticket_ccs WHERE user_id = $1)) AND parent_ticket_id IS NULL
+          AND deleted_at IS NULL`,
       [gate.id]
     ),
   ]);

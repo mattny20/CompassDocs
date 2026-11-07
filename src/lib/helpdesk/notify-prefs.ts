@@ -209,7 +209,9 @@ export type HdEmailTemplate =
   | "hd_sla_warning"
   | "hd_sla_breach"
   | "hd_request_received"
-  | "hd_workflow_notify";
+  | "hd_workflow_notify"
+  // 1.19.4 (area C6, lib/helpdesk/share).
+  | "hd_shared";
 
 export interface HdAgentNotification {
   ticketNumber?: number | null;
@@ -258,6 +260,7 @@ const PRIVATE_TITLE: Record<HdNotifyEvent, (n: string) => string> = {
   sla_warning: (n) => `${n} is close to its SLA target`,
   sla_breach: (n) => `${n} missed its SLA target`,
   service_down: () => "A service your team uses changed",
+  shared_with_me: (n) => `A ticket was shared with you: ${n}`,
 };
 
 /** A same-origin path, or /desk. */
@@ -367,6 +370,8 @@ export async function deliverAgentNotification(
   const out: HdDeliveryResult = { bell: false, email: false, push: null, held: null };
   const event = agentEventName(eventName);
   if (!event) return out;
+  // 1.19.4 (C7): nothing is sent about a ticket in the recycle bin.
+  if (n.ticketNumber && (await (await import("./recycle-bin-guard")).ticketIsBinned({ number: n.ticketNumber }))) return out;
   let prefs: HdNotifyPrefs;
   let tz = "UTC";
   try {

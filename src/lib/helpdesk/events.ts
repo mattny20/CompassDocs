@@ -53,6 +53,9 @@ export async function afterTicketCreated(
   ticket: { id: number; request_type_id: number | null; source: string; parent_ticket_id: number | null },
   ctx: HdHookContext = {}
 ): Promise<void> {
+  // 1.19.4: outgoing webhooks first (C2, lib/helpdesk/webhooks), so ticket.created is queued before anything
+  // below can change the ticket (assignment, rules: ticket.updated) or open its task tickets (their own ticket.created).
+  await safely("webhooks.created", async () => (await import("./webhooks")).emitHelpdeskWebhookEvent("ticket.created", { ticketId: ticket.id, actor: { id: ctx.actorId, name: ctx.actorName }, origin: ctx.origin }));
   // 1.19.2: the request type's checklists before anything can solve it (agent W3, lib/helpdesk/checklists).
   if (ticket.request_type_id && ticket.parent_ticket_id === null) {
     await safely("checklists.requestType", async () => (await import("./checklists")).addRequestTypeChecklists(ticket.id));
@@ -104,6 +107,15 @@ export async function afterMessageAdded(
     if (!ctx.silent) await notifyFollowers(ticketId, { kind: "message", messageId }, ctx);
     if (!ctx.noAutoFollow) await autoFollowOnReply(ticketId, messageId);
   });
+  // 1.19.4: outgoing webhooks; a reply held for review is skipped there and sent on approval (C2, lib/helpdesk/webhooks).
+  await safely("webhooks.message", async () =>
+    (await import("./webhooks")).emitHelpdeskWebhookEvent(info.kind === "internal" ? "note.created" : "message.created", {
+      ticketId,
+      messageId,
+      actor: { id: ctx.actorId, name: ctx.actorName },
+      origin: ctx.origin,
+    })
+  );
 }
 
 export async function afterTicketUpdated(
@@ -118,6 +130,18 @@ export async function afterTicketUpdated(
   },
   ctx: HdHookContext = {}
 ): Promise<void> {
+  // 1.19.4: outgoing webhooks, queued before ticket.solved (C2, lib/helpdesk/webhooks).
+  if (change.changed.length) {
+    await safely("webhooks.updated", async () =>
+      (await import("./webhooks")).emitHelpdeskWebhookEvent("ticket.updated", {
+        ticketId,
+        changed: change.changed,
+        previousTeamId: change.team?.from,
+        actor: { id: ctx.actorId, name: ctx.actorName },
+        origin: ctx.origin,
+      })
+    );
+  }
   if (change.solved) await afterTicketSolved(ticketId, ctx);
   // 1.19.2: a major incident's own ticket reopened opens the incident again (agent W1, lib/helpdesk/incidents).
   if (change.reopened) await safely("incidents.reopened", async () => (await import("./incidents")).onIncidentTicketReopened(ticketId, ctx.actorName));
@@ -169,4 +193,6 @@ export async function afterTicketSolved(ticketId: number, ctx: HdHookContext = {
       await notifySolvedCsat(ticketId, { origin: ctx.origin, actorId: ctx.actorId, actorName: ctx.actorName, ...(csat === false ? { csat } : {}) });
     });
   }
+  // 1.19.4: outgoing webhooks (C2, lib/helpdesk/webhooks).
+  await safely("webhooks.solved", async () => (await import("./webhooks")).emitHelpdeskWebhookEvent("ticket.solved", { ticketId, actor: { id: ctx.actorId, name: ctx.actorName }, origin: ctx.origin }));
 }

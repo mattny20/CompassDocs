@@ -18,6 +18,10 @@
 // Tooltip saying why. Unlink shows on an open ticket whether or not a
 // source is connected (can_unlink), so a wrong device link stays removable.
 //
+// 1.19.4 (mock-up i1): an asset Intune also manages has an "Intune" row
+// (compliance · seen 2h ago); an Intune-only asset reads "SERIAL · Intune",
+// and an Intune device's picker line adds "Intune: compliant".
+//
 // Agents who work the ticket only (the routes answer 404 to anyone else);
 // the card stays away when no asset source is set up and nothing is linked.
 // GET/POST /api/helpdesk/tickets/[number]/assets, GET …/assets/options,
@@ -37,8 +41,11 @@ import { toast } from "@/components/Toasts";
 import { Tooltip } from "@/components/Tooltip";
 import {
   ASSET_LIMITS,
+  HD_ASSET_PROVIDER_LABEL,
   assetIcon,
+  complianceLabel,
   earlierTicketsLabel,
+  intuneSeenLine,
   statusText,
   statusTone,
   warrantyLabel,
@@ -167,7 +174,7 @@ export function TicketAssetsCard({ number, canWork, refreshKey }: { number: numb
                     {a.name}
                   </Link>
                   <p className="break-all text-xs text-slate-500">
-                    {[a.tag, a.provider_label].filter(Boolean).join(" · ")}
+                    {[a.tag || a.serial, a.provider_label].filter(Boolean).join(" · ")}
                     {a.gone ? " · no longer in the source" : ""}
                   </p>
                 </div>
@@ -192,6 +199,14 @@ export function TicketAssetsCard({ number, canWork, refreshKey }: { number: numb
                   <>
                     <dt className="text-slate-500">Warranty</dt>
                     <dd className="text-slate-800">{warrantyLabel(a.warranty_end)}</dd>
+                  </>
+                )}
+                {a.intune && (
+                  <>
+                    <dt className="text-slate-500">Intune</dt>
+                    <dd className="text-slate-800" data-testid="asset-intune-line">
+                      {intuneSeenLine(a.intune)}
+                    </dd>
                   </>
                 )}
               </dl>
@@ -295,7 +310,15 @@ function AssetPicker({
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-slate-900">{o.name}</span>
           <span className="block truncate text-xs text-slate-500">
-            {[o.tag, o.linked ? "linked" : "", o.assigned_name && !data?.assigned.includes(o) ? o.assigned_name : ""].filter(Boolean).join(" · ")}
+            {[
+              o.tag || o.serial,
+              o.linked ? "linked" : "",
+              o.assigned_name && !data?.assigned.includes(o) ? o.assigned_name : "",
+              // As in mock-up i1: an Intune device's own line says its compliance; a matched one reads as its Snipe-IT asset.
+              o.intune && o.provider_label === HD_ASSET_PROVIDER_LABEL.intune ? `Intune: ${complianceLabel(o.intune.compliance).toLowerCase()}` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </span>
         </span>
         <span className={chipClass("neutral", "sm", "shrink-0")}>{o.provider_label}</span>

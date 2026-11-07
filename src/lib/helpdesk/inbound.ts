@@ -49,6 +49,7 @@ import { hq, hqOne } from "./db-core";
 import { getHelpdeskSettings } from "./settings";
 import { canUseHelpdesk, canWorkTicket, helpdeskLicensed } from "./access";
 import { escapeInline } from "./macros";
+import { mdInline } from "./md-inline";
 import { isNoteNoticeMessageId } from "./email";
 import { emailAuthVerdict } from "./intake/email-rules";
 import {
@@ -406,6 +407,8 @@ export async function processInboundEmail(
   // 1.19.1 review (lib/helpdesk/portal-hooks): the portal contact whose
   // closed ticket this follows up; the follow-up opens as their portal ticket.
   let portalFollowUp: { contactId: number; teamId: number | null } | null = null;
+  // 1.19.4 (C7): a reply to a ticket in the recycle bin opens a new ticket, never naming the binned one.
+  let binnedReply = false;
   if (token && !verified) {
     // Never into an existing ticket on an unverified From: the token is in
     // every copy of the thread, so anyone on it could write as anyone.
@@ -417,7 +420,25 @@ export async function processInboundEmail(
     // A merged ticket's thread replies into the ticket it was merged into,
     // where its requester counts as one (1.19.1, lib/helpdesk/merge).
     const t = replied ? await (await import("./merge")).mergedReplyTarget(replied) : undefined;
-    if (t && replied) {
+    // 1.19.4 (C7): a reply to a ticket in the recycle bin opens a new ticket below (as an
+    // unthreaded mail does); it never restores the binned one or adds to it.
+    const binned = !!(replied?.deleted_at || t?.deleted_at);
+    if (binned) {
+      binnedReply = true;
+      logEvent("info", "helpdesk.inbound_binned_reply", { ticket: t?.number ?? replied?.number, from: email.from.email });
+      // A portal contact's own request: a portal follow-up, as for a closed one (Outside senders doesn't apply).
+      if (!sender) {
+        for (const x of [t, replied]) {
+          if (!x?.portal_contact_id) continue;
+          const portal = await (await import("./portal-hooks")).portalReplyAuthority(x, email.from.email, { binned: true });
+          if (portal?.allowed && portal.contactId) {
+            portalFollowUp = { contactId: portal.contactId, teamId: x.team_id };
+            break;
+          }
+        }
+      }
+    }
+    if (t && replied && !binned) {
       const reqOf = (x: HdTicketRow) =>
         (sender && x.requester_id === sender.id) ||
         (!sender && x.requester_id === null && outsideSenders && x.requester_email.toLowerCase() === email.from.email);
@@ -479,7 +500,10 @@ export async function processInboundEmail(
             return processInboundEmail(email, { ...opts, outsideSenders, trustUnverified, mergeRetry: true });
           }
           if (r) await storeAttachments(email, t.id, r.message.id, author.id);
-          return reply(200, { ok: true, outcome: "appended", ticket: t.number });
+          // 1.19.4 (C7): binned between the lookup and the append (addMessage found no live row): a new ticket below.
+          if (r || !(await (await import("./recycle-bin-guard")).ticketIsBinned({ id: t.id }))) {
+            return reply(200, { ok: true, outcome: "appended", ticket: t.number });
+          }
         }
       } else {
         // Somebody who is neither the requester, a CC nor an agent of it:
@@ -498,7 +522,7 @@ export async function processInboundEmail(
   }
   if (portalFollowUp) {
     const { createPortalFollowUp } = await import("./portal-hooks");
-    const body = `_Follow-up to #${followUpOf}, which was closed._\n\n${inboundBody(email, { reply: true })}`;
+    const body = followUpOf !== null ? `_Follow-up to #${followUpOf}, which was closed._\n\n${inboundBody(email, { reply: true })}` : inboundBody(email, { reply: true });
     const teamId =
       (await teamForRecipients([...email.to.map((a) => a.email), ...email.cc.map((a) => a.email), ...email.recipients])) ?? portalFollowUp.teamId;
     const ticket = await createPortalFollowUp(
@@ -510,7 +534,7 @@ export async function processInboundEmail(
         email: email.from.email,
         teamId,
         emailMessageId: messageId,
-        closedNumber: followUpOf!,
+        closedNumber: followUpOf,
       },
       { origin: opts.origin }
     );
@@ -551,7 +575,8 @@ export async function processInboundEmail(
   }
 
   const teamId = await teamForRecipients([...email.to.map((a) => a.email), ...email.cc.map((a) => a.email), ...email.recipients]);
-  let body = inboundBody(email, { reply: followUpOf !== null });
+  // A reply's quoted thread stays out (1.19.4: so a binned conversation never comes back in a new ticket).
+  let body = inboundBody(email, { reply: followUpOf !== null || binnedReply });
   if (followUpOf !== null) body = `_Follow-up to #${followUpOf}, which was closed._\n\n${body}`;
   const subject = cleanSubject(email.subject) || "(no subject)";
   const { createTicket } = await import("./tickets");
@@ -586,7 +611,7 @@ export async function processInboundEmail(
       ticket.id,
       verdict.state === "none"
         ? "The sender's address belongs to a workspace account, but the mail provider reported no SPF, DKIM or DMARC result, so this was treated as mail from outside the workspace. Check with them before acting on it."
-        : `The sender's address belongs to a workspace account, but it failed the sender check (${escapeInline(verdict.reason.slice(0, 200))}), so this was treated as mail from outside the workspace. It may be forged.`,
+        : `The sender's address belongs to a workspace account, but it failed the sender check (${mdInline(verdict.reason.slice(0, 200))}), so this was treated as mail from outside the workspace. It may be forged.`,
       { internal: true }
     );
   }

@@ -17,6 +17,7 @@ import { audit } from "../audit";
 import { insertNotifications } from "../db";
 import type { Role } from "../types";
 import { hq, hqOne, withTx } from "./db-core";
+import { mdInline } from "./md-inline";
 import { hdCan, hdRoleOf, roleFacts } from "./roles";
 import { listDeskAgents } from "./roles-agents";
 import { HD_ROLE_RANK, type HdPendingReview, type HdReviewState } from "./roles-shared";
@@ -175,7 +176,7 @@ export async function pendingReviews(user: U): Promise<HdPendingReview[]> {
        FROM hd_messages m
        JOIN hd_tickets t ON t.id = m.ticket_id
        LEFT JOIN hd_teams tm ON tm.id = t.team_id
-      WHERE m.review_state = 'pending'
+      WHERE m.review_state = 'pending' AND t.deleted_at IS NULL
         AND (m.author_id IS NULL OR m.author_id <> $1)
         AND ($2::boolean OR t.team_id = ANY($3::int[]))
       ORDER BY m.created_at, m.id
@@ -257,7 +258,8 @@ export async function decideReview(
     if (!m) throw new ReviewError("That reply doesn't exist.", 404);
     if (m.review_state !== "pending") throw new ReviewError("This reply has already been reviewed.", 409);
     const t = await hqOne<{ id: number; number: number; status: string; team_id: number | null }>(
-      "SELECT id, number, status, team_id FROM hd_tickets WHERE id = $1 FOR UPDATE",
+      // 1.19.4 (C7): a reply held on a ticket in the recycle bin waits until it is restored.
+      "SELECT id, number, status, team_id FROM hd_tickets WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
       [m.ticket_id],
       client
     );
@@ -273,7 +275,7 @@ export async function decideReview(
       await client.query("UPDATE hd_tickets SET updated_at = now(), first_replied_at = COALESCE(first_replied_at, now()) WHERE id = $1", [t.id]);
       await client.query(
         `INSERT INTO hd_messages (ticket_id, author_id, author_name, kind, body, via) VALUES ($1, $2, $3, 'internal', $4, 'system')`,
-        [t.id, user.id, reviewerName, `${reviewerName} approved ${m.author_name || "the"}'s reply${edited ? " with edits" : ""}.`]
+        [t.id, user.id, reviewerName, `${mdInline(reviewerName)} approved ${m.author_name ? `${mdInline(m.author_name)}'s` : "the"} reply${edited ? " with edits" : ""}.`]
       );
     } else {
       await client.query(
@@ -282,7 +284,9 @@ export async function decideReview(
       );
       await client.query(
         `INSERT INTO hd_messages (ticket_id, author_id, author_name, kind, body, via) VALUES ($1, $2, $3, 'internal', $4, 'desk')`,
-        [t.id, user.id, reviewerName, `Returned ${m.author_name || "a"}'s reply for changes: ${d.note}`]
+        // The reviewer's own note stays Markdown (it is their words, under their name, as any note
+        // they write); only the newbie's name is escaped.
+        [t.id, user.id, reviewerName, `Returned ${m.author_name ? `${mdInline(m.author_name)}'s` : "a"} reply for changes: ${d.note}`]
       );
     }
     return { m, t, edited };
@@ -331,6 +335,13 @@ export async function decideReview(
     } catch (e) {
       console.error("helpdesk review: followers notice failed:", e);
     }
+    // 1.19.4: the reply is sent now, so webhooks hear of it now (C2, lib/helpdesk/webhooks; never throws).
+    await (await import("./webhooks")).emitHelpdeskWebhookEvent("message.created", {
+      ticketId: res.t.id,
+      messageId,
+      actor: { id: res.m.author_id, name: res.m.author_name },
+      origin: ctx.origin,
+    });
   } else if (res.m.author_id) {
     await reviewNotice([res.m.author_id], "desk_review_returned", {
       title: `${reviewerName} returned your reply on #${res.t.number}`,

@@ -219,6 +219,7 @@ export async function reportSummary(range: ReportRange, opts: { hours?: HdBusine
           OR (t.csat_at >= $1 AND t.csat_at < $2)
           OR (t.first_reply_due >= $1 AND t.first_reply_due < $2)
           OR (t.resolve_due >= $1 AND t.resolve_due < $2))
+        AND t.deleted_at IS NULL -- 1.19.4 (C7): not a ticket in the recycle bin
         ${teamSql}
       LIMIT 200000`,
     params

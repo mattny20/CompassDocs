@@ -11,7 +11,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowDownUp, ChevronDown, Filter, MessageSquareText, Plus } from "lucide-react";
 import { chipClass } from "@/components/Chip";
 import { useCan } from "../me";
@@ -35,6 +35,7 @@ import { EditViewButton, SaveViewButton } from "../views/ViewControls";
 import { ViewDialogs } from "../views/ViewDialogs";
 import { IncidentsNav } from "../incidents/IncidentsNav";
 import { TeamStatusBanner } from "../team-status/TeamStatusBanner";
+import { RecycleBinNav } from "../recycle-bin/RecycleBinNav";
 import { filterSummary } from "@/lib/helpdesk/saved-views-shared";
 
 interface QueueCtx {
@@ -56,6 +57,8 @@ export function QueueLayout({ children }: { children: ReactNode }) {
   const sel = useMemo(() => readSel(sp), [sp]);
   const qs = selQs(sel);
   const selected = params?.number ? Number(params.number) : null;
+  // 1.19.4 (C7): /desk/recycle-bin pages bring their own list; the queue's list column stays out.
+  const binPage = (usePathname() ?? "").startsWith("/desk/recycle-bin");
   const { counts, refresh: refreshCounts } = useDeskCounts();
   const [rows, setRows] = useState<HdTicketListRow[] | null>(null);
   const [error, setError] = useState("");
@@ -115,7 +118,7 @@ export function QueueLayout({ children }: { children: ReactNode }) {
     links[next].scrollIntoView({ block: "nearest" });
   };
   // Row selection and the bulk bar (1.19.1, agent V2, ../merge): x toggles the focused row.
-  const selectable = can("tickets.bulk") || can("tickets.merge");
+  const selectable = can("tickets.bulk") || can("tickets.merge") || can("tickets.delete"); // 1.19.4: bulk delete (C7)
   const selection = useRowSelection(rows);
   useDeskKeys({
     j: () => move(1),
@@ -132,7 +135,7 @@ export function QueueLayout({ children }: { children: ReactNode }) {
     <>
       <p className={`${RAIL_GROUP_TEXT} mb-1 mt-1 px-3`}>Views</p>
       {VIEWS.map((v) => {
-        const on = !sel.drill && !sel.team && sel.view === v.key;
+        const on = !binPage && !sel.drill && !sel.team && sel.view === v.key;
         const n = counts?.views?.[v.key];
         const Icon = v.icon;
         return (
@@ -175,11 +178,13 @@ export function QueueLayout({ children }: { children: ReactNode }) {
       <SavedViewsNav sv={sv} sel={sel} onPick={onPick} asMenu={asMenu} />
       {/* Open major incidents (1.19.2, agent W1, ../incidents). */}
       <IncidentsNav selected={selected} qs={qs} onPick={onPick} asMenu={asMenu} />
+      {/* The recycle bin (1.19.4, area C7, ../recycle-bin): tickets.delete only. */}
+      <RecycleBinNav refreshKey={counts} onPick={onPick} asMenu={asMenu} />
       {counts && counts.teams.length > 0 && (
         <>
           <p className={`${RAIL_GROUP_TEXT} mb-1 mt-4 px-3`}>Teams</p>
           {counts.teams.map((t) => {
-            const on = !sel.drill && sel.team === t.team_id;
+            const on = !binPage && !sel.drill && sel.team === t.team_id;
             return (
               <Link
                 key={t.team_id}
@@ -213,7 +218,7 @@ export function QueueLayout({ children }: { children: ReactNode }) {
         </nav>
         <section
           aria-labelledby="queue-title"
-          className={`min-h-0 w-full shrink-0 flex-col border-r border-slate-200 bg-surface lg:flex lg:w-[23rem] ${selected ? "hidden" : "flex"}`}
+          className={`min-h-0 w-full shrink-0 flex-col border-r border-slate-200 bg-surface lg:w-[23rem] ${binPage ? "hidden" : selected ? "hidden lg:flex" : "flex lg:flex"}`}
         >
           <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-slate-200 px-3">
             <QueueTitle title={title} count={rows?.length} viewLinks={viewLinks} />
@@ -275,7 +280,7 @@ export function QueueLayout({ children }: { children: ReactNode }) {
             <TicketList rows={rows} error={error} selected={selected} qs={qs} onRetry={load} title={title} selection={selectable ? selection : undefined} />
           </div>
         </section>
-        <div className={`min-h-0 min-w-0 flex-1 ${selected ? "flex" : "hidden lg:flex"}`}>{children}</div>
+        <div className={`min-h-0 min-w-0 flex-1 ${selected || binPage ? "flex" : "hidden lg:flex"}`}>{children}</div>
       </div>
       <NewTicketModal open={newOpen} onClose={() => setNewOpen(false)} onCreated={(n) => { setNewOpen(false); refresh(); router.push(`/desk/tickets/${n}${qs}`); }} />
       <ViewDialogs sv={sv} sel={sel} teams={counts?.teams ?? []} title={title} basePath={selected ? `/desk/tickets/${selected}` : "/desk"} />

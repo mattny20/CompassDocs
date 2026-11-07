@@ -14,7 +14,6 @@ import Link from "next/link";
 import { ArrowLeft, ChevronDown, CircleCheck, Inbox, MoreHorizontal, ShieldOff, Trash2, TriangleAlert } from "lucide-react";
 import { MenuItem, Popover } from "@/components/Popover";
 import { useRouter } from "next/navigation";
-import { confirmDialog } from "@/components/Dialog";
 import { Button, iconButtonClass } from "@/components/Button";
 import { chipClass } from "@/components/Chip";
 import { EmptyState } from "@/components/form";
@@ -57,9 +56,13 @@ import { askTimeOnSolve } from "../time/TimeCard";
 import { IncidentBanner } from "../incidents/IncidentBanner";
 import { IncidentPanel } from "../incidents/IncidentPanel";
 import { useIncidentMenu } from "../incidents/IncidentActions";
+// 1.19.4 (area C6): Share with an agent…, Copy link, Print or save as PDF… and Ctrl/Cmd+P.
+import { useShareMenu } from "../share/ShareActions";
 import { revealChecklists, TicketChecklists } from "../checklists/TicketChecklists";
 import { askMaintenanceOnSolve, logMaintenanceAfterSolve, SolveMaintenanceHost, type MaintenancePlan } from "../assets/SolveMaintenance";
 import { isChecklistBlock } from "@/lib/helpdesk/checklists-shared";
+import { BinnedTicketPane } from "../recycle-bin/BinnedTicketPane";
+import { DeleteTicketsDialog } from "../recycle-bin/DeleteTicketsDialog";
 
 const PILL_TONE: Record<string, string> = {
   info: "bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-500/15 dark:text-sky-300",
@@ -173,6 +176,8 @@ export function TicketPane({ number }: { number: number }) {
     </Link>
   );
 
+  // 1.19.4 (C7): a ticket in the recycle bin answers 410; it opens read-only with the bin's banner (mock-up v3).
+  if (error?.status === 410) return <BinnedTicketPane number={number} back={{ href: `/desk${qs}`, label: title }} restoredHref={`/desk/tickets/${number}${qs}`} onRestored={() => { refreshQueue(); void load(); }} />;
   if (error) {
     return (
       <div className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
@@ -224,9 +229,14 @@ export function TicketPane({ number }: { number: number }) {
               {d.parent && (
                 <>
                   {" "}· task of{" "}
-                  <Link href={`/desk/tickets/${d.parent.number}${qs}`} className="link">
-                    #{d.parent.number} {d.parent.subject}
-                  </Link>
+                  {/* 1.19.4 (C7): a request in the recycle bin is never named. */}
+                  {d.parent.deleted ? (
+                    "a deleted ticket"
+                  ) : (
+                    <Link href={`/desk/tickets/${d.parent.number}${qs}`} className="link">
+                      #{d.parent.number} {d.parent.subject}
+                    </Link>
+                  )}
                 </>
               )}
             </p>
@@ -296,6 +306,8 @@ export function TicketPane({ number }: { number: number }) {
                 mergeFrom={canMergeFrom(t, can$) ? t : null}
                 onMerged={(keep) => { void load(true); refreshQueue(); if (keep !== t.number) router.push(`/desk/tickets/${keep}${qs}`); }}
                 onDeleted={() => { refreshQueue(); router.push(`/desk${qs}`); }}
+                onRestored={() => { refreshQueue(); router.push(`/desk/tickets/${t.number}${qs}`); }}
+                onShared={() => { void load(true); people.reload(); }}
               />
             )}
           </div>
@@ -362,6 +374,8 @@ function TicketMoreMenu({
   canDelete = true,
   mergeFrom = null,
   onMerged,
+  onShared,
+  onRestored,
 }: {
   ticket: HdTicketDetail["ticket"];
   number: number;
@@ -369,29 +383,23 @@ function TicketMoreMenu({
   canDelete?: boolean;
   mergeFrom?: MergeCandidate | null;
   onMerged?: (keep: number) => void;
+  /** 1.19.4 (C6): after a share, reload the timeline and the followers. */
+  onShared?: () => void;
+  /** 1.19.4 (C7): the delete toast's Undo put it back. */
+  onRestored?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [merging, setMerging] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
   const incident = useIncidentMenu(ticket);
-  async function remove() {
+  const share = useShareMenu(ticket, { onShared });
+  // 1.19.4 (C7): "Delete ticket…" moves it to the recycle bin (../recycle-bin DeleteTicketsDialog, mock-up v1).
+  const [deleting, setDeleting] = useState(false);
+  function remove() {
     setOpen(false);
-    const ok = await confirmDialog({
-      title: `Delete ticket #${number}?`,
-      body: "Its conversation, notes and attachments go with it, and the requester can no longer see it. This cannot be undone.",
-      confirmLabel: "Delete ticket",
-      danger: true,
-    });
-    if (ok !== true) return;
-    try {
-      await sendJson(`/api/helpdesk/tickets/${number}`, "DELETE", undefined, "Couldn't delete the ticket.");
-      toast("ok", `Ticket #${number} deleted.`);
-      onDeleted();
-    } catch (e) {
-      toast("error", (e as Error).message);
-    }
+    setDeleting(true);
   }
-  if (!canDelete && !mergeFrom && !incident.any) return null;
+  if (!share.any && !canDelete && !mergeFrom && !incident.any) return null;
   return (
     <div className="relative">
       <button
@@ -406,7 +414,10 @@ function TicketMoreMenu({
       >
         <MoreHorizontal aria-hidden />
       </button>
-      <Popover open={open} onClose={() => setOpen(false)} triggerRef={btn} role="menu" label={`Ticket #${number}`} align="end" width="w-60">
+      <Popover open={open} onClose={() => setOpen(false)} triggerRef={btn} role="menu" label={`Ticket #${number}`} align="end" width="w-64">
+        {/* 1.19.4 order (mock-up u1): share, copy link, print (C6) | incidents | merge | delete (C7). */}
+        {share.items(() => setOpen(false))}
+        {(incident.any || mergeFrom || canDelete) && <MenuSeparator />}
         {incident.items(() => setOpen(false))}
         {incident.any && (mergeFrom || canDelete) && <MenuSeparator />}
         {mergeFrom && (
@@ -431,6 +442,16 @@ function TicketMoreMenu({
         />
       )}
       {incident.dialogs}
+      {canDelete && (
+        <DeleteTicketsDialog
+          open={deleting}
+          tickets={[{ number, subject: ticket.subject }]}
+          onClose={() => setDeleting(false)}
+          onDeleted={() => onDeleted()}
+          onRestored={() => onRestored?.()}
+        />
+      )}
+      {share.dialogs}
     </div>
   );
 }

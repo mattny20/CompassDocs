@@ -78,7 +78,8 @@ export async function submitCsat(
   const comment = String(input.comment ?? "").replace(/\u0000/g, "").trim();
   if (comment.length > CSAT_COMMENT_MAX) return { ok: false, status: 400, error: `Keep the comment under ${CSAT_COMMENT_MAX} characters.` };
   const t = await hqOne<{ id: number; requester_id: number | null; status: string; csat_score: number | null; reply_token: string | null; parent_ticket_id: number | null }>(
-    "SELECT id, requester_id, status, csat_score, reply_token, parent_ticket_id FROM hd_tickets WHERE number = $1",
+    // 1.19.4 (C7): a request in the recycle bin is "not found".
+    "SELECT id, requester_id, status, csat_score, reply_token, parent_ticket_id FROM hd_tickets WHERE number = $1 AND deleted_at IS NULL",
     [number]
   );
   // Somebody else's request is "not found", like every requester route.

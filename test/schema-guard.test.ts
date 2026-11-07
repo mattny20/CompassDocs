@@ -37,6 +37,13 @@ import { HD_WHATS_NEW_SCHEMA } from "../src/lib/helpdesk/whats-new-schema";
 import { HD_IMPORT_CHECK_SCHEMA } from "../src/lib/helpdesk/import-check-schema";
 import { HD_STATUS_TEAMS_SCHEMA } from "../src/lib/helpdesk/status-teams-schema";
 import { HD_ASSETS_SCHEMA } from "../src/lib/helpdesk/assets-schema";
+import { HD_INTUNE_SCHEMA } from "../src/lib/helpdesk/intune-schema";
+import { HD_HELP_CENTRE_SCHEMA } from "../src/lib/helpdesk/help-centre-schema";
+import { HD_CHAT_SCHEMA } from "../src/lib/helpdesk/chat-schema";
+import { HD_RECYCLE_BIN_SCHEMA } from "../src/lib/helpdesk/recycle-bin-schema";
+import { HD_APPEARANCE_SCHEMA } from "../src/lib/helpdesk/appearance-schema";
+import { HD_API_SCHEMA } from "../src/lib/helpdesk/api-schema";
+import { HD_SHARE_SCHEMA } from "../src/lib/helpdesk/share-schema";
 
 /** The schema blocks db.ts interpolates into SCHEMA_SQL (1.19.0). */
 const INTERPOLATED: Record<string, string> = {
@@ -66,6 +73,13 @@ const INTERPOLATED: Record<string, string> = {
   HD_IMPORT_CHECK_SCHEMA,
   HD_STATUS_TEAMS_SCHEMA,
   HD_ASSETS_SCHEMA,
+  HD_INTUNE_SCHEMA,
+  HD_HELP_CENTRE_SCHEMA,
+  HD_CHAT_SCHEMA,
+  HD_RECYCLE_BIN_SCHEMA,
+  HD_APPEARANCE_SCHEMA,
+  HD_API_SCHEMA,
+  HD_SHARE_SCHEMA,
 };
 
 const COLUMN_PREDICATE = (table: string, column: string) =>

@@ -9,6 +9,7 @@ import "server-only";
 import { dbReady } from "../../db";
 import { hq, withTx, type HdQueryable } from "../db-core";
 import { detectLanguage } from "./detect";
+import { mdInline } from "../md-inline";
 import {
   SKILL_LIMITS,
   isLanguageCode,
@@ -108,7 +109,7 @@ export async function deleteSkill(id: number): Promise<{ id: number; name: strin
     const row = (await client.query<{ id: number; name: string }>("SELECT id, name FROM hd_skills WHERE id = $1 FOR UPDATE", [id])).rows[0];
     if (!row) return undefined;
     const agents = (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM hd_agent_skills WHERE skill_id = $1", [id])).rows[0]?.n ?? 0;
-    const tickets = await forgetInQueuedDecisions(client, { skillId: id }, `the skill ${row.name}`);
+    const tickets = await forgetInQueuedDecisions(client, { skillId: id }, `the skill ${mdInline(row.name)}`);
     await client.query("DELETE FROM hd_skills WHERE id = $1", [id]);
     return { ...row, agents, tickets };
   });
@@ -341,12 +342,13 @@ export async function setTicketLanguage(
     if (!row) return undefined;
     if ((row.language ?? null) === code) return undefined;
     await client.query("UPDATE hd_tickets SET language = $2, language_source = $3, updated_at = now() WHERE id = $1", [ticketId, code, code ? "agent" : ""]);
-    const from = row.language ? languageName(row.language) : "";
+    const from = row.language ? mdInline(languageName(row.language)) : "";
+    const who = mdInline(actor.name);
     const body = code
       ? from
-        ? `${actor.name} changed the language from ${from} to ${languageName(code)}`
-        : `${actor.name} set the language to ${languageName(code)}`
-      : `${actor.name} cleared the language (it was ${from})`;
+        ? `${who} changed the language from ${from} to ${mdInline(languageName(code))}`
+        : `${who} set the language to ${mdInline(languageName(code))}`
+      : `${who} cleared the language (it was ${from})`;
     await client.query(
       `INSERT INTO hd_messages (ticket_id, author_id, author_name, kind, body, via, created_at) VALUES ($1, $2, $3, 'internal', $4, 'system', now())`,
       [ticketId, actor.id, actor.name, body]

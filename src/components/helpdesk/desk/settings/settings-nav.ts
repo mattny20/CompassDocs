@@ -28,6 +28,9 @@ import {
   Link,
   Shield,
   Package,
+  MessageCircle,
+  Sparkle,
+  Webhook,
   type LucideIcon,
 } from "lucide-react";
 import { CHECKLIST_MANAGE_CAPS } from "@/lib/helpdesk/checklists-caps";
@@ -70,6 +73,12 @@ const NEED: Record<string, string[]> = {
   "/desk/settings/retention": ["settings.manage"],
   // Assets: the Snipe-IT source (1.19.3, lib/helpdesk/assets).
   "/desk/settings/assets": ["settings.manage"],
+  // Chat apps: Microsoft Teams and Slack (1.19.4 C1, lib/helpdesk/chat).
+  "/desk/settings/chat": ["settings.manage"],
+  // Appearance: the desk's background artwork (1.19.4 C5, lib/helpdesk/appearance).
+  "/desk/settings/appearance": ["settings.manage"],
+  // API tokens and outgoing webhooks (1.19.4 C2, lib/helpdesk/api-tokens, webhooks).
+  "/desk/settings/api": ["settings.manage"],
 };
 
 const HELPDESK: SettingsNavItem[] = [
@@ -94,7 +103,10 @@ const HELPDESK: SettingsNavItem[] = [
   { href: "/desk/settings/import", label: "Import", icon: Upload },
   { href: "/desk/settings/retention", label: "Retention and privacy", icon: Shield },
   { href: "/desk/settings/claude", label: "Claude connector", icon: Bot },
+  { href: "/desk/settings/chat", label: "Chat apps", icon: MessageCircle },
+  { href: "/desk/settings/api", label: "API and webhooks", icon: Webhook },
   { href: "/desk/settings/assets", label: "Assets", icon: Package },
+  { href: "/desk/settings/appearance", label: "Appearance", icon: Sparkle },
 ];
 const PEOPLE: SettingsNavItem[] = [
   { href: "/desk/settings/agents", label: "Agents", icon: UsersRound },

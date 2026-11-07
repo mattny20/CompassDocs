@@ -979,6 +979,39 @@ describe("review fixes", () => {
     assert.ok(received?.text.includes(`/support/requests/${f.number}`), "the receipt links into the portal");
   });
 
+  // 1.19.4 review (C7): a reply to a portal request in the recycle bin is a portal follow-up, as for a
+  // closed one, whatever Outside senders says, and it never names the binned request.
+  test("an emailed reply to a binned portal request opens a portal request that never names it", async () => {
+    const addr = `binned@${CUST}`;
+    const cookie = await signIn(addr);
+    const a = await raise(cookie, typeIds.bug, `${STAMP} printer jams`);
+    const t = await ticketOf(a.body.number);
+    const token = await email.ensureReplyToken(t.id);
+    await pool().query("UPDATE hd_tickets SET deleted_at = now(), deleted_by_name = 'Priya Shah' WHERE id = $1", [t.id]);
+    const r = await inbound.processInboundEmail(
+      inboundEmail({
+        from: { email: addr, name: "Bin Ned" },
+        subject: `Re: [#${t.number} ref:${token}]`,
+        text: "Still jamming.\n\nOn Mon, Support wrote:\n> Your request was received.",
+        auth: { dmarc: "pass" },
+      } as never),
+      { outsideSenders: false, trustUnverified: false }
+    );
+    assert.equal(r.body.outcome, "follow_up", JSON.stringify(r.body));
+    assert.notEqual(r.body.ticket, t.number);
+    const f = await ticketOf(r.body.ticket!);
+    assert.equal(f.portal_contact_id, (await portal.getContactByEmail(addr))!.id);
+    assert.equal(f.source, "portal_external");
+    assert.equal(f.source_ref?.follow_up_of, undefined, "never the binned number");
+    const body = (await pool().query("SELECT body FROM hd_messages WHERE ticket_id = $1 AND kind <> 'system' ORDER BY id LIMIT 1", [f.id])).rows[0].body as string;
+    assert.ok(!body.includes(`#${t.number}`), body);
+    assert.ok(!body.includes("Your request was received"), "the quoted thread stays out");
+    assert.equal((await pool().query("SELECT count(*)::int AS n FROM hd_messages WHERE ticket_id = $1 AND body LIKE '%Still jamming%'", [t.id])).rows[0].n, 0, "nothing lands on the binned one");
+    const list = await call(requestsRoute.GET, "/support/api/requests", { cookie });
+    assert.ok(list.body.requests.some((x: any) => x.number === f.number), "the follow-up shows in the portal");
+    assert.ok(!list.body.requests.some((x: any) => x.number === t.number), "the binned one doesn't");
+  });
+
   test("plus-addressing shares the mailbox's link limit and its block", async () => {
     await useSettings(settings({ limits: { links_per_email_hour: 2, requests_per_email_hour: 5 } }));
     try {

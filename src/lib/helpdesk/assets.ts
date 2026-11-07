@@ -51,11 +51,37 @@
 //               never reopens the ticket.
 //   export      a person's export lists the assets linked to their own
 //               requests, tag and name only (assetsForExport).
+//   intune      1.19.4: Microsoft Intune as a second source (assets/intune),
+//               switched on in Desk settings → Assets. It signs in as the
+//               Microsoft 365 directory sync's app registration (enterprise;
+//               lib/directory-config, nothing stored twice) and syncs managed
+//               devices every 30 minutes under its own lock (INTUNE_SYNC_LOCK).
+//               People are matched as for Snipe-IT, on the device's email
+//               address or its UPN (assigned_upn). A device whose serial a
+//               connected Snipe-IT asset has is shown as that asset with an
+//               Intune line (intuneLines): wherever the Intune row would be
+//               listed, the Snipe-IT asset takes its place (substituteTwins),
+//               and either source's person counts as its person (ownedSql).
+//               The rest are Intune assets. Turning it off is a disconnect
+//               (the 1.19.3 rules; unlinked rows deleted). The source is the
+//               tenant the token signs in to (its tid), never the typed
+//               tenant: new credentials are signed in with first, and only
+//               another tid retires the old rows (intuneSourceCheck,
+//               adoptIntuneSource, under INTUNE_SYNC_LOCK).
+//   cleanup     the sweep deletes unlinked rows of retired and switched-off
+//               sources and blanks the person on retired or gone rows;
+//               anonymising deletes a retired or gone row it unlinked last
+//               (assetCleanup, anonymiseTicketAssetsTx).
+//   per source  every rule that asks "is the source connected?" asks it of
+//               the asset's own source: linking needs the asset's source to
+//               be connected and the asset not gone (linkAsset), search and
+//               pickers list a disconnected source's assets only where a
+//               ticket links them.
 //
 // Server-only.
 
 import "server-only";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { getSetting, setSetting } from "../db";
 import { openSecret, sealSecret } from "../secretbox";
@@ -72,8 +98,10 @@ import {
   maintenanceTitle,
   maintenanceTypeLabel,
   noteWithTicket,
+  providerBase,
   providerLabel,
   ticketRefs,
+  type HdIntuneInfo,
   type HdMaintenanceRecord,
   type HdAsset,
   type HdAssetOnSolve,
@@ -87,6 +115,7 @@ import {
   type HdTicketAssetsView,
 } from "./assets-shared";
 import { AssetHttpError } from "./assets/http";
+import { mdInline } from "./md-inline";
 import { PROVIDER_FACTORIES, type AssetProvider, type ProviderAsset } from "./assets/providers";
 
 export * from "./assets-shared";
@@ -110,6 +139,8 @@ export interface AssetActor {
  * keys next to RECURRING_SWEEP_LOCK (lib/helpdesk/recurring).
  */
 export const ASSETS_SYNC_LOCK = 7_281_991;
+/** Intune's sync claim (1.19.4), its own key so the two sources never wait on each other. */
+export const INTUNE_SYNC_LOCK = 7_281_992;
 
 /** How often the sweep syncs a source in full. */
 export const ASSET_SYNC_EVERY_MS = 30 * 60_000;
@@ -128,12 +159,27 @@ export interface AssetSettings {
   agents_search_all: boolean;
   /** The address the cached Snipe-IT rows came from ("" before the first save). */
   cache_source?: string;
+  /**
+   * Microsoft Intune (1.19.4): switched on; cache_source is the tenant ID the
+   * cached rows came from (the token's tid, never the typed tenant text);
+   * cred_tag says which directory credentials (tenant text + client ID) that
+   * was checked for, so new credentials are signed in with before use.
+   */
+  intune?: IntuneSettings;
+}
+
+export interface IntuneSettings {
+  on: boolean;
+  cache_source?: string;
+  cred_tag?: string;
 }
 
 const DEFAULTS: AssetSettings = { snipeit: { url: "", token: "", on_solve: "nothing" }, agents_search_all: true };
 
 let testSettings: AssetSettings | null = null;
 let testSnipeKey: string | null = null;
+let testIntuneKey: string | null = null;
+let testIntuneCreds: IntuneCredentials | null | undefined;
 let testTimeout: number | null = null;
 
 /** Tests: read these settings instead of the stored ones (null restores). Never written. */
@@ -155,6 +201,60 @@ function snipeKey(): string {
   return testSnipeKey ?? "snipeit";
 }
 
+/** Tests: cache Intune's devices under this provider key, not "intune". */
+export function setIntuneCacheKeyForTests(key: string | null): void {
+  testIntuneKey = key;
+}
+
+/** Tests: these directory credentials instead of the stored ones (null: none; undefined restores). */
+export function setIntuneCredentialsForTests(c: IntuneCredentials | null | undefined): void {
+  testIntuneCreds = c;
+  credsCache = null;
+}
+
+function intuneKey(): string {
+  return testIntuneKey ?? "intune";
+}
+
+export interface IntuneCredentials {
+  tenant: string;
+  clientId: string;
+  secret: string;
+}
+
+let credsCache: { at: number; v: IntuneCredentials | "licence" | "credentials" } | null = null;
+
+/**
+ * The Microsoft 365 directory sync's app registration, which Intune signs in
+ * as: "licence" when directory sync isn't licensed, "credentials" when its
+ * tenant, client ID or secret is missing. Read fresh every few seconds.
+ */
+export async function intuneCredentials(): Promise<IntuneCredentials | "licence" | "credentials"> {
+  if (testIntuneCreds !== undefined) return testIntuneCreds ?? "credentials";
+  if (credsCache && Date.now() - credsCache.at < 5_000) return credsCache.v;
+  const { featureEnabled } = await import("../ee");
+  let v: IntuneCredentials | "licence" | "credentials";
+  if (!(await featureEnabled("directory_sync"))) v = "licence";
+  else {
+    const { getDirectoryGraphConfig } = await import("../directory-config");
+    const c = await getDirectoryGraphConfig();
+    v = c.tenant && c.clientId && c.clientSecret ? { tenant: c.tenant, clientId: c.clientId, secret: c.clientSecret } : "credentials";
+  }
+  credsCache = { at: Date.now(), v };
+  return v;
+}
+
+/**
+ * Which directory credentials these are (the tenant as typed and the client
+ * ID; never the secret). A different tag means "sign in again and see which
+ * tenant this is" (intuneSourceCheck), not "a new source".
+ */
+export const credTag = (c: Pick<IntuneCredentials, "tenant" | "clientId">) =>
+  createHash("sha256").update(`${c.tenant.trim().toLowerCase()}\n${c.clientId.trim().toLowerCase()}`).digest("hex").slice(0, 32);
+
+/** Why the last tenant check couldn't sign in (this instance), for the settings card. */
+let lastCheckError = "";
+
 function parseStored(raw: string | undefined): AssetSettings {
   let v: Record<string, unknown> = {};
   try {
@@ -172,6 +272,16 @@ function parseStored(raw: string | undefined): AssetSettings {
     },
     agents_search_all: v.agents_search_all !== false,
     cache_source: typeof v.cache_source === "string" ? v.cache_source : "",
+    intune: parseIntune(v.intune),
+  };
+}
+
+function parseIntune(raw: unknown): Required<IntuneSettings> {
+  const v = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    on: v.on === true,
+    cache_source: typeof v.cache_source === "string" ? v.cache_source : "",
+    cred_tag: typeof v.cred_tag === "string" ? v.cred_tag : "",
   };
 }
 
@@ -181,15 +291,48 @@ export async function getAssetSettings(): Promise<AssetSettings> {
   return parseStored(await getSetting(ASSETS_SETTINGS_KEY));
 }
 
+/**
+ * Save Snipe-IT's part and the shared toggles. Merged into the stored object
+ * at the top level, so Intune's part (written only by writeIntune, under
+ * INTUNE_SYNC_LOCK) is never overwritten from an older read.
+ */
 async function storeSettings(s: AssetSettings): Promise<void> {
-  await setSetting(
-    ASSETS_SETTINGS_KEY,
-    JSON.stringify({
-      snipeit: { url: s.snipeit.url, key: s.snipeit.token ? sealSecret(s.snipeit.token) : "", on_solve: s.snipeit.on_solve },
-      agents_search_all: s.agents_search_all,
-      cache_source: s.cache_source ?? "",
-    })
+  const value = JSON.stringify({
+    snipeit: { url: s.snipeit.url, key: s.snipeit.token ? sealSecret(s.snipeit.token) : "", on_solve: s.snipeit.on_solve },
+    agents_search_all: s.agents_search_all,
+    cache_source: s.cache_source ?? "",
+  });
+  await hq(
+    `INSERT INTO settings (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = (CASE WHEN settings.value ~ '^\\s*\\{' THEN settings.value::jsonb ELSE '{}'::jsonb END || EXCLUDED.value::jsonb)::text`,
+    [ASSETS_SETTINGS_KEY, value]
   );
+}
+
+/** Write Intune's part only (the caller holds INTUNE_SYNC_LOCK in `client`'s transaction). */
+async function writeIntune(client: HdQueryable, next: Required<IntuneSettings>): Promise<void> {
+  if (testSettings) {
+    testSettings = { ...testSettings, intune: next };
+    return;
+  }
+  await client.query(
+    `INSERT INTO settings (key, value) VALUES ($1, jsonb_build_object('intune', $2::jsonb)::text)
+     ON CONFLICT (key) DO UPDATE SET value = jsonb_set(CASE WHEN settings.value ~ '^\\s*\\{' THEN settings.value::jsonb ELSE '{}'::jsonb END, '{intune}', $2::jsonb)::text`,
+    [ASSETS_SETTINGS_KEY, JSON.stringify(next)]
+  );
+}
+
+/** Intune's part as stored now, read FOR UPDATE in `client`'s transaction (the in-process settings in tests). */
+async function lockedIntune(client: HdQueryable): Promise<Required<IntuneSettings>> {
+  if (testSettings) return parseIntune(testSettings.intune);
+  const r = await client.query<{ value: string }>("SELECT value FROM settings WHERE key = $1 FOR UPDATE", [ASSETS_SETTINGS_KEY]);
+  let v: Record<string, unknown> = {};
+  try {
+    v = r.rows[0] ? (JSON.parse(r.rows[0].value) as Record<string, unknown>) : {};
+  } catch {
+    v = {};
+  }
+  return parseIntune(v.intune);
 }
 
 export interface AssetSettingsPatch {
@@ -199,6 +342,8 @@ export interface AssetSettingsPatch {
   agents_search_all?: unknown;
   /** Forget the address and key. */
   disconnect?: unknown;
+  /** Microsoft Intune on or off (1.19.4). Turning it on tests the connection first. */
+  intune?: unknown;
 }
 
 /**
@@ -207,7 +352,12 @@ export interface AssetSettingsPatch {
  */
 export async function saveAssetSettings(patch: AssetSettingsPatch): Promise<{ changed: string[]; retired: number }> {
   const cur = await getAssetSettings();
-  const next: AssetSettings = { snipeit: { ...cur.snipeit }, agents_search_all: cur.agents_search_all, cache_source: cur.cache_source ?? "" };
+  const next: AssetSettings = {
+    snipeit: { ...cur.snipeit },
+    agents_search_all: cur.agents_search_all,
+    cache_source: cur.cache_source ?? "",
+    intune: cur.intune,
+  };
   const changed: string[] = [];
   if (patch.disconnect === true) {
     if (cur.snipeit.url || cur.snipeit.token) changed.push("disconnected");
@@ -244,6 +394,31 @@ export async function saveAssetSettings(patch: AssetSettingsPatch): Promise<{ ch
     if (patch.agents_search_all !== cur.agents_search_all) changed.push("agents_search_all");
     next.agents_search_all = patch.agents_search_all;
   }
+  let intuneRetired = 0;
+  if (patch.intune !== undefined) {
+    if (typeof patch.intune !== "boolean") throw new AssetError("Intune is on or off.");
+    if (patch.intune && !cur.intune?.on) {
+      // On only once Graph answers: a missing permission is said here, before anything is saved.
+      const t = await testIntune();
+      if (!t.ok) throw new AssetError(t.error, 409);
+      // The tenant the token signed in to is the source; another than the cache's retires the old rows.
+      const r = await adoptIntuneSource(t.tenant, t.tag, true);
+      changed.push("intune_on");
+      if (r?.changed) {
+        intuneRetired = r.retired;
+        changed.push("intune_source_changed");
+      }
+    } else if (!patch.intune && cur.intune?.on) {
+      // Off is a disconnect: linked rows stay as history (their tickets, their pages); the rest go.
+      changed.push("intune_off");
+      await withTx(async (client) => {
+        await client.query("SELECT pg_advisory_xact_lock($1)", [INTUNE_SYNC_LOCK]);
+        const now = await lockedIntune(client);
+        await writeIntune(client, { ...now, on: false });
+        await dropUnlinkedTx(client, intuneKey());
+      });
+    }
+  }
   // A different address is a different Snipe-IT: its asset 5 is not this
   // one's asset 5. The old rows are retired (linked ones kept as gone, for
   // the tickets' history; the rest deleted) before anything syncs again.
@@ -254,13 +429,111 @@ export async function saveAssetSettings(patch: AssetSettingsPatch): Promise<{ ch
     changed.push("source_changed");
   }
   if (next.snipeit.url) next.cache_source = next.snipeit.url;
-  if (changed.length) {
-    if (testSettings) testSettings = next;
+  if (changed.some((c) => !c.startsWith("intune_"))) {
+    // Intune's part may have been written above: keep the in-process copy's.
+    if (testSettings) testSettings = { ...next, intune: testSettings.intune };
     else await storeSettings(next);
+  }
+  // A disconnect: the unlinked rows can never be shown again, so they go (linked ones stay as history).
+  if (changed.includes("disconnected")) await withTx((client) => dropUnlinkedTx(client, snipeKey()));
+  if (changed.length) {
     supplierCache.clear();
     liveLookups.clear();
   }
-  return { changed, retired };
+  return { changed, retired: retired + intuneRetired };
+}
+
+/** A switched-off source: its unlinked rows and its sync record go; linked rows stay as history. */
+async function dropUnlinkedTx(client: HdQueryable, key: string): Promise<void> {
+  await client.query("DELETE FROM hd_assets a WHERE a.provider = $1 AND NOT EXISTS (SELECT 1 FROM hd_ticket_assets l WHERE l.asset_id = a.id)", [key]);
+  await client.query("DELETE FROM settings WHERE key = $1", [SYNC_KEY_PREFIX + key]);
+}
+
+/** Test Intune with the directory sync's credentials; the tenant ID they sign in to, and which credentials they were. */
+export async function testIntune(): Promise<{ ok: true; total: number; tenant: string; tag: string } | { ok: false; error: string }> {
+  const c = await intuneCredentials();
+  if (c === "licence") return { ok: false, error: "Intune uses the Microsoft 365 directory sync, which needs an enterprise licence." };
+  if (c === "credentials") return { ok: false, error: "Set up the Microsoft 365 directory sync first (Settings, Directory): Intune signs in with its app registration." };
+  try {
+    const p = await PROVIDER_FACTORIES.intune({ url: GRAPH_URL, token: c.secret, tenant: c.tenant, clientId: c.clientId, key: intuneKey(), timeoutMs: testTimeout ?? undefined });
+    const r = await p.test();
+    return { ok: true, total: r.total, tenant: await p.identity!(), tag: credTag(c) };
+  } catch (e) {
+    return { ok: false, error: errText(e) };
+  }
+}
+
+const GRAPH_URL = "https://graph.microsoft.com";
+
+/**
+ * Intune's cached rows came from one tenant: intune.cache_source holds its
+ * tenant ID (the token's tid). When the directory credentials change
+ * (another tenant text or client ID: cred_tag), Intune is not connected
+ * (build) until this signs in with them and reads the tenant ID:
+ *
+ *   - sign-in fails (a typo, a revoked secret): nothing is retired or
+ *     recorded; the card shows why, and the check runs again next minute;
+ *   - the same tenant ID (its GUID, another of its domains, a new client ID
+ *     in the same tenant): the new credentials are recorded, nothing else;
+ *   - another tenant ID: the old rows are retired (adoptIntuneSource).
+ *
+ * Run by the sweep, Sync now and the settings page. Answers what changed,
+ * or null when nothing did.
+ */
+export async function intuneSourceCheck(): Promise<{ retired: number; from: string; to: string; changed: boolean } | null> {
+  const s = await getAssetSettings();
+  if (!s.intune?.on) return null;
+  const c = await intuneCredentials();
+  if (typeof c === "string") return null;
+  const tag = credTag(c);
+  if (s.intune.cred_tag === tag && s.intune.cache_source) return null;
+  let tid: string;
+  try {
+    const p = await PROVIDER_FACTORIES.intune({ url: GRAPH_URL, token: c.secret, tenant: c.tenant, clientId: c.clientId, key: intuneKey(), timeoutMs: testTimeout ?? undefined });
+    tid = await p.identity!();
+  } catch (e) {
+    lastCheckError = errText(e);
+    return null;
+  }
+  lastCheckError = "";
+  const r = await adoptIntuneSource(tid, tag, false);
+  if (r?.changed) {
+    const { audit } = await import("../audit");
+    await audit({
+      actor: null,
+      action: "helpdesk.assets.intune_source_changed",
+      targetType: "helpdesk_settings",
+      targetId: "assets",
+      targetLabel: "Assets: Microsoft Intune",
+      details: { linked_assets_retired: r.retired },
+    });
+  }
+  return r;
+}
+
+/**
+ * Record the tenant (tid) these credentials (tag) sign in to as Intune's
+ * source, retiring the cached rows when they came from another tenant. One
+ * transaction under INTUNE_SYNC_LOCK with the settings row locked, so page
+ * polls, the sweep on every instance and Sync now take turns and only the
+ * first does the work; a sync in progress can't write the old tenant's
+ * devices afterwards (its run record goes, and each page checks it in the
+ * same lock order: upsertRunPage). `turnOn` switches it on too; otherwise
+ * nothing happens unless it is still on and its credentials still differ.
+ */
+async function adoptIntuneSource(tid: string, tag: string, turnOn: boolean): Promise<{ retired: number; from: string; to: string; changed: boolean } | null> {
+  const r = await withTx(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock($1)", [INTUNE_SYNC_LOCK]);
+    const cur = await lockedIntune(client);
+    if (!turnOn && (!cur.on || (cur.cred_tag === tag && cur.cache_source))) return null;
+    const from = cur.cache_source;
+    const changed = !!from && from !== tid;
+    const retired = changed ? await retireSourceTx(client, intuneKey()) : 0;
+    await writeIntune(client, { on: true, cache_source: tid, cred_tag: tag });
+    return { retired, from, to: tid, changed };
+  });
+  liveLookups.clear();
+  return r;
 }
 
 /**
@@ -269,16 +542,18 @@ export async function saveAssetSettings(patch: AssetSettingsPatch): Promise<{ ch
  * and the sync record go. Returns how many linked rows were kept.
  */
 export async function retireSource(key: string): Promise<number> {
-  return withTx(async (client) => {
-    const kept = await client.query(
-      `UPDATE hd_assets a SET provider = $2, gone_at = coalesce(a.gone_at, now())
-        WHERE a.provider = $1 AND EXISTS (SELECT 1 FROM hd_ticket_assets l WHERE l.asset_id = a.id)`,
-      [key, `${key}:retired:${Date.now()}`]
-    );
-    await client.query("DELETE FROM hd_assets a WHERE a.provider = $1", [key]);
-    await client.query("DELETE FROM settings WHERE key = $1", [SYNC_KEY_PREFIX + key]);
-    return kept.rowCount ?? 0;
-  });
+  return withTx((client) => retireSourceTx(client, key));
+}
+
+async function retireSourceTx(client: HdQueryable, key: string): Promise<number> {
+  const kept = await client.query(
+    `UPDATE hd_assets a SET provider = $2, gone_at = coalesce(a.gone_at, now())
+      WHERE a.provider = $1 AND EXISTS (SELECT 1 FROM hd_ticket_assets l WHERE l.asset_id = a.id)`,
+    [key, `${key}:retired:${Date.now()}`]
+  );
+  await client.query("DELETE FROM hd_assets a WHERE a.provider = $1", [key]);
+  await client.query("DELETE FROM settings WHERE key = $1", [SYNC_KEY_PREFIX + key]);
+  return kept.rowCount ?? 0;
 }
 
 // --- Providers ----------------------------------------------------------------------------
@@ -288,15 +563,85 @@ async function build(key: string, s: AssetSettings): Promise<AssetProvider | nul
     if (!s.snipeit.url || !s.snipeit.token) return null;
     return PROVIDER_FACTORIES.snipeit({ url: s.snipeit.url, token: s.snipeit.token, key: snipeKey(), timeoutMs: testTimeout ?? undefined });
   }
+  if (key === intuneKey() || key === "intune") {
+    if (!s.intune?.on || !s.intune.cache_source) return null;
+    const c = await intuneCredentials();
+    if (typeof c === "string") return null;
+    // New credentials: not connected until intuneSourceCheck has signed in with them and seen which tenant they are.
+    if (s.intune.cred_tag !== credTag(c)) return null;
+    return PROVIDER_FACTORIES.intune({
+      url: GRAPH_URL,
+      token: c.secret,
+      tenant: c.tenant,
+      clientId: c.clientId,
+      key: intuneKey(),
+      expectTid: s.intune.cache_source,
+      timeoutMs: testTimeout ?? undefined,
+    });
+  }
   return null;
 }
 
-/** The sources that are set up, in order. */
+/** The sources that are set up, in order (Snipe-IT, then Intune). */
 export async function activeProviders(s?: AssetSettings): Promise<AssetProvider[]> {
   const settings = s ?? (await getAssetSettings());
   const out: AssetProvider[] = [];
   const sn = await build(snipeKey(), settings);
   if (sn) out.push(sn);
+  const it = await build(intuneKey(), settings);
+  if (it) out.push(it);
+  return out;
+}
+
+/** The cache keys of the connected sources. */
+async function activeKeys(s?: AssetSettings): Promise<{ all: string[]; intune: string | null; others: string[] }> {
+  const keys = (await activeProviders(s)).map((p) => p.key);
+  const ik = keys.includes(intuneKey()) ? intuneKey() : null;
+  return { all: keys, intune: ik, others: keys.filter((k) => k !== ik) };
+}
+
+/**
+ * Is asset `a` the person's with address `addr` (an SQL expression, never
+ * '')? Its own person (assigned_email, or Intune's UPN), or, for an asset of
+ * another source, the person of the live Intune device with the same serial
+ * (`ik`: the connected Intune key's placeholder, or null). A device both
+ * sources know is the same device, so either source's person may find it,
+ * link it and pick it in Get help: the 1.19.3 rule (a confirmed address
+ * equal to the asset's person) applied to each source's person record.
+ */
+function ownedSql(addr: string, ik: string | null): string {
+  const own = `(a.assigned_email = ${addr} OR (a.assigned_upn <> '' AND a.assigned_upn = ${addr}))`;
+  if (!ik) return own;
+  return `(${own} OR (a.provider <> ${ik} AND a.serial <> '' AND EXISTS (SELECT 1 FROM hd_assets i WHERE i.provider = ${ik} AND i.gone_at IS NULL
+    AND i.serial <> '' AND lower(i.serial) = lower(a.serial) AND (i.assigned_email = ${addr} OR (i.assigned_upn <> '' AND i.assigned_upn = ${addr})))))`;
+}
+
+/**
+ * One asset per device: an Intune row whose serial a connected source's live
+ * asset has is replaced, where it stands in a list, by that asset (which
+ * carries the Intune line: intuneLines), never dropped and never shown
+ * twice. Rows keep their order.
+ */
+async function substituteTwins(rows: Row[], keys: { intune: string | null; others: string[] }): Promise<Row[]> {
+  if (!keys.intune || !keys.others.length) return rows;
+  const serials = [...new Set(rows.filter((r) => r.provider === keys.intune && r.serial).map((r) => r.serial.toLowerCase()))];
+  if (!serials.length) return rows;
+  const twins = await hq<Row>(
+    `SELECT DISTINCT ON (lower(a.serial)) ${COLS} FROM hd_assets a
+      WHERE a.provider = ANY($1::text[]) AND a.gone_at IS NULL AND a.serial <> '' AND lower(a.serial) = ANY($2::text[])
+      ORDER BY lower(a.serial), a.id`,
+    [keys.others, serials]
+  );
+  const bySerial = new Map(twins.map((t) => [t.serial.toLowerCase(), t]));
+  const seen = new Set<number>();
+  const out: Row[] = [];
+  for (const r of rows) {
+    const twin = r.provider === keys.intune && r.serial ? bySerial.get(r.serial.toLowerCase()) : undefined;
+    const row = twin ?? r;
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    out.push(row);
+  }
   return out;
 }
 
@@ -307,6 +652,35 @@ export async function activeProviders(s?: AssetSettings): Promise<AssetProvider[
  * refuse or come back empty (as the ticket card does). Unlinking still works.
  */
 export const NOT_CONNECTED = "Snipe-IT isn't connected. An admin can connect it in Desk settings, Assets.";
+
+/**
+ * Which source a "not connected" sentence names: the one this workspace
+ * set up. Snipe-IT when only it was ever connected (NOT_CONNECTED, as in
+ * 1.19.3), Intune when only Intune is switched on (its credentials, licence
+ * or tenant check failing), and "the asset source" otherwise (both, or
+ * neither).
+ */
+function sourceNamed(s: AssetSettings): "Snipe-IT" | "Intune" | null {
+  const snipe = !!(s.snipeit.url || s.cache_source);
+  const intune = !!s.intune?.on;
+  if (snipe && !intune) return "Snipe-IT";
+  if (intune && !snipe) return "Intune";
+  return null;
+}
+
+/** The refusal when nothing is connected, naming the source this workspace uses. */
+export function notConnected(s: AssetSettings): string {
+  const name = sourceNamed(s);
+  if (name === "Snipe-IT") return NOT_CONNECTED;
+  if (name === "Intune") return "Intune isn't connected. An admin can check it in Desk settings, Assets.";
+  return "No asset source is connected. An admin can connect one in Desk settings, Assets.";
+}
+
+/** Search's notice when nothing is connected. */
+function notConnectedSearch(s: AssetSettings): string {
+  const name = sourceNamed(s);
+  return `${name ? `${name} isn't` : "No asset source is"} connected, so only assets linked to tickets are listed.`;
+}
 
 /** Is any asset source set up (an address and a key)? */
 export async function assetsConnected(s?: AssetSettings): Promise<boolean> {
@@ -344,8 +718,53 @@ const COLS = `a.id, a.provider, a.tag, a.serial, a.name, a.model, a.category, a.
   a.assigned_name, a.assigned_email, a.location, to_char(a.purchase_date, 'YYYY-MM-DD') AS purchase_date,
   to_char(a.warranty_end, 'YYYY-MM-DD') AS warranty_end, a.url, a.synced_at, (a.gone_at IS NOT NULL) AS gone`;
 
-type Row = Omit<HdAsset, "provider_label">;
-const view = (r: Row): HdAsset => ({ ...r, provider_label: providerLabel(r.provider) });
+type Row = Omit<HdAsset, "provider_label" | "intune">;
+const view = (r: Row, intune: HdIntuneInfo | null = null): HdAsset => ({ ...r, provider_label: providerLabel(r.provider), intune });
+
+/** Intune's line out of an Intune row's raw. */
+function intuneInfo(raw: unknown): HdIntuneInfo {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const s = (v: unknown) => (typeof v === "string" ? v : "");
+  return { compliance: s(r.compliance) || "unknown", last_seen: s(r.last_seen) || null, os: s(r.os), os_version: s(r.os_version) };
+}
+
+/**
+ * Each row's Intune line: an Intune row's own (connected or not: it is that
+ * row's cached detail), or, while Intune is connected, the device with the
+ * same serial on another source's row (the most recently seen one).
+ */
+async function intuneLines<T extends Pick<Row, "id" | "provider" | "serial">>(rows: T[], s?: AssetSettings): Promise<Map<number, HdIntuneInfo>> {
+  const out = new Map<number, HdIntuneInfo>();
+  if (!rows.length) return out;
+  const own = rows.filter((r) => providerBase(r.provider) === "intune").map((r) => r.id);
+  if (own.length) {
+    for (const r of await hq<{ id: number; raw: unknown }>("SELECT id, raw FROM hd_assets WHERE id = ANY($1::int[])", [own])) out.set(r.id, intuneInfo(r.raw));
+  }
+  const others = rows.filter((r) => providerBase(r.provider) !== "intune" && r.serial);
+  if (others.length) {
+    const ik = (await providerFor(intuneKey(), s)) ? intuneKey() : null;
+    if (ik) {
+      const found = await hq<{ serial: string; raw: unknown }>(
+        `SELECT DISTINCT ON (lower(serial)) lower(serial) AS serial, raw FROM hd_assets
+          WHERE provider = $1 AND gone_at IS NULL AND serial <> '' AND lower(serial) = ANY($2::text[])
+          ORDER BY lower(serial), raw->>'last_seen' DESC NULLS LAST, id DESC`,
+        [ik, [...new Set(others.map((r) => r.serial.toLowerCase()))]]
+      );
+      const bySerial = new Map(found.map((f) => [f.serial, intuneInfo(f.raw)]));
+      for (const r of others) {
+        const i = bySerial.get(r.serial.toLowerCase());
+        if (i) out.set(r.id, i);
+      }
+    }
+  }
+  return out;
+}
+
+/** Rows as the desk shows them, each with its Intune line. */
+export async function views(rows: Row[], s?: AssetSettings): Promise<HdAsset[]> {
+  const lines = await intuneLines(rows, s);
+  return rows.map((r) => view(r, lines.get(r.id) ?? null));
+}
 
 /** Upsert source assets; returns their cache ids by external id. */
 export async function upsertAssets(providerKey: string, list: ProviderAsset[], syncedAt?: string | Date, client?: HdQueryable): Promise<Map<string, number>> {
@@ -364,6 +783,7 @@ export async function upsertAssets(providerKey: string, list: ProviderAsset[], s
     status_label: clean(a.status_label, 120),
     status_kind: clean(a.status_kind, 20),
     assigned_email: clean(a.assigned_email, 320).toLowerCase(),
+    assigned_upn: clean(a.assigned_upn ?? "", 320).toLowerCase(),
     assigned_name: clean(a.assigned_name, 200),
     location: clean(a.location, 200),
     purchase_date: a.purchase_date,
@@ -373,16 +793,17 @@ export async function upsertAssets(providerKey: string, list: ProviderAsset[], s
   }));
   const res = await hq<{ id: number; external_id: string }>(
     `INSERT INTO hd_assets (provider, external_id, tag, serial, name, model, category, status_label, status_kind,
-            assigned_email, assigned_name, location, purchase_date, warranty_end, url, raw, synced_at, missing_since, gone_at)
+            assigned_email, assigned_upn, assigned_name, location, purchase_date, warranty_end, url, raw, synced_at, missing_since, gone_at)
      SELECT $1, r.external_id, r.tag, r.serial, r.name, r.model, r.category, r.status_label, r.status_kind,
-            r.assigned_email, r.assigned_name, r.location, r.purchase_date, r.warranty_end, r.url, coalesce(r.raw, '{}'::jsonb),
+            r.assigned_email, coalesce(r.assigned_upn, ''), r.assigned_name, r.location, r.purchase_date, r.warranty_end, r.url, coalesce(r.raw, '{}'::jsonb),
             coalesce($3::timestamptz, now()), NULL, NULL
        FROM jsonb_to_recordset($2::jsonb) AS r(external_id text, tag text, serial text, name text, model text, category text,
-            status_label text, status_kind text, assigned_email text, assigned_name text, location text,
+            status_label text, status_kind text, assigned_email text, assigned_upn text, assigned_name text, location text,
             purchase_date date, warranty_end date, url text, raw jsonb)
      ON CONFLICT (provider, external_id) DO UPDATE SET
        tag = EXCLUDED.tag, serial = EXCLUDED.serial, name = EXCLUDED.name, model = EXCLUDED.model, category = EXCLUDED.category,
        status_label = EXCLUDED.status_label, status_kind = EXCLUDED.status_kind, assigned_email = EXCLUDED.assigned_email,
+       assigned_upn = EXCLUDED.assigned_upn,
        assigned_name = EXCLUDED.assigned_name, location = EXCLUDED.location, purchase_date = EXCLUDED.purchase_date,
        warranty_end = EXCLUDED.warranty_end, url = EXCLUDED.url, raw = EXCLUDED.raw,
        synced_at = GREATEST(hd_assets.synced_at, EXCLUDED.synced_at), missing_since = NULL, gone_at = NULL
@@ -394,10 +815,16 @@ export async function upsertAssets(providerKey: string, list: ProviderAsset[], s
   return out;
 }
 
-/** One cached asset. */
+/**
+ * One cached asset. With a transaction's `client` it reads on that client
+ * only and carries no Intune line (`intune: null`): working that out reads
+ * settings and other rows on the pool, and a transaction must never wait
+ * for a second pool connection (unlinkAsset, linkRequesterAsset).
+ */
 export async function getAsset(id: number, client?: HdQueryable): Promise<HdAsset | undefined> {
   const r = await hqOne<Row>(`SELECT ${COLS} FROM hd_assets a WHERE a.id = $1`, [id], client);
-  return r ? view(r) : undefined;
+  if (!r) return undefined;
+  return client ? view(r) : (await views([r]))[0];
 }
 
 // --- Sync -----------------------------------------------------------------------------------
@@ -512,10 +939,10 @@ const CONFIRM_MAX = 50;
  */
 export async function syncProvider(key: string, opts: { force?: boolean } = {}): Promise<SyncResult> {
   const provider = await providerFor(key);
-  if (!provider) return { ran: false, ok: false, error: "Snipe-IT isn't set up." };
+  if (!provider) return { ran: false, ok: false, error: `${providerLabel(key)} isn't set up.` };
   const runId = randomUUID();
   const claim = await withTx(async (client) => {
-    const lock = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_xact_lock($1) AS ok", [ASSETS_SYNC_LOCK]);
+    const lock = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_xact_lock($1) AS ok", [providerBase(key) === "intune" ? INTUNE_SYNC_LOCK : ASSETS_SYNC_LOCK]);
     if (!lock.rows[0]?.ok) return { skip: "running" as const };
     const { r, now } = await readSync(key, client);
     if (isLive(r, now)) return { skip: "running" as const };
@@ -531,13 +958,22 @@ export async function syncProvider(key: string, opts: { force?: boolean } = {}):
   const started = claim.started;
   try {
     const { seen, total, complete } = await provider.listAll(async (page) => {
-      await upsertAssets(key, page, started);
+      // Written only while this run still owns the record and the source is the one it was built for.
+      if (!(await upsertRunPage(provider, key, runId, page, started))) throw new TakenOver();
       if (!(await updateRun(key, runId, {}, ["heartbeat_at"]))) throw new TakenOver();
     });
     let removed = 0;
     let gone = 0;
-    if (complete) ({ removed, gone } = await reconcile(provider, key, started));
-    const error = complete ? "" : `The sync stopped after ${seen.toLocaleString("en")} of ${total.toLocaleString("en")} assets, so nothing was removed. It tries again in 30 minutes.`;
+    if (complete) {
+      const r = await reconcile(provider, key, started, runId);
+      if (!r) throw new TakenOver();
+      ({ removed, gone } = r);
+    }
+    const error = complete
+      ? ""
+      : providerBase(key) === "intune"
+        ? `The sync stopped after ${seen.toLocaleString("en")} devices, before Microsoft Graph's last page, so nothing was removed. It tries again in 30 minutes.`
+        : `The sync stopped after ${seen.toLocaleString("en")} of ${total.toLocaleString("en")} assets, so nothing was removed. It tries again in 30 minutes.`;
     await updateRun(key, runId, { ok: complete, error, total: seen }, ["at"]);
     return { ran: true, ok: complete, error: error || undefined, seen, removed, gone, complete };
   } catch (e) {
@@ -548,8 +984,45 @@ export async function syncProvider(key: string, opts: { force?: boolean } = {}):
   }
 }
 
-/** After a complete pass: what it didn't see (see syncProvider). */
-async function reconcile(provider: AssetProvider, key: string, started: string): Promise<{ removed: number; gone: number }> {
+/**
+ * May `p` still write into its cache key? Only while the source is the one it
+ * was built for (Intune: the tenant ID). Takes the settings row FOR SHARE in
+ * the caller's transaction, so it waits for, and then sees, a retirement
+ * (adoptIntuneSource holds that row FOR UPDATE). Same lock order everywhere:
+ * the settings row first, then a run record, then hd_assets.
+ */
+async function sourceStill(client: HdQueryable, p: Pick<AssetProvider, "source">): Promise<boolean> {
+  if (p.source === undefined) return true;
+  let intune: Required<IntuneSettings>;
+  if (testSettings) intune = parseIntune(testSettings.intune);
+  else {
+    const r = await client.query<{ value: string }>("SELECT value FROM settings WHERE key = $1 FOR SHARE", [ASSETS_SETTINGS_KEY]);
+    intune = parseStored(r.rows[0]?.value).intune as Required<IntuneSettings>;
+  }
+  return intune.on && intune.cache_source === p.source;
+}
+
+/** A run's page: upserted only while the run owns its record and its source is unchanged (false: taken over or retired). */
+async function upsertRunPage(p: AssetProvider, key: string, runId: string, page: ProviderAsset[], started: string): Promise<boolean> {
+  return withTx(async (client) => {
+    if (!(await sourceStill(client, p))) return false;
+    const own = await client.query("SELECT 1 FROM settings WHERE key = $1 AND value::jsonb->>'run_id' = $2 FOR UPDATE", [SYNC_KEY_PREFIX + key, runId]);
+    if (!own.rowCount) return false;
+    await upsertAssets(key, page, started, client);
+    return true;
+  });
+}
+
+/** A live lookup's finds: upserted only while the provider's source is unchanged (a provider built before a retirement writes nothing). */
+async function upsertLive(p: AssetProvider, list: ProviderAsset[], syncedAt?: string): Promise<void> {
+  if (!list.length) return;
+  await withTx(async (client) => {
+    if (await sourceStill(client, p)) await upsertAssets(p.key, list, syncedAt, client);
+  });
+}
+
+/** After a complete pass: what it didn't see (see syncProvider). Null when the run was taken over or its source retired meanwhile. */
+async function reconcile(provider: AssetProvider, key: string, started: string, runId: string): Promise<{ removed: number; gone: number } | null> {
   // Missed twice and linked: ask the source by id before calling it gone.
   const twiceLinked = await hq<{ id: number; external_id: string }>(
     `SELECT a.id, a.external_id FROM hd_assets a
@@ -566,13 +1039,16 @@ async function reconcile(provider: AssetProvider, key: string, started: string):
     } catch {
       still = undefined; // unknown: leave it as it is
     }
-    if (still) await upsertAssets(key, [still], started);
+    if (still) await upsertLive(provider, [still], started);
     else if (still === null) {
       await hq("UPDATE hd_assets SET gone_at = now() WHERE id = $1 AND gone_at IS NULL", [a.id]);
       gone++;
     }
   }
   return withTx(async (client) => {
+    if (!(await sourceStill(client, provider))) return null;
+    const own = await client.query("SELECT 1 FROM settings WHERE key = $1 AND value::jsonb->>'run_id' = $2 FOR UPDATE", [SYNC_KEY_PREFIX + key, runId]);
+    if (!own.rowCount) return null;
     const del = await client.query(
       `DELETE FROM hd_assets a WHERE a.provider = $1 AND a.synced_at < $2 AND a.missing_since IS NOT NULL
          AND NOT EXISTS (SELECT 1 FROM hd_ticket_assets l WHERE l.asset_id = a.id)`,
@@ -586,8 +1062,43 @@ async function reconcile(provider: AssetProvider, key: string, started: string):
 /** The minute tick (lib/periodic HELPDESK_SWEEPS): each set-up source, when 30 minutes are up (by the database's clock). */
 export async function assetsSweep(): Promise<SyncResult[]> {
   const out: SyncResult[] = [];
+  await assetCleanup();
+  await intuneSourceCheck();
   for (const p of await activeProviders()) out.push(await syncProvider(p.key));
   return out;
+}
+
+/**
+ * The cache's personal data, once nothing needs it (the sweep, every
+ * minute). Rows of a retired source (an old Snipe-IT address or Intune
+ * tenant) and of a switched-off source (Snipe-IT disconnected, Intune off)
+ * are deleted unless a ticket links them; retired and gone rows that a
+ * ticket still links keep the device but lose its person (assigned_email,
+ * assigned_upn, assigned_name). Only this workspace's own keys are touched
+ * (snipeKey/intuneKey and their "<key>:retired:<ms>" rows), never another
+ * key's. Answers how many rows were deleted and blanked.
+ */
+export async function assetCleanup(s?: AssetSettings): Promise<{ deleted: number; blanked: number }> {
+  const settings = s ?? (await getAssetSettings());
+  const keys = [snipeKey(), intuneKey()];
+  const off: string[] = [];
+  if (!settings.snipeit.url || !settings.snipeit.token) off.push(snipeKey());
+  if (!settings.intune?.on) off.push(intuneKey());
+  const retired = `(left(a.provider, length($1) + 9) = $1 || ':retired:' OR left(a.provider, length($2) + 9) = $2 || ':retired:')`;
+  return withTx(async (client) => {
+    const del = await client.query(
+      `DELETE FROM hd_assets a WHERE (${retired} OR a.provider = ANY($3::text[]))
+         AND NOT EXISTS (SELECT 1 FROM hd_ticket_assets l WHERE l.asset_id = a.id)`,
+      [keys[0], keys[1], off]
+    );
+    const blank = await client.query(
+      `UPDATE hd_assets a SET assigned_email = '', assigned_upn = '', assigned_name = ''
+        WHERE (${retired} OR (a.provider = ANY($3::text[]) AND a.gone_at IS NOT NULL))
+          AND (a.assigned_email <> '' OR a.assigned_upn <> '' OR a.assigned_name <> '')`,
+      [keys[0], keys[1], keys]
+    );
+    return { deleted: del.rowCount ?? 0, blanked: blank.rowCount ?? 0 };
+  });
 }
 
 /** Test connection: the typed address and key, or the saved ones. A saved key only goes to its own address. */
@@ -616,9 +1127,30 @@ export async function testConnection(input: { url?: unknown; api_key?: unknown }
 
 /** Desk settings → Assets, as the browser sees it (the key is never in it). */
 export async function assetSettingsView(): Promise<HdAssetSettingsView> {
+  await intuneSourceCheck();
   const s = await getAssetSettings();
+  const c = await intuneCredentials();
+  const keys = await activeKeys(s);
+  const matched = keys.intune && keys.others.length
+    ? (
+        await hqOne<{ n: number }>(
+          `SELECT count(DISTINCT a.id)::int AS n FROM hd_assets a
+            WHERE a.provider = $1 AND a.gone_at IS NULL AND a.serial <> ''
+              AND EXISTS (SELECT 1 FROM hd_assets s WHERE s.provider = ANY($2::text[]) AND s.gone_at IS NULL AND lower(s.serial) = lower(a.serial))`,
+          [keys.intune, keys.others]
+        )
+      )?.n ?? 0
+    : 0;
   return {
     snipeit: { url: s.snipeit.url, key_set: !!s.snipeit.token, on_solve: s.snipeit.on_solve, sync: await syncState(snipeKey()) },
+    intune: {
+      on: !!s.intune?.on,
+      unavailable: typeof c === "string" ? c : null,
+      sync: await syncState(intuneKey()),
+      matched,
+      // Still waiting to sign in with new credentials (intuneSourceCheck): say why.
+      check_error: s.intune?.on && typeof c !== "string" && s.intune.cred_tag !== credTag(c) ? lastCheckError || "Checking the directory sync's new credentials." : "",
+    },
     agents_search_all: s.agents_search_all,
   };
 }
@@ -629,18 +1161,27 @@ export async function assetSettingsView(): Promise<HdAssetSettingsView> {
 function scopeSql(teams: number[] | "all", userId: number, params: unknown[]): string {
   if (teams === "all") return "TRUE";
   params.push(teams, userId);
-  return `(t.team_id = ANY($${params.length - 1}::int[]) OR t.assignee_id = $${params.length})`;
+  // 1.19.4 (C7): a ticket in the recycle bin shows nobody its assets.
+  return `(t.deleted_at IS NULL AND (t.team_id = ANY($${params.length - 1}::int[]) OR t.assignee_id = $${params.length}))`;
 }
 
 /** Assets `a` an agent sees without searching all: their people's, and those linked to their tickets. */
-function visibleSql(teams: number[] | "all", userId: number, params: unknown[]): string {
+function visibleSql(teams: number[] | "all", userId: number, params: unknown[], intuneKeyNow: string | null = null): string {
   if (teams === "all") return "TRUE";
   const scope = scopeSql(teams, userId, params);
+  let ik: string | null = null;
+  if (intuneKeyNow) {
+    params.push(intuneKeyNow);
+    ik = `$${params.length}`;
+  }
   // A ticket's person is matched on their account's confirmed address
-  // (CONFIRMED_SQL), or on the sender's address when it has no account.
-  return `((a.assigned_email <> '' AND EXISTS (SELECT 1 FROM hd_tickets t LEFT JOIN users ru ON ru.id = t.requester_id
-       WHERE ${scope} AND ((t.requester_id IS NULL AND lower(t.requester_email) = a.assigned_email)
-         OR (lower(ru.email) = a.assigned_email AND ${CONFIRMED_SQL("ru")}))))
+  // (CONFIRMED_SQL), or on the sender's address when it has no account,
+  // against the asset's person: its own (email or Intune's UPN) or, for a
+  // device Intune also manages, the Intune person's (ownedSql).
+  const anyone = `(a.assigned_email <> '' OR a.assigned_upn <> ''${ik ? " OR a.serial <> ''" : ""})`;
+  return `((${anyone} AND EXISTS (SELECT 1 FROM hd_tickets t LEFT JOIN users ru ON ru.id = t.requester_id
+       WHERE ${scope} AND ((t.requester_id IS NULL AND t.requester_email <> '' AND ${ownedSql("lower(t.requester_email)", ik)})
+         OR (ru.id IS NOT NULL AND ${CONFIRMED_SQL("ru")} AND ${ownedSql("lower(ru.email)", ik)}))))
     OR EXISTS (SELECT 1 FROM hd_ticket_assets l JOIN hd_tickets t ON t.id = l.ticket_id WHERE l.asset_id = a.id AND ${scope}))`;
 }
 
@@ -674,7 +1215,7 @@ export async function agentMaySeeAsset(user: U & { id: number }, assetId: number
   if (settings.agents_search_all) return !!(await hqOne("SELECT 1 FROM hd_assets WHERE id = $1", [assetId]));
   const teams = await agentTeamIds(user);
   const params: unknown[] = [assetId];
-  const where = visibleSql(teams, user.id, params);
+  const where = visibleSql(teams, user.id, params, (await activeKeys(settings)).intune);
   return !!(await hqOne(`SELECT 1 FROM hd_assets a WHERE a.id = $1 AND ${where}`, params));
 }
 
@@ -685,7 +1226,7 @@ export async function linkedAssets(ticketId: number, client?: HdQueryable): Prom
   const rows = await hq<Row & { linked_by_name: string; linked_at: string; earlier_tickets: number }>(
     `SELECT ${COLS}, l.linked_by_name, l.linked_at,
             (SELECT count(*)::int FROM hd_ticket_assets o JOIN hd_tickets ot ON ot.id = o.ticket_id
-              WHERE o.asset_id = a.id AND o.ticket_id <> $1 AND ot.created_at < me.created_at) AS earlier_tickets
+              WHERE o.asset_id = a.id AND o.ticket_id <> $1 AND ot.created_at < me.created_at AND ot.deleted_at IS NULL) AS earlier_tickets
        FROM hd_ticket_assets l
        JOIN hd_assets a ON a.id = l.asset_id
        JOIN hd_tickets me ON me.id = l.ticket_id
@@ -694,7 +1235,8 @@ export async function linkedAssets(ticketId: number, client?: HdQueryable): Prom
     [ticketId],
     client
   );
-  return rows.map((r) => ({ ...view(r), linked_by_name: r.linked_by_name, linked_at: r.linked_at, earlier_tickets: r.earlier_tickets }));
+  const lines = await intuneLines(rows);
+  return rows.map((r) => ({ ...view(r, lines.get(r.id) ?? null), linked_by_name: r.linked_by_name, linked_at: r.linked_at, earlier_tickets: r.earlier_tickets }));
 }
 
 /** May the ticket's asset links change? Not on a merged ticket, nor a closed one. */
@@ -717,7 +1259,7 @@ export async function ticketAssetsView(ticket: HdTicket): Promise<HdTicketAssets
   };
 }
 
-const option = (a: Row, linked: Set<number>): HdAssetOption => ({
+const option = (a: Row, linked: Set<number>, lines: Map<number, HdIntuneInfo>): HdAssetOption => ({
   id: a.id,
   name: a.name,
   tag: a.tag,
@@ -727,15 +1269,31 @@ const option = (a: Row, linked: Set<number>): HdAssetOption => ({
   provider_label: providerLabel(a.provider),
   assigned_name: a.assigned_name,
   linked: linked.has(a.id),
+  intune: lines.get(a.id) ?? null,
 });
 
 /** When each address was last looked up live (so a picker opened twice doesn't ask twice). */
 const liveLookups = new Map<string, number>();
 const LIVE_AGAIN_MS = 10 * 60_000;
 
-/** Someone's assets, from the cache; looked up live when the cache has none (at most every ten minutes). */
+/**
+ * Someone's assets (their address or, for Intune, their UPN), from the
+ * connected sources' cache, a device two sources share shown once; looked
+ * up live when the cache has none (at most every ten minutes).
+ */
 async function assetsOfEmail(email: string, providers: AssetProvider[]): Promise<{ rows: Row[]; notice: string | null }> {
-  const read = () => hq<Row>(`SELECT ${COLS} FROM hd_assets a WHERE a.assigned_email = $1 AND a.gone_at IS NULL ORDER BY a.name, a.id LIMIT 50`, [email]);
+  const keys = providers.map((p) => p.key);
+  const ik = keys.find((k) => k === intuneKey()) ?? null;
+  const read = async () =>
+    substituteTwins(
+      await hq<Row>(
+        `SELECT ${COLS} FROM hd_assets a
+          WHERE (a.assigned_email = $1 OR a.assigned_upn = $1) AND a.gone_at IS NULL AND a.provider = ANY($2::text[])
+          ORDER BY a.name, a.id LIMIT 50`,
+        [email, keys]
+      ),
+      { intune: ik, others: keys.filter((k) => k !== ik) }
+    );
   let rows = await read();
   let notice: string | null = null;
   const last = liveLookups.get(email) ?? 0;
@@ -745,7 +1303,7 @@ async function assetsOfEmail(email: string, providers: AssetProvider[]): Promise
     for (const p of providers) {
       try {
         const found = await quick(p.forEmail(email));
-        if (found?.length) await upsertAssets(p.key, found);
+        if (found?.length) await upsertLive(p, found);
       } catch (e) {
         notice = `${p.label}: ${errText(e)}`;
       }
@@ -769,24 +1327,25 @@ export async function searchAssets(user: U & { id: number }, q: string, opts: { 
   if (!term) return { rows: [], notice: null };
   const limit = Math.min(50, Math.max(1, opts.limit ?? ASSET_LIMITS.results));
   const teams = s.agents_search_all ? ("all" as const) : await agentTeamIds(user);
-  // Disconnected: only assets a ticket links (history), never the rest of a stale cache.
-  const connected = await assetsConnected(s);
-  const linkedOnly = connected ? "" : "AND EXISTS (SELECT 1 FROM hd_ticket_assets l WHERE l.asset_id = a.id)";
+  // A disconnected source's assets only where a ticket links them (history), never the rest of a stale cache.
+  const keys = await activeKeys(s);
+  const connected = keys.all.length > 0;
   const run = () => {
-    const params: unknown[] = [term.toLowerCase(), `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`, limit];
-    const scope = visibleSql(teams, user.id, params);
+    const params: unknown[] = [term.toLowerCase(), `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`, limit, keys.all];
+    const scope = visibleSql(teams, user.id, params, keys.intune);
     return hq<Row>(
       `SELECT ${COLS} FROM hd_assets a
-        WHERE a.gone_at IS NULL AND ${scope} ${linkedOnly}
+        WHERE a.gone_at IS NULL AND ${scope}
+          AND (a.provider = ANY($4::text[]) OR EXISTS (SELECT 1 FROM hd_ticket_assets l WHERE l.asset_id = a.id))
           AND (lower(a.tag) = $1 OR lower(a.serial) = $1 OR a.tag ILIKE $2 OR a.serial ILIKE $2 OR a.name ILIKE $2
-               OR a.model ILIKE $2 OR a.assigned_name ILIKE $2 OR a.assigned_email = $1)
+               OR a.model ILIKE $2 OR a.assigned_name ILIKE $2 OR a.assigned_email = $1 OR a.assigned_upn = $1)
         ORDER BY (lower(a.tag) = $1 OR lower(a.serial) = $1) DESC, a.name, a.id
         LIMIT $3`,
       params
-    );
+    ).then((rows) => substituteTwins(rows, keys));
   };
   let rows = await run();
-  if (!connected) return { rows, notice: "Snipe-IT isn't connected, so only assets linked to tickets are listed." };
+  if (!connected) return { rows, notice: notConnectedSearch(s) };
   let notice: string | null = null;
   const exact = rows.some((r) => r.tag.toLowerCase() === term.toLowerCase() || r.serial.toLowerCase() === term.toLowerCase());
   if (!exact && TOKEN.test(term)) {
@@ -795,7 +1354,7 @@ export async function searchAssets(user: U & { id: number }, q: string, opts: { 
       try {
         const [byTag, bySerial] = await quick(Promise.all([p.byTag(term), p.bySerial(term)]));
         const found = [...(byTag ? [byTag] : []), ...bySerial];
-        if (found.length) await upsertAssets(p.key, found);
+        if (found.length) await upsertLive(p, found);
       } catch (e) {
         notice = `${p.label}: ${errText(e)}`;
       }
@@ -810,15 +1369,16 @@ export async function assetOptions(user: U & { id: number }, ticket: HdTicket, q
   const s = await getAssetSettings();
   const providers = await activeProviders(s);
   // Nothing to offer for linking without a source (the card hides Link then).
-  if (!providers.length) return { assigned: [], results: [], search_all: s.agents_search_all, connected: false, notice: NOT_CONNECTED };
+  if (!providers.length) return { assigned: [], results: [], search_all: s.agents_search_all, connected: false, notice: notConnected(s) };
   const linked = new Set((await hq<{ asset_id: number }>("SELECT asset_id FROM hd_ticket_assets WHERE ticket_id = $1", [ticket.id])).map((r) => r.asset_id));
   const email = await requesterMatchEmail(ticket);
   const mine = email ? await assetsOfEmail(email, providers) : { rows: [], notice: null };
   const found = q.trim() ? await searchAssets(user, q, { settings: s }) : { rows: [], notice: null };
   const theirs = new Set(mine.rows.map((r) => r.id));
+  const lines = await intuneLines([...mine.rows, ...found.rows], s);
   return {
-    assigned: mine.rows.map((r) => option(r, linked)),
-    results: found.rows.filter((r) => !theirs.has(r.id)).map((r) => option(r, linked)),
+    assigned: mine.rows.map((r) => option(r, linked, lines)),
+    results: found.rows.filter((r) => !theirs.has(r.id)).map((r) => option(r, linked, lines)),
     search_all: s.agents_search_all,
     connected: true,
     notice: found.notice ?? mine.notice,
@@ -832,7 +1392,13 @@ async function timeline(client: HdQueryable, ticketId: number, actor: AssetActor
   );
 }
 
-const assetLine = (a: Pick<HdAsset, "name" | "tag">) => (a.tag && a.name && a.tag !== a.name ? `${a.name} (${a.tag})` : a.tag || a.name);
+/**
+ * An asset as a timeline note names it, Markdown-escaped (mdInline): an
+ * Intune device's name is set by its user, so it must never become a link
+ * or emphasis inside a system-written internal note.
+ */
+const assetLine = (a: Pick<HdAsset, "name" | "tag">) =>
+  a.tag && a.name && a.tag !== a.name ? `${mdInline(a.name)} (${mdInline(a.tag)})` : mdInline(a.tag || a.name);
 
 /**
  * Link a cached asset to a ticket. The agent must see the asset (its
@@ -841,12 +1407,18 @@ const assetLine = (a: Pick<HdAsset, "name" | "tag">) => (a.tag && a.name && a.ta
 export async function linkAsset(user: U & { id: number }, ticket: HdTicket, assetId: number, actor: AssetActor): Promise<HdAsset> {
   if (!assetsEditable(ticket)) throw new AssetError(ticket.merged_into ? "This ticket was merged. Link the asset on the ticket it joined." : "This ticket is closed.", 409);
   // The cache outlives a disconnect (for the tickets' history); it is never linked from then.
-  if (!(await assetsConnected())) throw new AssetError(NOT_CONNECTED, 409);
+  const settings = await getAssetSettings();
+  if (!(await assetsConnected(settings))) throw new AssetError(notConnected(settings), 409);
   const asset = await getAsset(assetId);
   if (!asset) throw new AssetError("That asset isn't in the list any more. Search again.", 404);
   const requesterEmail = await requesterMatchEmail(ticket);
-  const theirs = requesterEmail !== "" && asset.assigned_email === requesterEmail;
+  const ik = (await activeKeys(settings)).intune;
+  const theirs =
+    requesterEmail !== "" && !!(await hqOne(`SELECT 1 FROM hd_assets a WHERE a.id = $1 AND ${ownedSql("$2", ik ? "$3" : null)}`, ik ? [assetId, requesterEmail, ik] : [assetId, requesterEmail]));
   if (!theirs && !(await agentMaySeeAsset(user, assetId))) throw new AssetError("That asset isn't in the list any more. Search again.", 404);
+  // Only a live asset of a connected source links: a gone row, or one of a retired or switched-off source, is history.
+  const refusal = await linkRefusal(asset);
+  if (refusal) throw new AssetError(refusal, 409);
   return withTx(async (client) => {
     await client.query("SELECT id FROM hd_tickets WHERE id = $1 FOR UPDATE", [ticket.id]);
     const n = (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM hd_ticket_assets WHERE ticket_id = $1", [ticket.id])).rows[0].n;
@@ -856,10 +1428,26 @@ export async function linkAsset(user: U & { id: number }, ticket: HdTicket, asse
     );
     if (!ins.rowCount) throw new AssetError("That asset is already linked to this ticket.", 409);
     if (n >= ASSET_LIMITS.perTicket) throw new AssetError(`A ticket can have up to ${ASSET_LIMITS.perTicket} assets.`, 409);
-    await timeline(client, ticket.id, actor, `Linked asset ${assetLine(asset)} from ${asset.provider_label}.`);
+    await timeline(client, ticket.id, actor, `Linked asset ${assetLine(asset)} from ${mdInline(asset.provider_label)}.`);
     await client.query("UPDATE hd_tickets SET updated_at = now() WHERE id = $1", [ticket.id]);
     return asset;
   });
+}
+
+/**
+ * Why this cached asset may not be linked now, or null: it is gone from its
+ * source (deleted or archived there), it came from a source that has since
+ * been replaced (a new Snipe-IT address, another Intune tenant: a retired
+ * key), or its source is switched off. Its existing links stay as history.
+ */
+export async function linkRefusal(asset: Pick<HdAsset, "provider" | "provider_label" | "gone" | "tag" | "name">, s?: AssetSettings): Promise<string | null> {
+  const name = asset.tag || asset.name;
+  if (asset.provider.includes(":retired:")) {
+    return `${name} came from a ${asset.provider_label} source that has since been replaced, so it can't be linked now. Search for the device again.`;
+  }
+  if (asset.gone) return `${name} is no longer in ${asset.provider_label}, so it can't be linked. Search for the device again.`;
+  if (!(await providerFor(asset.provider, s))) return `${asset.provider_label} isn't connected now, so ${name} can't be linked. An admin can connect it in Desk settings, Assets.`;
+  return null;
 }
 
 /** Unlink; null when it was not linked. Touches no source, so it works while disconnected too (a wrong or personal device link stays removable). */
@@ -887,6 +1475,7 @@ export async function assetPage(user: U & { id: number }, assetId: number): Prom
   const s = await getAssetSettings();
   if (!(await agentMaySeeAsset(user, assetId, s))) return undefined;
   let asset = (await getAsset(assetId))!;
+  if (!asset) return undefined;
   const ext = await hqOne<{ external_id: string }>("SELECT external_id FROM hd_assets WHERE id = $1", [assetId]);
   const provider = await providerFor(asset.provider, s);
   // Its source not connected: the page is a linked asset's history; an unlinked row is only a stale copy.
@@ -900,7 +1489,7 @@ export async function assetPage(user: U & { id: number }, assetId: number): Prom
     ]);
     if (fresh.status === "fulfilled") {
       if (fresh.value) {
-        await upsertAssets(provider.key, [fresh.value]);
+        await upsertLive(provider, [fresh.value]);
       } else {
         await hq("UPDATE hd_assets SET gone_at = coalesce(gone_at, now()) WHERE id = $1", [assetId]);
       }
@@ -915,12 +1504,12 @@ export async function assetPage(user: U & { id: number }, assetId: number): Prom
     `SELECT t.id, t.number, t.subject, t.requester_name, t.status, t.created_at, t.team_id, t.assignee_id, t.requester_id,
             coalesce((SELECT sum(minutes)::int FROM hd_time_entries e WHERE e.ticket_id = t.id), 0) AS minutes
        FROM hd_ticket_assets l JOIN hd_tickets t ON t.id = l.ticket_id
-      WHERE l.asset_id = $1
+      WHERE l.asset_id = $1 AND t.deleted_at IS NULL
       ORDER BY t.created_at DESC, t.id DESC
       LIMIT 500`,
     [assetId]
   );
-  const total = (await hqOne<{ n: number }>("SELECT count(*)::int AS n FROM hd_ticket_assets WHERE asset_id = $1", [assetId]))?.n ?? 0;
+  const total = (await hqOne<{ n: number }>("SELECT count(*)::int AS n FROM hd_ticket_assets l JOIN hd_tickets t ON t.id = l.ticket_id WHERE l.asset_id = $1 AND t.deleted_at IS NULL", [assetId]))?.n ?? 0;
   const tickets: HdAssetPage["tickets"] = [];
   const teams = await agentTeamIds(user);
   // The desk's scope first (one lookup for the lot); an approver's or a CC's ticket is asked one by one.
@@ -953,7 +1542,7 @@ async function readableMaintenance(
   const numbers = [...new Set([...refs.values()].flat())];
   const found = numbers.length
     ? await hq<{ id: number; number: number; team_id: number | null; assignee_id: number | null; requester_id: number | null; anonymised: boolean }>(
-        "SELECT id, number, team_id, assignee_id, requester_id, (anonymised_at IS NOT NULL) AS anonymised FROM hd_tickets WHERE number = ANY($1::int[])",
+        "SELECT id, number, team_id, assignee_id, requester_id, (anonymised_at IS NOT NULL) AS anonymised FROM hd_tickets WHERE number = ANY($1::int[]) AND deleted_at IS NULL",
         [numbers]
       )
     : [];
@@ -1105,7 +1694,8 @@ export async function logMaintenance(ticket: HdTicket, req: MaintenanceRequest, 
         POOL,
         ticket.id,
         actor,
-        `Couldn't log the maintenance record in ${provider.label} for ${assetLine(a)}: ${error} The ticket is solved all the same; log it in ${provider.label} by hand if it's needed.`
+        // The error can carry the source's own words: escaped like the asset's name.
+        `Couldn't log the maintenance record in ${provider.label} for ${assetLine(a)}: ${mdInline(error)} The ticket is solved all the same; log it in ${provider.label} by hand if it's needed.`
       );
     }
   }
@@ -1132,9 +1722,22 @@ export async function moveAssetLinksTx(client: PoolClient, fromTicketId: number,
   return moved.rowCount ?? 0;
 }
 
-/** Anonymising a ticket removes its asset links, its maintenance claims and the device from its asset audit rows (who had which device is personal). */
+/**
+ * Anonymising a ticket removes its asset links, its maintenance claims and
+ * the device from its asset audit rows (who had which device is personal).
+ * A retired or gone asset that this ticket was the last link to goes too:
+ * nothing can refresh or show it again, and it still names its person.
+ */
 export async function anonymiseTicketAssetsTx(client: PoolClient, ticketId: number): Promise<void> {
-  await client.query("DELETE FROM hd_ticket_assets WHERE ticket_id = $1", [ticketId]);
+  const unlinked = await client.query<{ asset_id: number }>("DELETE FROM hd_ticket_assets WHERE ticket_id = $1 RETURNING asset_id", [ticketId]);
+  const ids = unlinked.rows.map((r) => r.asset_id);
+  if (ids.length) {
+    await client.query(
+      `DELETE FROM hd_assets a WHERE a.id = ANY($1::int[]) AND (a.gone_at IS NOT NULL OR position(':retired:' in a.provider) > 0)
+         AND NOT EXISTS (SELECT 1 FROM hd_ticket_assets l WHERE l.asset_id = a.id)`,
+      [ids]
+    );
+  }
   await client.query("DELETE FROM hd_asset_maintenance_log WHERE ticket_id = $1", [ticketId]);
   // Its asset audit rows keep the action, actor and time; which device it was goes.
   await client.query(
@@ -1180,10 +1783,14 @@ export async function myAssets(user: { id: number }): Promise<{ id: number; name
 /** Is this asset the requester's own (their confirmed address, still in the source, and the source connected)? */
 export async function isRequesterAsset(user: { id: number }, assetId: number): Promise<boolean> {
   if (!Number.isInteger(assetId) || assetId <= 0) return false;
-  if (!(await assetsConnected())) return false;
+  const keys = await activeKeys();
+  if (!keys.all.length) return false;
   const email = await confirmedEmailOf(user.id);
   if (!email) return false;
-  return !!(await hqOne("SELECT 1 FROM hd_assets WHERE id = $1 AND assigned_email = $2 AND gone_at IS NULL", [assetId, email]));
+  return !!(await hqOne(
+    `SELECT 1 FROM hd_assets a WHERE a.id = $1 AND ${ownedSql("$2", keys.intune ? "$4" : null)} AND a.gone_at IS NULL AND a.provider = ANY($3::text[])`,
+    keys.intune ? [assetId, email, keys.all, keys.intune] : [assetId, email, keys.all]
+  ));
 }
 
 /** Link the device the requester picked when raising the request (already checked as theirs). False when nothing was linked (no source connected). */
@@ -1216,6 +1823,7 @@ const mcpAsset = (a: HdAsset) => ({
   source: a.provider_label,
   url: a.url || null,
   ...(a.gone ? { gone_from_source: true } : {}),
+  ...(a.intune ? { intune: { compliance: a.intune.compliance, last_seen: a.intune.last_seen, os: [a.intune.os, a.intune.os_version].filter(Boolean).join(" ") || null } } : {}),
 });
 
 /** hd_read_ticket (agents): the ticket's linked assets. */
@@ -1233,5 +1841,6 @@ export async function assetLookupForMcp(user: U & { id: number }, query: string,
         )
       )
     : new Map<number, number>();
-  return { assets: rows.map((r) => ({ ...mcpAsset(view(r)), tickets: counts.get(r.id) ?? 0 })), notice };
+  const shown = await views(rows);
+  return { assets: shown.map((a) => ({ ...mcpAsset(a), tickets: counts.get(a.id) ?? 0 })), notice };
 }

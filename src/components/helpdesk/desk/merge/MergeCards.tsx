@@ -29,9 +29,14 @@ export function RelatedCard({ d }: { d: HdTicketDetail }) {
             <GitMerge className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden />
             <span>
               Merged into{" "}
-              <Link href={`/desk/tickets/${m.into.number}${qs}`} className="link" data-tt={m.into.subject}>
-                #{m.into.number}
-              </Link>
+              {/* 1.19.4: a kept ticket in the recycle bin is never named. */}
+              {m.into.deleted ? (
+                "a deleted ticket"
+              ) : (
+                <Link href={`/desk/tickets/${m.into.number}${qs}`} className="link" data-tt={m.into.subject}>
+                  #{m.into.number}
+                </Link>
+              )}
             </span>
           </li>
         )}
@@ -66,10 +71,16 @@ export function MergedNotice({ d }: { d: HdTicketDetail }) {
       <GitMerge className="mt-0.5 h-4 w-4 shrink-0 text-compass-600" aria-hidden />
       <span>
         Merged into{" "}
-        <Link href={`/desk/tickets/${into.number}${qs}`} className="link font-medium">
-          #{into.number} {into.subject}
-        </Link>
-        . Its messages and people moved there; reply on #{into.number}.
+        {into.deleted ? (
+          <>a ticket that has since been deleted. Its messages and people moved there.</>
+        ) : (
+          <>
+            <Link href={`/desk/tickets/${into.number}${qs}`} className="link font-medium">
+              #{into.number} {into.subject}
+            </Link>
+            . Its messages and people moved there; reply on #{into.number}.
+          </>
+        )}
       </span>
     </p>
   );
@@ -82,7 +93,8 @@ export function MergedNotice({ d }: { d: HdTicketDetail }) {
  */
 export function MergedComposerLock({ d }: { d: HdTicketDetail }) {
   const { qs } = useQueue();
-  const into = d.merge?.into;
+  const raw = d.merge?.into;
+  const into = raw && !raw.deleted ? raw : null;
   return (
     <div
       data-testid="merged-composer-lock"
@@ -91,7 +103,7 @@ export function MergedComposerLock({ d }: { d: HdTicketDetail }) {
       <Lock className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
       <span className="min-w-0 flex-1">
         <b className="font-semibold">Read-only</b> · This ticket was merged
-        {into ? ` into #${into.number}` : " into another ticket"}. Reply and change its status there.
+        {into ? ` into #${into.number}` : raw?.deleted ? " into a ticket that has since been deleted" : " into another ticket"}.{raw?.deleted ? "" : " Reply and change its status there."}
       </span>
       {into && (
         <Button variant="secondary" size="sm" icon={<ArrowUpRight />} href={`/desk/tickets/${into.number}${qs}`}>

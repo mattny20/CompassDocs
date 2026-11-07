@@ -10,6 +10,7 @@ import { MailCheck } from "lucide-react";
 import { Button } from "@/components/Button";
 import { Field, FormError, TextInput } from "@/components/form";
 import { portalFetch } from "./client";
+import { journeyId } from "./help/journey";
 
 export function PortalSignIn({ next, notice }: { next: string; notice?: string }) {
   const [email, setEmail] = useState("");
@@ -29,7 +30,7 @@ export function PortalSignIn({ next, notice }: { next: string; notice?: string }
     setBusy(true);
     const r = await portalFetch<{ message: string }>(
       "/support/api/link",
-      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: email.trim(), next }) },
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: email.trim(), next, ...(journeyId() ? { j: journeyId() } : {}) }) },
       "Couldn't send the link. Try again."
     );
     setBusy(false);

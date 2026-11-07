@@ -151,7 +151,10 @@ const NOT_ALLOWED: PortalAuthority = { allowed: false, blocked: false, contactId
  */
 export async function portalReplyAuthority(
   ticket: { id: number; requester_id: number | null; requester_email: string; portal_contact_id?: number | null },
-  fromEmail: string
+  fromEmail: string,
+  // 1.19.4 (C7): a ticket in the recycle bin, which no contact "reaches" any more (portal contactReachSql):
+  // only its own contact is asked for, and the reply becomes a follow-up (lib/helpdesk/inbound).
+  opts: { binned?: boolean } = {}
 ): Promise<PortalAuthority | null> {
   const from = fromEmail.trim().toLowerCase();
   const { getContactByEmail, contactReaches } = await import("./portal");
@@ -162,7 +165,7 @@ export async function portalReplyAuthority(
   if (!(await portalAdmits(from))) return null;
   // A portal ticket with a workspace requester is not the contact's to answer.
   if (portalTicket && ticket.requester_id !== null) return NOT_ALLOWED;
-  if (await contactReaches(sender.id, ticket.id)) return { allowed: true, blocked: false, contactId: sender.id };
+  if (opts.binned ? ticket.portal_contact_id === sender.id : await contactReaches(sender.id, ticket.id)) return { allowed: true, blocked: false, contactId: sender.id };
   return portalTicket ? NOT_ALLOWED : null;
 }
 
@@ -182,7 +185,8 @@ export async function portalContactBlocked(fromEmail: string): Promise<boolean> 
  */
 export async function createPortalFollowUp(
   contactId: number,
-  input: { subject: string; body: string; name: string; email: string; teamId: number | null; emailMessageId: string | null; closedNumber: number },
+  // closedNumber null (1.19.4, C7): a follow-up to a request in the recycle bin, which it never names.
+  input: { subject: string; body: string; name: string; email: string; teamId: number | null; emailMessageId: string | null; closedNumber: number | null },
   ctx: { origin?: string }
 ): Promise<{ id: number; number: number }> {
   const { insertTicketTx } = await import("./tickets");
@@ -193,7 +197,7 @@ export async function createPortalFollowUp(
       requester: { id: null, name: input.name, email: input.email },
       via: "email",
       source: "portal_external",
-      source_ref: { follow_up_of: input.closedNumber },
+      source_ref: input.closedNumber ? { follow_up_of: input.closedNumber } : {},
       team_id: input.teamId,
       email_message_id: input.emailMessageId,
     });

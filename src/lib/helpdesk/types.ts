@@ -48,7 +48,7 @@ export const HD_PRIORITY_LABEL: Record<HdPriority, string> = {
   urgent: "Urgent",
 };
 
-export const HD_SOURCES = ["portal", "email", "desk", "doc", "handbook", "space_access", "link", "workflow", "alert", "api", "recurring", "portal_external"] as const;
+export const HD_SOURCES = ["portal", "email", "desk", "doc", "handbook", "space_access", "link", "workflow", "alert", "api", "recurring", "portal_external", "teams", "slack"] as const;
 export type HdSource = (typeof HD_SOURCES)[number];
 export const HD_SOURCE_LABEL: Record<HdSource, string> = {
   portal: "Get help",
@@ -64,12 +64,16 @@ export const HD_SOURCE_LABEL: Record<HdSource, string> = {
   recurring: "Recurring schedule",
   // The customer portal for people outside the workspace (1.19.1, agent V6, lib/helpdesk/portal).
   portal_external: "Customer portal",
+  // Chat apps (1.19.4, lib/helpdesk/chat): raised in Microsoft Teams or Slack.
+  teams: "Microsoft Teams",
+  slack: "Slack",
 };
 
 export type HdMessageKind = "public" | "internal" | "system";
 /** "mcp": written through the Claude connector (1.19.1, lib/mcp/helpdesk-tools); the desk shows "via Claude". */
 /** "customer_portal": written by an outside customer at /support (1.19.1, lib/helpdesk/portal); "portal" is Get help. */
-export type HdMessageVia = "portal" | "desk" | "email" | "system" | "mcp" | "customer_portal";
+/** "api": written with a helpdesk API token (1.19.4 C2, lib/helpdesk/api-v1); the desk shows "via API". */
+export type HdMessageVia = "portal" | "desk" | "email" | "system" | "mcp" | "customer_portal" | "api";
 export type HdTeamRole = "agent" | "lead";
 export type HdAvailability = "available" | "away" | "offline";
 export const HD_AVAILABILITY_LABEL: Record<HdAvailability, string> = {
@@ -217,6 +221,10 @@ export interface HdTicketRow {
   /** Imported (1.19.1, lib/helpdesk/import): the source ('zoho' | 'csv') and its ticket id; source_ref.import_label is "Zoho #1234". */
   import_source?: string | null;
   import_ref?: string | null;
+  /** In the recycle bin since (1.19.4, lib/helpdesk/recycle-bin); NULL = live. */
+  deleted_at?: string | null;
+  deleted_by?: number | null;
+  deleted_by_name?: string;
 }
 
 /** A ticket as the desk reads it: the row plus joins and the derived SLA fields. */
@@ -252,6 +260,8 @@ export interface HdMessage {
   reviewed_by?: number | null;
   reviewed_at?: string | null;
   review_note?: string | null;
+  /** 1.19.4 (C6): a feature's own internal timeline line ('share'), else null; agent-side only (lib/helpdesk/share-schema). */
+  event?: string | null;
 }
 
 export type HdReviewState = "pending" | "approved" | "returned";
@@ -775,7 +785,8 @@ export interface HdTicketDetail {
   workflow: HdWorkflowProgress | null;
   /** Child tickets (workflow tasks) of this request. */
   children: HdTicketListRow[];
-  parent: { number: number; subject: string } | null;
+  /** `deleted` (1.19.4): the request is in the recycle bin: "a deleted ticket", without its number or subject. */
+  parent: { number: number; subject: string; deleted?: boolean } | null;
   suggested_articles: HdSuggestedArticle[];
   /** What the caller may do. */
   can_work: boolean;

@@ -400,6 +400,8 @@ describe("recurring schedules (database)", () => {
       assignment: (require("../src/lib/helpdesk/assignment/engine") as typeof import("../src/lib/helpdesk/assignment/engine")).ASSIGNMENT_SWEEP_LOCK,
       retention: (require("../src/lib/helpdesk/retention") as typeof import("../src/lib/helpdesk/retention")).RETENTION_LOCK,
       recurring: recurring.RECURRING_SWEEP_LOCK,
+      assets: (require("../src/lib/helpdesk/assets") as typeof import("../src/lib/helpdesk/assets")).ASSETS_SYNC_LOCK,
+      intune: (require("../src/lib/helpdesk/assets") as typeof import("../src/lib/helpdesk/assets")).INTUNE_SYNC_LOCK,
     };
     /* eslint-enable @typescript-eslint/no-require-imports */
     const values = Object.values(keysInUse);

@@ -7,6 +7,7 @@ import { useState } from "react";
 import { Button } from "@/components/Button";
 import { FormError } from "@/components/form";
 import { portalFetch } from "./client";
+import { adoptJourney } from "./help/journey";
 
 export function PortalContinue({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
@@ -14,12 +15,14 @@ export function PortalContinue({ token }: { token: string }) {
   async function go() {
     setBusy(true);
     setError("");
-    const r = await portalFetch<{ next: string }>(
+    const r = await portalFetch<{ next: string; journey?: string }>(
       "/support/api/session",
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) },
       "Couldn't sign you in. Ask for a new link."
     );
     if (r.ok) {
+      // The help centre journey of the tab that asked for the link (1.19.4 C3).
+      adoptJourney(r.data.journey);
       window.location.replace(r.data.next || "/support/requests");
       return;
     }
@@ -30,7 +33,7 @@ export function PortalContinue({ token }: { token: string }) {
     <>
       <FormError className="mt-4">{error}</FormError>
       {error ? (
-        <Button href="/support" size="lg" variant="secondary" className="mt-4 w-full">
+        <Button href="/support?signin=1" size="lg" variant="secondary" className="mt-4 w-full">
           Ask for a new link
         </Button>
       ) : (

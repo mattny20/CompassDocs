@@ -112,11 +112,17 @@ async function loadUser(userOrId: U | number): Promise<U | null> {
   return row ?? null;
 }
 
+// 1.19.4 (C2, lib/helpdesk/api-tokens): an API token's service account has
+// no hd_agent_roles or hd_team_members row; its live token's role and teams
+// stand in for them (`api` below is empty for everyone else).
 const roleRowFacts = cache(async (userId: number) => {
   const row = await hqOne<{ explicit: HdRole | null; lead: boolean; teams: number[] }>(
-    `SELECT (SELECT role FROM hd_agent_roles WHERE user_id = $1) AS explicit,
+    `WITH api AS (SELECT role, team_ids FROM hd_api_tokens
+                   WHERE principal_id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()))
+     SELECT COALESCE((SELECT role FROM hd_agent_roles WHERE user_id = $1), (SELECT role FROM api)) AS explicit,
             EXISTS (SELECT 1 FROM hd_team_members WHERE user_id = $1 AND role = 'lead') AS lead,
-            COALESCE((SELECT array_agg(team_id ORDER BY team_id) FROM hd_team_members WHERE user_id = $1), '{}') AS teams`,
+            COALESCE((SELECT array_agg(x ORDER BY x) FROM (SELECT team_id AS x FROM hd_team_members WHERE user_id = $1
+                                                          UNION SELECT unnest(team_ids) FROM api) s), '{}') AS teams`,
     [userId]
   );
   return { explicit: row?.explicit ?? null, lead: Boolean(row?.lead), teams: row?.teams ?? [] };

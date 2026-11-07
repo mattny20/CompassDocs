@@ -77,6 +77,8 @@ test("mode keys open their mode, on any keyboard layout", async ({ page }) => {
   for (const key of ["/", "@", ">", "#", "?"]) {
     await page.keyboard.press(key);
     await expect(palette(page), `"${key}" opens the palette`).toBeVisible();
+    // The Escape handlers bind in effects after paint; focus in the input means both are in place.
+    await expect(palette(page).getByRole("combobox")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(palette(page)).toBeHidden();
   }

@@ -38,6 +38,8 @@ import {
 } from "@/lib/helpdesk/roles-shared";
 import { getJson, sendJson } from "../api";
 import { ROLE_ICON } from "./role-ui";
+import { HD_CAP_BADGES } from "@/lib/helpdesk/recycle-bin-shared";
+import { chipClass } from "@/components/Chip";
 
 interface RolesData {
   matrix: HdRoleMatrix;
@@ -167,7 +169,11 @@ export function RolesMatrix() {
                       {caps.map((cap) => (
                         <tr key={cap} className="border-b border-slate-100 last:border-b-0">
                           <Th scope="row" className="text-left font-normal">
-                            <span className="block text-sm font-medium text-slate-800">{HD_CAPABILITIES[cap].label}</span>
+                            <span className="block text-sm font-medium text-slate-800">
+                              {HD_CAPABILITIES[cap].label}
+                              {/* 1.19.4 (C7, mock-up v4): what changed in this release. */}
+                              {HD_CAP_BADGES[cap] && <span className={chipClass("label", "sm", "ml-1.5 align-middle")}>{HD_CAP_BADGES[cap]}</span>}
+                            </span>
                             <span className="block text-xs font-normal normal-case tracking-normal text-slate-500">{HD_CAPABILITIES[cap].hint}</span>
                           </Th>
                           {HD_ROLES.map((r) => (
@@ -192,7 +198,8 @@ export function RolesMatrix() {
           <p className="mt-2 text-xs text-slate-500">
             Greyed boxes can&rsquo;t change here: Admin has every capability except Reply after review, so an Admin&rsquo;s replies are never held;
             assigning roles and this page stay with Managers and Admins; and you can only change roles below your own, with capabilities you have
-            yourself. A role replies directly or after review, never both.
+            yourself. A role replies directly or after review, never both. Delete tickets and Delete for good are off for every role except Admin
+            until you tick them; deleting is never offered for tickets on legal hold.
           </p>
           <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save roles" className="mt-4">
             <Button variant="secondary" icon={<RotateCcw />} disabled={busy || (atDefaults && !dirty)} onClick={reset}>

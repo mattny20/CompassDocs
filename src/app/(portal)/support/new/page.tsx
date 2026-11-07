@@ -1,12 +1,15 @@
 // /support/new: raise a request in the customer portal (Helpdesk 1.19.1).
 // Only the request types the admin exposed that need nothing from the
 // directory; their own questions, never prefilled. ?type=<id> preselects.
+// With the help centre on (1.19.4, C3) the form suggests articles from the
+// subject.
 
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { currentPortalContact, getPortalSettings, offeredTypes, portalOpen } from "@/lib/helpdesk/portal";
 import { PortalNewRequest } from "@/components/helpdesk/portal/PortalNewRequest";
+import { helpCentreOpen } from "@/lib/helpdesk/help-centre";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "New request" };
@@ -16,7 +19,7 @@ export default async function PortalNew({ searchParams }: { searchParams: Promis
   if (!(await portalOpen(settings))) notFound();
   const contact = await currentPortalContact(settings);
   if (!contact) redirect("/support?next=/support/new");
-  const types = await offeredTypes(settings);
+  const [types, helpCentre] = await Promise.all([offeredTypes(settings), helpCentreOpen({ portal: settings })]);
   const sp = await searchParams;
   const initial = typeof sp.type === "string" && /^\d+$/.test(sp.type) ? Number(sp.type) : null;
   return (
@@ -34,6 +37,7 @@ export default async function PortalNew({ searchParams }: { searchParams: Promis
             types={types.map((t) => ({ id: t.id, title: t.title, description: t.description, eta_label: t.eta_label, form: t.form }))}
             askName={!contact.name}
             initialType={initial}
+            helpCentre={helpCentre}
           />
         )}
       </div>

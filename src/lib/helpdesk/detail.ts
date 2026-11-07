@@ -92,7 +92,11 @@ export async function ticketDetail(user: { id: number; role: Role }, t: HdTicket
     hoursForTicket(t),
     t.first_reply_due || t.resolve_due ? slaPolicyForTicket(t) : Promise.resolve(undefined),
     t.parent_ticket_id
-      ? hqOne<{ number: number; subject: string }>("SELECT number, subject FROM hd_tickets WHERE id = $1", [t.parent_ticket_id])
+      ? hqOne<{ number: number; subject: string; deleted?: boolean }>(
+          // 1.19.4 (C7): a request in the recycle bin shows as "a deleted ticket", never by number or subject.
+          "SELECT CASE WHEN deleted_at IS NULL THEN number ELSE 0 END AS number, CASE WHEN deleted_at IS NULL THEN subject ELSE '' END AS subject, (deleted_at IS NOT NULL) AS deleted FROM hd_tickets WHERE id = $1",
+          [t.parent_ticket_id]
+        )
       : Promise.resolve(undefined),
   ]);
   try {

@@ -118,14 +118,15 @@ const ASKS = (userCol: string) => `(
 )`;
 
 /** SQL over `a`, `t` (the request) and `r` (the run): may `userCol` decide this row now? */
+// 1.19.4 (C7): an approval of a request in the recycle bin is neither read nor decided.
 const MAY_DECIDE = (userCol: string) => `(
-  a.decision = 'pending' AND r.state IN ('running', 'waiting')
+  a.decision = 'pending' AND r.state IN ('running', 'waiting') AND t.deleted_at IS NULL
   AND t.requester_id IS DISTINCT FROM ${userCol} AND ${ASKS(userCol)}
 )`;
 
 /** SQL over `a` and `t`: may `userCol` read this approval (asked by it, or decided it; never the requester's own)? */
 const MAY_READ = (userCol: string) => `(
-  t.requester_id IS DISTINCT FROM ${userCol} AND (a.decided_by = ${userCol} OR ${ASKS(userCol)})
+  t.deleted_at IS NULL AND t.requester_id IS DISTINCT FROM ${userCol} AND (a.decided_by = ${userCol} OR ${ASKS(userCol)})
 )`;
 
 /**
@@ -138,7 +139,7 @@ export async function approverUserIds(approvalId: number): Promise<number[]> {
     `SELECT u.id FROM hd_approvals a
        JOIN hd_tickets t ON t.id = a.ticket_id
        JOIN users u ON u.status = 'active' AND u.id IS DISTINCT FROM t.requester_id
-      WHERE a.id = $1 AND ${ASKS("u.id")}
+      WHERE a.id = $1 AND t.deleted_at IS NULL AND ${ASKS("u.id")}
       ORDER BY u.id LIMIT 50`,
     [approvalId]
   );
@@ -257,7 +258,7 @@ export async function listMyApprovals(user: { id: number }, state: ApprovalListS
     state === "pending"
       ? await hq<CardRow>(`${CARD_SELECT("$1::int")} WHERE ${MAY_DECIDE("$1::int")} ORDER BY a.created_at, a.id LIMIT ${lim}`, [user.id])
       : await hq<CardRow>(
-          `${CARD_SELECT("$1::int")} WHERE a.decided_by = $1 AND a.decided_at > now() - interval '90 days'
+          `${CARD_SELECT("$1::int")} WHERE a.decided_by = $1 AND a.decided_at > now() - interval '90 days' AND t.deleted_at IS NULL
             ORDER BY a.decided_at DESC, a.id DESC LIMIT ${lim}`,
           [user.id]
         );
@@ -294,7 +295,7 @@ export async function listDeskApprovals(user: { id: number }, teams: number[] | 
   const lim = Math.max(1, Math.min(200, limit));
   const rows = await hq<CardRow>(
     `${CARD_SELECT("$1::int")}
-      WHERE a.decision = 'pending' AND r.state IN ('running', 'waiting')
+      WHERE a.decision = 'pending' AND r.state IN ('running', 'waiting') AND t.deleted_at IS NULL
         AND ($2::int[] IS NULL OR t.team_id = ANY($2::int[]))
       ORDER BY a.created_at, a.id LIMIT ${lim}`,
     [user.id, teams === "all" ? null : teams]

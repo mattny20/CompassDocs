@@ -29,6 +29,18 @@ export function PartOfRequestCard({ detail }: { detail: HdTicketDetail }) {
   const { ctx, error } = useWorkflowContext(isTask ? detail.ticket.number : null);
   if (!isTask || !detail.parent) return null;
   const parent = detail.parent;
+  // 1.19.4 (C7): the request is in the recycle bin: say so, never name it.
+  if (parent.deleted) {
+    return (
+      <section aria-labelledby="part-of-h" className={`${CARD_CLASS} p-4`}>
+        <h3 id="part-of-h" className={`${EYEBROW_TEXT} flex items-center gap-1.5`}>
+          <Workflow className="h-3.5 w-3.5 text-compass-600" aria-hidden />
+          Part of request
+        </h3>
+        <SectionEmpty className="mt-1.5">Part of a deleted ticket.</SectionEmpty>
+      </section>
+    );
+  }
   const canWork = !!ctx?.viewer?.can_work_request;
   return (
     <section aria-labelledby="part-of-h" className={`${CARD_CLASS} p-4`}>

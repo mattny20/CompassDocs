@@ -12,7 +12,7 @@ export const ASSET_TOOL_DEF = {
   name: "hd_asset_lookup",
   side: "agent" as const,
   description:
-    "Helpdesk desk: look up assets (laptops, phones, monitors) synced from Snipe-IT by asset tag, serial number, name, model or the person they're assigned to. Read only: each comes back with its status, who has it, location, warranty end, how many tickets it is linked to and a link to it in Snipe-IT. Linking an asset to a ticket is done in the desk. hd_read_ticket lists a ticket's linked assets.",
+    "Helpdesk desk: look up assets (laptops, phones, monitors) synced from Snipe-IT or Microsoft Intune by asset tag, serial number, name, model or the person they're assigned to. Read only: each comes back with its status, who has it, location, warranty end, Intune's compliance and last check-in when Intune manages it, how many tickets it is linked to and a link to it in its source. Linking an asset to a ticket is done in the desk. hd_read_ticket lists a ticket's linked assets.",
   inputSchema: {
     type: "object",
     properties: {

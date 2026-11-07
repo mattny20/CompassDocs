@@ -47,6 +47,8 @@ import { hoursForTeam } from "./calendars";
 import { shiftBusinessDays } from "./business-waits-shared";
 import { wallClock } from "./sla";
 import { HD_OPEN_STATUSES } from "./types";
+// Names and titles in system-written notes are Markdown-escaped (1.19.4 review).
+import { mdInline } from "./md-inline";
 import type { HdStatus } from "./types";
 import {
   checkTemplateInput,
@@ -338,6 +340,13 @@ export interface AddChecklistOpts {
  * Copy template `templateId` onto the ticket, in the caller's transaction.
  * The same template twice on one ticket is refused (409; automatic
  * additions answer `already` instead). Undefined when the template is gone.
+ *
+ * The ten-a-ticket limit (CHECKLIST_LIMITS.perTicket) is for adding: by
+ * hand it is a 409 at ten or more; an automatic addition (request type,
+ * workflow task) on a full ticket answers `full` and leaves an internal
+ * line saying which checklist wasn't added and why (1.19.4). A merge may
+ * leave a ticket with more than ten (moveChecklistsTx), as with assets; the
+ * card and the solve gate read every one.
  */
 export async function addChecklistTx(
   client: HdQueryable,
@@ -345,7 +354,7 @@ export async function addChecklistTx(
   templateId: number,
   actor: ChecklistActor | null,
   opts: AddChecklistOpts
-): Promise<{ checklist_id: number; name: string; already: boolean } | undefined> {
+): Promise<{ checklist_id: number; name: string; already: boolean; full?: boolean } | undefined> {
   const tpl = await getTemplate(templateId, client);
   if (!tpl) return undefined;
   const t = await hqOne<{ id: number; team_id: number | null }>("SELECT id, team_id FROM hd_tickets WHERE id = $1", [ticketId], client);
@@ -356,11 +365,13 @@ export async function addChecklistTx(
     if (opts.source === "manual") throw new ChecklistError(`"${tpl.name}" is already on this ticket.`, 409);
     return { checklist_id: same.id, name: tpl.name, already: true };
   }
+  const now = opts.now ?? new Date();
   if (existing.length >= CHECKLIST_LIMITS.perTicket) {
     if (opts.source === "manual") throw new ChecklistError(`A ticket holds up to ${CHECKLIST_LIMITS.perTicket} checklists.`, 409);
-    return undefined;
+    const by = opts.byLine || "An automatic rule";
+    await timeline(client, ticketId, null, `${by} didn't add the checklist "${mdInline(tpl.name)}": a ticket holds up to ${CHECKLIST_LIMITS.perTicket} checklists. An agent can remove one and add it by hand.`, now);
+    return { checklist_id: 0, name: tpl.name, already: false, full: true };
   }
-  const now = opts.now ?? new Date();
   const c = await hqOne<{ id: number }>(
     `INSERT INTO hd_ticket_checklists (ticket_id, template_id, name, source, source_ref, added_by, added_by_name, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
@@ -377,8 +388,8 @@ export async function addChecklistTx(
       [c!.id, ticketId, i, item.title, item.required ? 1 : 0, team, due?.date ?? null, due?.at ?? null]
     );
   }
-  const by = actor?.name || opts.byLine || "Someone";
-  await timeline(client, ticketId, actor, `${by} added the checklist "${tpl.name}"`, now);
+  const by = mdInline(actor?.name) || opts.byLine || "Someone";
+  await timeline(client, ticketId, actor, `${by} added the checklist "${mdInline(tpl.name)}"`, now);
   return { checklist_id: c!.id, name: tpl.name, already: false };
 }
 
@@ -404,8 +415,8 @@ export async function addRequestTypeChecklists(ticketId: number): Promise<number
   return withTx(async (client) => {
     let n = 0;
     for (const tpl of tpls) {
-      const r = await addChecklistTx(client, ticketId, tpl.id, null, { source: "request_type", byLine: `The request type ${t.rt_title ?? ""}`.trim() });
-      if (r && !r.already) n++;
+      const r = await addChecklistTx(client, ticketId, tpl.id, null, { source: "request_type", byLine: `The request type ${mdInline(t.rt_title)}`.trim() });
+      if (r && !r.already && !r.full) n++;
     }
     return n;
   });
@@ -450,7 +461,7 @@ export async function setItemDone(
       "UPDATE hd_ticket_checklist_items SET done_at = $2, done_by = $3, done_by_name = $4 WHERE id = $1",
       done ? [itemId, now, actor.id, actor.name] : [itemId, null, null, ""]
     );
-    await timeline(client, ticketId, actor, `${actor.name || "Someone"} ${done ? "ticked" : "unticked"} "${it.title}" (${it.checklist_name})`, now);
+    await timeline(client, ticketId, actor, `${mdInline(actor.name) || "Someone"} ${done ? "ticked" : "unticked"} "${mdInline(it.title)}" (${mdInline(it.checklist_name)})`, now);
     const after = await itemOn(client, ticketId, itemId);
     return { item: itemOut(after!), checklist: it.checklist_name, changed: true };
   });
@@ -476,7 +487,7 @@ export async function addItem(ticketId: number, checklistId: number, rawTitle: u
       [checklistId, ticketId, n?.pos ?? 0, title],
       client
     );
-    await timeline(client, ticketId, actor, `${actor.name || "Someone"} added "${title}" to ${c.name}`, now);
+    await timeline(client, ticketId, actor, `${mdInline(actor.name) || "Someone"} added "${mdInline(title)}" to ${mdInline(c.name)}`, now);
     const it = await itemOn(client, ticketId, row!.id);
     return { item: itemOut(it!), checklist: c.name };
   });
@@ -494,7 +505,7 @@ export async function removeChecklist(ticketId: number, checklistId: number, act
       client
     );
     await client.query("DELETE FROM hd_ticket_checklists WHERE id = $1", [checklistId]);
-    await timeline(client, ticketId, actor, `${actor.name || "Someone"} removed the checklist "${c.name}"`, now);
+    await timeline(client, ticketId, actor, `${mdInline(actor.name) || "Someone"} removed the checklist "${mdInline(c.name)}"`, now);
     return { name: c.name, open_required: open?.n ?? 0 };
   });
 }
@@ -550,6 +561,9 @@ export async function checklistSolveBlockTx(client: PoolClient, ticketId: number
  * lib/helpdesk/merge, inside its transaction: the merged ticket's checklists
  * move to the kept ticket, except one from a template the kept ticket
  * already has (that copy stays on the merged ticket). Answers how many moved.
+ * Every other one moves, even past CHECKLIST_LIMITS.perTicket: the limit is
+ * for adding (addChecklistTx), as with assets (1.19.4), so a merge never
+ * leaves required work behind on a closed ticket.
  */
 export async function moveChecklistsTx(client: HdQueryable, fromId: number, toId: number): Promise<number> {
   const moved = await client.query<{ id: number }>(

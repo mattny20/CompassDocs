@@ -538,7 +538,7 @@ export async function mentioningTickets(teamId: number, since: string, words: st
     `SELECT t.number, t.subject, t.team_id,
             (SELECT m.body FROM hd_messages m WHERE m.ticket_id = t.id AND m.kind = 'public' ORDER BY m.created_at, m.id LIMIT 1) AS body
        FROM hd_tickets t
-      WHERE t.team_id = $1 AND t.created_at >= $2 AND t.status IN ${OPEN_SQL} AND t.merged_into IS NULL
+      WHERE t.team_id = $1 AND t.created_at >= $2 AND t.status IN ${OPEN_SQL} AND t.merged_into IS NULL AND t.deleted_at IS NULL
         AND t.source <> 'workflow' AND t.parent_ticket_id IS NULL
         AND NOT EXISTS (SELECT 1 FROM hd_incident_links l WHERE l.ticket_id = t.id)
         AND NOT EXISTS (SELECT 1 FROM hd_incidents i WHERE i.ticket_id = t.id)
@@ -745,7 +745,7 @@ export async function statusForAgent(user: U, opts: { sync?: boolean } = {}): Pr
   const askRows = await hq<TeamStatusAsk>(
     `SELECT w.incident_id, t.number, i.title, s.name AS service_name, s.status AS state, t.team_id,
             (SELECT count(*)::int FROM hd_incident_links l JOIN hd_tickets lt ON lt.id = l.ticket_id
-              WHERE l.incident_id = i.id AND lt.status IN ${OPEN_SQL} AND lt.merged_into IS NULL) AS linked_open
+              WHERE l.incident_id = i.id AND lt.status IN ${OPEN_SQL} AND lt.merged_into IS NULL AND lt.deleted_at IS NULL) AS linked_open
        FROM hd_status_asks a
        JOIN hd_status_incident_watch w ON w.incident_id = a.incident_id
        JOIN hd_incidents i ON i.id = w.incident_id

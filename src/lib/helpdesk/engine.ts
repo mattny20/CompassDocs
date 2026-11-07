@@ -59,6 +59,7 @@ import { audit } from "../audit";
 import type { AuditActor } from "../audit";
 import { logEvent } from "../log";
 import { hq, hqOne, withTx } from "./db-core";
+import { mdInline } from "./md-inline";
 import { resolveManager, spaceOwner, teamLeadIds } from "./approvals";
 import { answerText } from "./request-types";
 import { insertTicketTx, updateTicket } from "./tickets";
@@ -332,24 +333,32 @@ async function factsOf(c: Ctx): Promise<FactSource> {
 }
 
 /** Answers and hand-offs as text, for templates ({{start_date}}, {{outputs.it.asset_tag}}). */
-async function templateParts(c: Ctx): Promise<{ vars: Record<string, string>; answers: Record<string, string>; outputs: Record<string, Record<string, string>> }> {
+/**
+ * The values a `{{placeholder}}` takes. `esc` (1.19.4 review: Markdown) is mdInline for a
+ * template that lands in an internal note, whose wording is the admin's Markdown but whose
+ * values (answers, names, hand-offs) are not; a notify message keeps them as written.
+ */
+async function templateParts(
+  c: Ctx,
+  esc: (s: string) => string = (s) => s
+): Promise<{ vars: Record<string, string>; answers: Record<string, string>; outputs: Record<string, Record<string, string>> }> {
   const f = await factsOf(c);
   const answers: Record<string, string> = {};
-  for (const field of f.form) answers[field.key] = answerText(field, f.answers[field.key], f.names);
+  for (const field of f.form) answers[field.key] = esc(answerText(field, f.answers[field.key], f.names));
   const outputs: Record<string, Record<string, string>> = {};
   for (const [step, values] of Object.entries(f.outputs)) {
     const defs = f.outputDefs.get(step) ?? [];
     outputs[step] = {};
-    for (const [k, v] of Object.entries(values)) outputs[step][k] = outputText(defs.find((d) => d.key === k), v);
+    for (const [k, v] of Object.entries(values)) outputs[step][k] = esc(outputText(defs.find((d) => d.key === k), v));
   }
   return {
     vars: {
-      requester: c.ticket.requester_name || "the requester",
-      subject: c.ticket.subject,
+      requester: esc(c.ticket.requester_name || "the requester"),
+      subject: esc(c.ticket.subject),
       number: String(c.ticket.number),
-      request_type: c.ticket.request_type_title ?? "",
-      workflow: c.cursor.workflow_title,
-      tasks: tasksSummary(c),
+      request_type: esc(c.ticket.request_type_title ?? ""),
+      workflow: esc(c.cursor.workflow_title),
+      tasks: tasksSummary(c, esc),
     },
     answers,
     outputs,
@@ -461,7 +470,8 @@ async function evalApproval(c: Ctx, s: HdApprovalStepDef): Promise<"advance" | "
     if (target.public_label) {
       // The requester reads the generic words; agents read who was asked (and why).
       await sysMsg(c.client, c.ticket.id, `Waiting for approval from ${target.public_label}: ${s.title}.`);
-      await sysMsg(c.client, c.ticket.id, target.note ?? `Asked: ${target.label}.`, "internal");
+      // Who was asked, and why: a plain sentence around names (1.19.4 review: Markdown-escaped whole).
+      await sysMsg(c.client, c.ticket.id, mdInline(target.note ?? `Asked: ${target.label}.`), "internal");
     } else {
       await sysMsg(c.client, c.ticket.id, `Waiting for approval from ${target.label}: ${s.title}.`);
       if (target.note) await sysMsg(c.client, c.ticket.id, target.note);
@@ -492,25 +502,27 @@ async function evalApproval(c: Ctx, s: HdApprovalStepDef): Promise<"advance" | "
 
 // --- Tasks ---------------------------------------------------------------------------
 
-const md = (s: string) => s.replace(/[*_`]/g, "");
+// Text inside the Markdown lists of an internal note (1.19.4 review: was a strip of * _ `).
+const md = mdInline;
 
 function answersMarkdown(form: HdFormField[] | null, answers: HdFormAnswers, names?: Map<number, string>): string {
   const lines: string[] = [];
   for (const f of form ?? []) {
     const v = answerText(f, answers[f.key], names);
-    if (v) lines.push(`- **${md(f.label)}**: ${v.replace(/\s+/g, " ").slice(0, 500)}`);
+    if (v) lines.push(`- **${md(f.label)}**: ${md(v.replace(/\s+/g, " ").slice(0, 500))}`);
   }
   return lines.join("\n");
 }
 
 /** One task's hand-off as lines ("- Asset tag: LT-1234"), from its row. */
-function handoffLines(defs: HdTaskOutputDef[] | undefined, row: Row): string[] {
+/** `esc`: mdInline for an internal note (Markdown); the requester's plain timeline line keeps the text as typed. */
+function handoffLines(defs: HdTaskOutputDef[] | undefined, row: Row, esc: (s: string) => string = (s) => s): string[] {
   const outputs = (row.result?.outputs ?? {}) as Record<string, HdOutputValue>;
   const lines = (defs ?? [])
     .filter((d) => outputs[d.key] !== undefined && outputs[d.key] !== null && outputs[d.key] !== "")
-    .map((d) => `- ${md(d.label)}: ${outputText(d, outputs[d.key])}`);
+    .map((d) => `- ${esc(d.label)}: ${esc(outputText(d, outputs[d.key]))}`);
   const note = String(row.result?.handoff_note ?? "").trim();
-  if (note) lines.push(`- Note: ${note.replace(/\s+/g, " ")}`);
+  if (note) lines.push(`- Note: ${esc(note.replace(/\s+/g, " "))}`);
   return lines;
 }
 
@@ -519,21 +531,21 @@ function handoffsSoFar(c: Ctx): string {
   const blocks: string[] = [];
   for (const r of c.rows.values()) {
     if (r.kind !== "task" || r.state !== "done") continue;
-    const lines = handoffLines(taskDef(c.cursor.definition, r.step_key)?.outputs, r);
+    const lines = handoffLines(taskDef(c.cursor.definition, r.step_key)?.outputs, r, mdInline);
     if (lines.length) blocks.push(`**${md(String(r.result?.team_name ?? "A team"))}: ${md(String(r.result?.title ?? r.step_key))}**\n${lines.join("\n")}`);
   }
   return blocks.length ? `**Hand-offs so far**\n\n${blocks.join("\n\n")}` : "";
 }
 
-function tasksSummary(c: Ctx): string {
+function tasksSummary(c: Ctx, esc: (s: string) => string = (s) => s): string {
   const lines: string[] = [];
   for (const row of c.rows.values()) {
     if (row.kind !== "task") continue;
-    const team = (row.result?.team_name as string | undefined) ?? "A team";
-    const by = row.result?.solved_by as string | undefined;
+    const team = esc((row.result?.team_name as string | undefined) ?? "A team");
+    const by = row.result?.solved_by ? esc(String(row.result.solved_by)) : undefined;
     const state =
       row.state === "done" ? `done${by ? ` by ${by}` : ""}` : row.state === "skipped" ? "skipped" : row.state === "failed" ? "could not be done" : "in progress";
-    lines.push(`- ${team}: ${row.result?.title ?? row.step_key} (${state})`);
+    lines.push(`- ${team}: ${esc(String(row.result?.title ?? row.step_key))} (${state})`);
   }
   return lines.join("\n");
 }
@@ -597,7 +609,7 @@ async function startTask(c: Ctx, t: HdTaskStepDefB, retryRow?: Row): Promise<voi
       { task_ticket_id: child.id }
     );
   }
-  const parts = await templateParts(c);
+  const parts = await templateParts(c, mdInline);
   const description = t.description ? renderTemplate(t.description, parts.vars, parts.answers, parts.outputs) : "";
   await sysMsg(
     c.client,
@@ -610,7 +622,7 @@ async function startTask(c: Ctx, t: HdTaskStepDefB, retryRow?: Row): Promise<voi
   if (note) await sysMsg(c.client, child.id, note, "internal");
   if (t.route && name) await sysMsg(c.client, c.ticket.id, `Routed to ${name} (${routed.reason}): ${t.title}.`);
   await sysMsg(c.client, c.ticket.id, retryRow ? `Trying again: ${t.title}${name ? ` (${name})` : ""}.` : name ? `${name} is on it: ${t.title}.` : `Task started: ${t.title}.`);
-  if (!name) await sysMsg(c.client, c.ticket.id, `The team for "${t.title}" no longer exists, so its task is in no queue yet.`, "internal");
+  if (!name) await sysMsg(c.client, c.ticket.id, `The team for "${mdInline(t.title)}" no longer exists, so its task is in no queue yet.`, "internal");
   const childId = child.id;
   const dueLabel = due ? dayText(due) : undefined;
   c.effects.push(async () => (await notifyMod()).notifyTaskAssigned(childId, { dueLabel }));
@@ -639,7 +651,7 @@ async function evalTask(c: Ctx, t: HdTaskStepDefB): Promise<TaskState> {
   if (row.result?.outcome === "cant_do") {
     const note = String(row.result?.note ?? "");
     await setStep(c.client, row, "failed", c.now, {}, c.rows);
-    await sysMsg(c.client, c.ticket.id, `${team ?? "The team"} couldn't do it: ${t.title}. "${note.replace(/\s+/g, " ").slice(0, 500)}"`, "internal");
+    await sysMsg(c.client, c.ticket.id, `${team ? mdInline(team) : "The team"} couldn't do it: ${mdInline(t.title)}. "${mdInline(note.replace(/\s+/g, " ").slice(0, 500))}"`, "internal");
     if ((t.on_cant_do ?? "stop") === "continue") {
       await sysMsg(c.client, c.ticket.id, `Carrying on without it: ${t.title}.`);
       return "done";
@@ -675,7 +687,7 @@ async function evalTask(c: Ctx, t: HdTaskStepDefB): Promise<TaskState> {
     c.rows
   );
   if (deleted) {
-    await sysMsg(c.client, c.ticket.id, `The task ticket for "${t.title}" was deleted, so the workflow carries on without it.`, "internal");
+    await sysMsg(c.client, c.ticket.id, `The task ticket for "${mdInline(t.title)}" was deleted, so the workflow carries on without it.`, "internal");
     await sysMsg(c.client, c.ticket.id, `Finished: ${t.title}.`);
   } else await sysMsg(c.client, c.ticket.id, `${team ? `${team} finished` : "Finished"}: ${t.title}.`);
   const lines = handoffLines(t.outputs, done);
@@ -704,7 +716,7 @@ async function blockRun(c: Ctx, t: HdTaskStepDefB): Promise<void> {
   await sysMsg(
     c.client,
     c.ticket.id,
-    `The workflow is on hold: ${(row.result?.team_name as string | undefined) ?? "a team"} couldn't do "${t.title}". ${coordName ?? "The coordinating team"} decides: try the step again, skip it or stop the workflow.`,
+    `The workflow is on hold: ${mdInline((row.result?.team_name as string | undefined) ?? "a team")} couldn't do "${mdInline(t.title)}". ${coordName ? mdInline(coordName) : "The coordinating team"} decides: try the step again, skip it or stop the workflow.`,
     "internal"
   );
   const number = c.ticket.number;
@@ -809,7 +821,7 @@ async function evalFinish(c: Ctx, s: HdWorkflowStepB & { kind: "finish" }): Prom
   }
   // 1.19.2: required checklist items still open keep the request open for its team (agent W3).
   const held = await (await import("./checklists")).checklistSolveRefusal(c.ticket.id, c.client);
-  if (held) await sysMsg(c.client, c.ticket.id, `The workflow has finished, but the request stays open: ${held.error}`, "internal");
+  if (held) await sysMsg(c.client, c.ticket.id, `The workflow has finished, but the request stays open: ${mdInline(held.error)}`, "internal");
   const solved = held ? false : await solveRequest(c);
   if (solved) await sysMsg(c.client, c.ticket.id, `Solved by the workflow: ${s.title}.`);
   await endRun(c, "done");
@@ -949,6 +961,10 @@ export async function advanceRun(runId: number, opts: AdvanceOptions = {}): Prom
     if (!OPEN_STATES.includes(run.state)) return run.state;
     const ticket = await loadTicket(client, run.ticket_id);
     if (!ticket) return run.state;
+    // 1.19.4 (C7, lib/helpdesk/recycle-bin): a request in the recycle bin holds its run: nothing is
+    // driven (no task tickets, approvals or waits) until it is restored (restoreTickets advances it
+    // then); a purge deletes the run with the request.
+    if ((ticket as { deleted_at?: string | null }).deleted_at) return run.state;
     const rows = await hq<Row>("SELECT * FROM hd_workflow_steps WHERE run_id = $1", [run.id], client);
     const c: Ctx = {
       client,
@@ -1143,6 +1159,11 @@ export async function decide(
             details: { approval_id: approvalId, step: stepTitle, note: note.slice(0, 500), run_id: run.id },
           })
         );
+        // 1.19.4: outgoing webhooks, after the commit (C2, lib/helpdesk/webhooks; never throws).
+        const decidedTicketId = row.ticket_id;
+        effects.push(async () => {
+          await (await import("./webhooks")).emitHelpdeskWebhookEvent("approval.decided", { ticketId: decidedTicketId, approvalId, actor: { id: user.id, name } });
+        });
       },
     });
   } catch (e) {
@@ -1271,11 +1292,12 @@ export async function recordTaskOutcome(
         ]);
         const t = await hqOne<{ number: number }>("SELECT number FROM hd_tickets WHERE id = $1", [childTicketId], client);
         childNumber = t?.number ?? 0;
-        const lines = handoffLines(def?.outputs, { result: { outputs: outputs.value, handoff_note: handoffNote } } as unknown as Row);
+        const lines = handoffLines(def?.outputs, { result: { outputs: outputs.value, handoff_note: handoffNote } } as unknown as Row, mdInline);
+        const who = mdInline(name);
         const body =
           outcome === "done"
-            ? `${name} recorded the outcome: done.${note ? ` "${note.replace(/\s+/g, " ").slice(0, 500)}"` : ""}${lines.length ? `\n\n${lines.join("\n")}` : ""}`
-            : `${name} recorded the outcome: can't be done. "${note.replace(/\s+/g, " ").slice(0, 500)}"`;
+            ? `${who} recorded the outcome: done.${note ? ` "${mdInline(note.replace(/\s+/g, " ").slice(0, 500))}"` : ""}${lines.length ? `\n\n${lines.join("\n")}` : ""}`
+            : `${who} recorded the outcome: can't be done. "${mdInline(note.replace(/\s+/g, " ").slice(0, 500))}"`;
         await sysMsg(client, childTicketId, body, "internal");
       },
     });
@@ -1384,7 +1406,7 @@ export async function retryStep(user: { id: number; name: string; username: stri
         `UPDATE hd_workflow_steps SET result = result || $2::jsonb WHERE id = $1`,
         [row.id, JSON.stringify({ needs_ticket: true, attempt_log: log, retried_by: name })]
       );
-      await sysMsg(client, run.ticket_id, `${name} asked for "${String(row.result?.title ?? row.step_key)}" to be tried again.`, "internal");
+      await sysMsg(client, run.ticket_id, `${mdInline(name)} asked for "${mdInline(String(row.result?.title ?? row.step_key))}" to be tried again.`, "internal");
     },
     opts.now
   );
@@ -1476,7 +1498,11 @@ async function reassignOrphanedApprovals(only: number[] | null): Promise<number>
         );
         await client.query(`UPDATE hd_workflow_steps SET result = result || $2::jsonb WHERE id = $1`, [a.step_id, JSON.stringify({ approver_label: target.label })]);
         // A space-owner step stays generic for the requester (who stands in is for agents).
-        await sysMsg(client, a.ticket_id, `${title}: ${target.note ?? `${target.label} will decide.`}`, a.space_id ? "internal" : "system");
+        {
+          const line = `${title}: ${target.note ?? `${target.label} will decide.`}`;
+          // Internal (a space step) is Markdown in the desk: escaped whole, a plain sentence around names.
+          await sysMsg(client, a.ticket_id, a.space_id ? mdInline(line) : line, a.space_id ? "internal" : "system");
+        }
         return true;
       });
       if (moved) {
@@ -1517,6 +1543,8 @@ export async function sweepWorkflows(opts: { now?: Date; claim?: boolean; runIds
        JOIN hd_workflow_runs r ON r.id = s.run_id AND r.state IN ('running', 'waiting')
        LEFT JOIN hd_tickets t ON t.id = s.task_ticket_id
       WHERE s.state = 'active' AND ($2::int[] IS NULL OR s.run_id = ANY($2::int[]))
+        -- 1.19.4 (C7): a request in the recycle bin holds its run; it moves on once restored.
+        AND NOT EXISTS (SELECT 1 FROM hd_tickets bt WHERE bt.id = r.ticket_id AND bt.deleted_at IS NOT NULL)
         AND ((s.kind = 'wait' AND s.wait_until <= $1)
              OR (s.kind = 'task' AND (s.result ? 'outcome'
                                        OR (s.task_ticket_id IS NOT NULL AND t.status IN ('solved', 'closed'))
@@ -1542,6 +1570,7 @@ export async function sweepWorkflows(opts: { now?: Date; claim?: boolean; runIds
       WHERE s.id = a.step_id AND r.id = a.run_id
         AND a.decision = 'pending' AND a.reminded_at IS NULL AND r.state IN ('running', 'waiting')
         AND ($2::int[] IS NULL OR a.run_id = ANY($2::int[]))
+        AND NOT EXISTS (SELECT 1 FROM hd_tickets bt WHERE bt.id = a.ticket_id AND bt.deleted_at IS NOT NULL)
         AND jsonb_typeof(s.result->'remind_after_hours') = 'number'
         AND coalesce(s.result->>'remind_count', '') <> 'business'
         AND a.created_at + make_interval(hours => (s.result->>'remind_after_hours')::int) <= $1
@@ -1589,6 +1618,7 @@ async function claimBusinessReminders(now: Date, only: number[] | null): Promise
          JOIN hd_workflow_runs r ON r.id = a.run_id
         WHERE a.decision = 'pending' AND a.reminded_at IS NULL AND r.state IN ('running', 'waiting')
           AND ($2::int[] IS NULL OR a.run_id = ANY($2::int[]))
+          AND NOT EXISTS (SELECT 1 FROM hd_tickets bt WHERE bt.id = a.ticket_id AND bt.deleted_at IS NOT NULL)
           AND jsonb_typeof(s.result->'remind_after_hours') = 'number'
           AND s.result->>'remind_count' = 'business'
           -- Business hours are never fewer than calendar hours: nothing younger can be due.

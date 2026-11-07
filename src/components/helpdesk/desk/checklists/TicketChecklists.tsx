@@ -13,7 +13,10 @@
 //                        required items block solving.
 //   ChecklistsSideCard   the side column: "Checklists", each one's name and
 //                        n/total (a link to its card), and Add a checklist
-//                        (a picker of the library's templates).
+//                        (a picker of the library's templates). At ten (a
+//                        merge may bring more; every one is listed and
+//                        counts for solving) Add is disabled inside a
+//                        Tooltip saying why, as the asset card's Link is.
 //
 // revealChecklists(number) scrolls to the first checklist with a required
 // item open and focuses that item: the desk calls it when a solve is refused
@@ -28,6 +31,7 @@ import { EYEBROW_TEXT } from "@/components/Heading";
 import { SectionEmpty } from "@/components/form";
 import { confirmDialog, promptDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
+import { Tooltip } from "@/components/Tooltip";
 import { shortDate } from "@/lib/helpdesk/business-waits-shared";
 import { CHECKLIST_LIMITS, type HdTicketChecklist, type HdTicketChecklistItem, type HdTicketChecklists } from "@/lib/helpdesk/checklists-shared";
 import { getJson, sendJson } from "../api";
@@ -332,7 +336,15 @@ export function ChecklistsSideCard({ number, canWork }: { number: number; canWor
         </ul>
       )}
       {view.can_edit &&
-        (view.templates.length === 0 ? (
+        (view.checklists.length >= CHECKLIST_LIMITS.perTicket ? (
+          // The limit is for adding; a merge can leave more, and all of them stay here.
+          <Tooltip label={`A ticket holds up to ${CHECKLIST_LIMITS.perTicket} checklists.`} className="mt-2.5 w-full">
+            <button type="button" disabled className={buttonClass("secondary", "md", "w-full cursor-not-allowed justify-center [&>svg]:h-4 [&>svg]:w-4")}>
+              <Plus aria-hidden />
+              Add a checklist
+            </button>
+          </Tooltip>
+        ) : view.templates.length === 0 ? (
           <SectionEmpty className="mt-2" action={mayManage ? { href: "/desk/settings/checklists", label: "Set one up" } : undefined}>
             No checklists in the library yet.
           </SectionEmpty>

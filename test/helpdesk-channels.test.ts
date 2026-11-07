@@ -390,8 +390,9 @@ describe("inbound email", () => {
     assert.equal(first.attachments[0].type, "image/png");
     const note = msgs.find((m) => m.kind === "system" && m.body.includes("not added"));
     assert.ok(note, "a note lists what was dropped");
-    assert.ok(note.body.includes("tool.exe \\(file type not allowed\\)"), note.body);
-    assert.ok(note.body.includes("\\[evil\\]\\(https:\\_\\_x\\).pdf"), "file names are text in the note (slashes made safe): " + note.body);
+    // Escaped by lib/helpdesk/md-inline (1.19.4): brackets and ":" escaped, parentheses left as they are.
+    assert.ok(note.body.includes("tool.exe (file type not allowed)"), note.body);
+    assert.ok(note.body.includes("\\[evil\\](https\\:\\_\\_x).pdf"), "file names are text in the note (slashes made safe): " + note.body);
   });
 
   test("the route: a wrong secret is a 404, the licence a 402 only behind the right secret", async () => {

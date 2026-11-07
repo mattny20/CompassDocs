@@ -10,7 +10,7 @@
 // skipped with their reasons (BulkSkippedDialog).
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, GitMerge, Tag, X } from "lucide-react";
+import { ChevronDown, GitMerge, Tag, Trash2, X } from "lucide-react";
 import { Button, buttonClass } from "@/components/Button";
 import { MenuItem, Popover } from "@/components/Popover";
 import { promptDialog } from "@/components/Dialog";
@@ -26,6 +26,8 @@ import { PRIORITY_DOT } from "../ui";
 import { MergeDialog } from "./MergeDialog";
 import type { RowSelection } from "./selection";
 import { DeclareFromSelection } from "../incidents/IncidentActions";
+import { DeleteTicketsDialog } from "../recycle-bin/DeleteTicketsDialog";
+import { BIN_BULK_MAX } from "@/lib/helpdesk/recycle-bin-shared";
 
 const MENU_BTN = buttonClass("secondary", "sm", "gap-1");
 
@@ -51,6 +53,8 @@ export function BulkBar({ selection, shown, onDone }: { selection: RowSelection;
   const [busy, setBusy] = useState(false);
   const [agents, setAgents] = useState<Agent[] | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
+  // 1.19.4 (C7): Delete moves the selection to the recycle bin (mock-up v1).
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [skipped, setSkipped] = useState<{ row: HdTicketListRow | undefined; result: HdBulkResult }[] | null>(null);
   const tagsBtn = useRef<HTMLButtonElement>(null);
   const [tagsOpen, setTagsOpen] = useState(false);
@@ -228,12 +232,34 @@ export function BulkBar({ selection, shown, onDone }: { selection: RowSelection;
           Merge…
         </Button>
       )}
+      {can("tickets.delete") && (
+        <button
+          type="button"
+          disabled={busy || n > BIN_BULK_MAX}
+          onClick={() => setDeleteOpen(true)}
+          aria-label={`Delete ${n} selected ticket${n === 1 ? "" : "s"}`}
+          data-tt={n > BIN_BULK_MAX ? `Up to ${BIN_BULK_MAX} tickets at a time.` : "Delete…"}
+          className={buttonClass("secondary", "sm", "w-7 px-0 text-red-600 dark:text-red-400")}
+        >
+          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      )}
       {/* Declare a major incident linking the selection (1.19.2, agent W1). */}
       <DeclareFromSelection rows={rows} busy={busy} onDone={() => { selection.clear(); onDone(); }} />
       <Button variant="ghost" size="sm" icon={<X />} onClick={selection.clear}>
         Clear
       </Button>
 
+      <DeleteTicketsDialog
+        open={deleteOpen}
+        tickets={rows.map((t) => ({ number: t.number, subject: t.subject }))}
+        onClose={() => setDeleteOpen(false)}
+        onDeleted={() => {
+          selection.clear();
+          onDone();
+        }}
+        onRestored={onDone}
+      />
       <MergeDialog
         open={mergeOpen}
         onClose={() => setMergeOpen(false)}

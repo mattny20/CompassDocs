@@ -47,6 +47,7 @@
 import "server-only";
 import { hq, hqOne, withTx } from "./db-core";
 import type { HdQueryable } from "./db-core";
+import { mdInline } from "./md-inline";
 import { agentTeamIds, canUseHelpdesk, canWorkTicket, isAgent } from "./access";
 import { hdCan } from "./roles";
 import { assignable, getTicketById, getTicketByNumber, getTicketRow, HdTicketError, insertTicketTx, updateTicket } from "./tickets";
@@ -230,7 +231,7 @@ export async function declareIncident(user: IncidentActor, input: DeclareInput, 
     const assignee = (await assignable(user.id, team.id, client)) ? user.id : null;
     const row = await insertTicketTx(client, {
       subject: input.title,
-      body: declaredNote(by, children.map((c) => c.number)),
+      body: declaredNote(mdInline(by), children.map((c) => c.number)),
       first_message_kind: "internal",
       // The incident's own ticket has no requester to tell: nobody asked for it.
       requester: { id: null, name: by, email: "" },
@@ -255,7 +256,7 @@ export async function declareIncident(user: IncidentActor, input: DeclareInput, 
         client
       );
       if (!ins.length) throw new HdIncidentError(`#${c.number} was linked to another incident meanwhile. Try again.`, 409, [{ number: c.number, reason: "Linked elsewhere meanwhile." }]);
-      await internalLine(client, c.id, { id: user.id, name: by }, `${by} linked this ticket to major incident #${row.number}`);
+      await internalLine(client, c.id, { id: user.id, name: by }, `${mdInline(by)} linked this ticket to major incident #${row.number}`);
     }
     return { row, inc: inc! };
   });
@@ -313,8 +314,8 @@ export async function linkTickets(user: IncidentActor, incidentNumber: number, n
         client
       );
       if (!r.length) return false;
-      await internalLine(client, t.id, { id: user.id, name: by }, `${by} linked this ticket to major incident #${parent.number}`);
-      await internalLine(client, parent.id, { id: user.id, name: by }, `${by} linked #${t.number} to this incident`);
+      await internalLine(client, t.id, { id: user.id, name: by }, `${mdInline(by)} linked this ticket to major incident #${parent.number}`);
+      await internalLine(client, parent.id, { id: user.id, name: by }, `${mdInline(by)} linked #${t.number} to this incident`);
       return true;
     });
     if (ins) fresh.push({ id: t.id, number: t.number });
@@ -342,8 +343,8 @@ export async function unlinkTicket(user: IncidentActor, number: number): Promise
       client
     );
     if (!l) return null;
-    await internalLine(client, t.id, { id: user.id, name: by }, `${by} unlinked this ticket from major incident #${l.parent_number}`);
-    await internalLine(client, l.parent_id, { id: user.id, name: by }, `${by} unlinked #${t.number} from this incident`);
+    await internalLine(client, t.id, { id: user.id, name: by }, `${mdInline(by)} unlinked this ticket from major incident #${l.parent_number}`);
+    await internalLine(client, l.parent_id, { id: user.id, name: by }, `${mdInline(by)} unlinked #${t.number} from this incident`);
     return l;
   });
   if (!out) throw new HdIncidentError(`#${number} isn't linked to a major incident.`, 404);
@@ -390,7 +391,7 @@ export async function autoLinkNewTicket(ticketId: number, ctx: { origin?: string
       client
     );
     if (!r.length) return false;
-    await internalLine(client, t.id, { id: null, name: "" }, `Linked to major incident #${inc.parent_number} by its rule (matches "${inc.match_text}")`);
+    await internalLine(client, t.id, { id: null, name: "" }, `Linked to major incident #${inc.parent_number} by its rule (matches "${mdInline(inc.match_text)}")`);
     await internalLine(client, inc.ticket_id, { id: null, name: "" }, `#${t.number} linked itself by the rule`);
     return true;
   });
@@ -515,7 +516,7 @@ async function tellPeople(
   if (from.id) told(from.id, (await hqOne<{ email: string }>("SELECT email FROM users WHERE id = $1", [from.id]))?.email);
   for (const id of ticketIds) {
     const t = await hqOne<{ number: number; requester_id: number | null; requester_email: string; account_email: string | null }>(
-      "SELECT t.number, t.requester_id, t.requester_email, u.email AS account_email FROM hd_tickets t LEFT JOIN users u ON u.id = t.requester_id WHERE t.id = $1",
+      "SELECT t.number, t.requester_id, t.requester_email, u.email AS account_email FROM hd_tickets t LEFT JOIN users u ON u.id = t.requester_id WHERE t.id = $1 AND t.deleted_at IS NULL",
       [id]
     );
     if (!t) continue;
@@ -609,7 +610,7 @@ async function managedIncident(user: IncidentActor, number: number): Promise<{ i
 async function openLinkedIds(incidentId: number): Promise<number[]> {
   const rows = await hq<{ id: number }>(
     `SELECT t.id FROM hd_incident_links l JOIN hd_tickets t ON t.id = l.ticket_id
-      WHERE l.incident_id = $1 AND t.status IN ${OPEN_SQL} AND t.merged_into IS NULL ORDER BY l.linked_at, t.id`,
+      WHERE l.incident_id = $1 AND t.status IN ${OPEN_SQL} AND t.merged_into IS NULL AND t.deleted_at IS NULL ORDER BY l.linked_at, t.id`,
     [incidentId]
   );
   return rows.map((r) => r.id);
@@ -647,7 +648,7 @@ export async function postUpdate(user: IncidentActor, number: number, input: { b
     const out = await fanOut(inc, await openLinkedIds(inc.id), input.body, user, ctx.origin, true);
     await hq("UPDATE hd_incident_updates SET sent_count = $2 WHERE id = $1", [row!.id, out.reached.length]);
     await hq("UPDATE hd_incidents SET updated_at = now() WHERE id = $1", [inc.id]);
-    await internalLine(undefined, ticket.id, { id: user.id, name: by }, `${by} posted an update to ${out.reached.length} linked ${out.reached.length === 1 ? "ticket" : "tickets"}`);
+    await internalLine(undefined, ticket.id, { id: user.id, name: by }, `${mdInline(by)} posted an update to ${out.reached.length} linked ${out.reached.length === 1 ? "ticket" : "tickets"}`);
     await statusPageUpdate(inc, input.body, by);
     update = { id: row!.id, sent_count: out.reached.length };
     skipped = out.skipped;
@@ -921,7 +922,7 @@ async function affectedCount(incidentId: number): Promise<number> {
        SELECT a.user_id::text AS k FROM hd_incident_affected a WHERE a.incident_id = $1
        UNION
        SELECT COALESCE(t.requester_id::text, lower(t.requester_email)) FROM hd_incident_links l JOIN hd_tickets t ON t.id = l.ticket_id
-        WHERE l.incident_id = $1 AND COALESCE(t.automated, 0) = 0 AND (t.requester_id IS NOT NULL OR t.requester_email <> '')
+        WHERE l.incident_id = $1 AND COALESCE(t.automated, 0) = 0 AND (t.requester_id IS NOT NULL OR t.requester_email <> '') AND t.deleted_at IS NULL
      ) x`,
     [incidentId]
   );
@@ -938,11 +939,11 @@ export async function bannersFor(user: { id: number; role: Role }): Promise<Inci
        JOIN hd_tickets p ON p.id = i.ticket_id
        LEFT JOIN hd_teams tm ON tm.id = p.team_id
        LEFT JOIN LATERAL (SELECT body, created_at FROM hd_incident_updates WHERE incident_id = i.id ORDER BY created_at DESC, id DESC LIMIT 1) u ON true
-      WHERE p.status IN ${OPEN_SQL} AND p.merged_into IS NULL AND i.banner <> 'off'
+      WHERE p.status IN ${OPEN_SQL} AND p.merged_into IS NULL AND p.deleted_at IS NULL AND i.banner <> 'off'
         AND (i.banner = 'workspace'
-             OR EXISTS (SELECT 1 FROM hd_tickets r WHERE r.requester_id = $1 AND r.team_id = p.team_id)
+             OR EXISTS (SELECT 1 FROM hd_tickets r WHERE r.requester_id = $1 AND r.team_id = p.team_id AND r.deleted_at IS NULL)
              OR EXISTS (SELECT 1 FROM hd_incident_links l JOIN hd_tickets lt ON lt.id = l.ticket_id
-                         WHERE l.incident_id = i.id AND (lt.requester_id = $1
+                         WHERE l.incident_id = i.id AND lt.deleted_at IS NULL AND (lt.requester_id = $1
                                OR EXISTS (SELECT 1 FROM hd_ticket_ccs c WHERE c.ticket_id = lt.id AND c.user_id = $1 AND NOT c.account_removed)))
              OR EXISTS (SELECT 1 FROM hd_incident_affected a WHERE a.incident_id = i.id AND a.user_id = $1))
       ORDER BY i.declared_at DESC, i.id DESC LIMIT 5`,
@@ -1015,7 +1016,7 @@ async function incidentView(user: IncidentActor, ticket: HdTicket, inc: Incident
   const works = await workChecker(user);
   const linkedRows = await hq<HdTicketRow & { via: IncidentLinkVia; linked_at: string; team_name: string | null }>(
     `SELECT t.*, l.via, l.linked_at, tm.name AS team_name FROM hd_incident_links l JOIN hd_tickets t ON t.id = l.ticket_id
-       LEFT JOIN hd_teams tm ON tm.id = t.team_id WHERE l.incident_id = $1 ORDER BY l.linked_at DESC, t.id DESC LIMIT 1000`,
+       LEFT JOIN hd_teams tm ON tm.id = t.team_id WHERE l.incident_id = $1 AND t.deleted_at IS NULL ORDER BY l.linked_at DESC, t.id DESC LIMIT 1000`,
     [inc.id]
   );
   const linked: IncidentLinkedRow[] = [];
@@ -1081,9 +1082,9 @@ export async function listOpenIncidents(user: IncidentActor, scope: "nav" | "lin
   const rows = await hq<HdTicketRow & { incident_id: number; title: string; banner: IncidentBanner; team_name: string | null; linked_open: number }>(
     `SELECT p.*, i.id AS incident_id, i.title, i.banner, tm.name AS team_name,
             (SELECT count(*)::int FROM hd_incident_links l JOIN hd_tickets t ON t.id = l.ticket_id
-              WHERE l.incident_id = i.id AND t.status IN ${OPEN_SQL} AND t.merged_into IS NULL) AS linked_open
+              WHERE l.incident_id = i.id AND t.status IN ${OPEN_SQL} AND t.merged_into IS NULL AND t.deleted_at IS NULL) AS linked_open
        FROM hd_incidents i JOIN hd_tickets p ON p.id = i.ticket_id LEFT JOIN hd_teams tm ON tm.id = p.team_id
-      WHERE p.status IN ${OPEN_SQL} AND p.merged_into IS NULL
+      WHERE p.status IN ${OPEN_SQL} AND p.merged_into IS NULL AND p.deleted_at IS NULL
       ORDER BY i.declared_at DESC, i.id DESC LIMIT 50`
   );
   const works = await workChecker(user);
@@ -1103,7 +1104,7 @@ export async function incidentChips(ids: number[]): Promise<Map<number, Incident
   const out = new Map<number, IncidentChip>();
   if (!ids.length) return out;
   const own = await hq<{ ticket_id: number; linked: number }>(
-    `SELECT i.ticket_id, (SELECT count(*)::int FROM hd_incident_links l WHERE l.incident_id = i.id) AS linked
+    `SELECT i.ticket_id, (SELECT count(*)::int FROM hd_incident_links l JOIN hd_tickets lt ON lt.id = l.ticket_id WHERE l.incident_id = i.id AND lt.deleted_at IS NULL) AS linked
        FROM hd_incidents i WHERE i.ticket_id = ANY($1::int[])`,
     [ids]
   );

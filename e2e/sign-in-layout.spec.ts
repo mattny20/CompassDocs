@@ -229,6 +229,10 @@ test("Sign-in page settings: the preview stays beside the fields at Wide, and no
       await page.setViewportSize({ width, height: 800 });
       await page.reload();
       await expect(frame).toBeVisible();
+      // Hydrated: on a phone the shell has folded the sidebar to its rail…
+      await expect(page.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
+      // …and its 200ms width transition has finished.
+      await expect.poll(() => page.locator("aside[data-app-sidebar]").evaluate((el) => el.getBoundingClientRect().width)).toBeLessThan(80);
       const m = await page.evaluate(() => {
         const main = document.querySelector("main")!;
         const group = document.querySelector('[role="radiogroup"][aria-label="Preview size"]')!;

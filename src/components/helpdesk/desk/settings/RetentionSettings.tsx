@@ -119,9 +119,9 @@ export function RetentionSettings() {
     if (s.retention_enabled && s.action === "delete" && (!purgeWasOn || saved?.action !== "delete")) {
       const n = plan?.counts.delete ?? 0;
       const ok = await confirmDialog({
-        title: "Delete old tickets for good?",
-        body: `Closed tickets older than ${s.keep_amount} ${s.keep_unit} are removed entirely, files included, and reports stop counting them.${n ? ` Tonight that is ${n.toLocaleString("en-GB")} ${n === 1 ? "ticket" : "tickets"}.` : ""} Tickets on legal hold are kept.`,
-        confirmLabel: "Delete old tickets",
+        title: "Move old tickets to the recycle bin?",
+        body: `Closed tickets older than ${s.keep_amount} ${s.keep_unit} go to the recycle bin, where they can be restored for 30 days. After that they're deleted for good, files included, and reports stop counting them.${n ? ` Tonight that is ${n.toLocaleString("en-GB")} ${n === 1 ? "ticket" : "tickets"}.` : ""} Tickets on legal hold are kept.`,
+        confirmLabel: "Move to the recycle bin",
         danger: true,
       });
       if (ok !== true) return;
@@ -249,7 +249,7 @@ export function RetentionSettings() {
                     </p>
                   )}
                   <p className="mt-2 text-xs text-slate-500">
-                    Anonymise keeps the ticket for reports but removes names, emails, message text and attachments. Delete removes it entirely. Tickets on legal hold are never touched.
+                    Anonymise keeps the ticket for reports but removes names, emails, message text and attachments. Delete moves it to the recycle bin, and it's deleted for good 30 days later. Tickets on legal hold are never touched.
                   </p>
                 </>
               )}

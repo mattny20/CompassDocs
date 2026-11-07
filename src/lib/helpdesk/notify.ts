@@ -208,7 +208,7 @@ async function loadTicket(ticketId: number): Promise<TicketCtx | undefined> {
        LEFT JOIN users u ON u.id = t.assignee_id
        LEFT JOIN hd_tickets p ON p.id = t.parent_ticket_id
        LEFT JOIN hd_request_types rt ON rt.id = t.request_type_id
-      WHERE t.id = $1`,
+      WHERE t.id = $1 AND t.deleted_at IS NULL`, // 1.19.4 (C7): nothing is sent about a ticket in the recycle bin
     [ticketId]
   );
 }
@@ -480,6 +480,8 @@ export const notifyReply = guarded(
       return;
     }
     await toRequester(t, `${author} replied on #${t.number}`, excerpt(m.body), "hd_reply", vars, ctx);
+    // 1.19.4 (lib/helpdesk/chat): a request raised in Teams or Slack hears the reply there too (never waited on).
+    void import("./chat/core").then((c) => c.sendDeskReply(ticketId, messageId)).catch(() => {});
   }
 );
 
@@ -593,6 +595,8 @@ export const notifyApprovalNeeded = guarded(
         ctx
       );
     }
+    // 1.19.4 (lib/helpdesk/chat): approvers who use Teams or Slack get a card there (never waited on).
+    void import("./chat/core").then((c) => c.sendApprovalCards(approvalId, approvers, !!ctx.reminder)).catch(() => {});
   }
 );
 
