@@ -4,10 +4,13 @@ import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { Client } from "pg";
 import { ADMIN, api, ensureUser, login } from "./helpers";
+import { DESK_NEW_PAGES, DESK_NEW_RELEASE } from "../src/lib/helpdesk/whats-new-shared";
+
+const FIRST_NEW = DESK_NEW_PAGES[0];
 
 // Helpdesk 1.19.2 loose ends (agent W5), on the licensed rig:
 //   - Desk settings: the rail's "New" chips clear once the page is opened,
-//     and the "New in 1.19.3" strip once dismissed (mock e2; 1.19.3 lists Assets);
+//     and the "New in <release>" strip once dismissed (mock e2; read from whats-new-shared);
 //   - Import: the dry run runs in the background with progress, the page
 //     can be left, the bell says when it's ready (mock e1);
 //   - the customer portal: a solved request asks "How did we do?", an
@@ -100,27 +103,28 @@ test.describe("helpdesk 1.19.2 loose ends (licensed)", () => {
     await desk.goto("/desk/settings/teams");
     await expect(desk.getByRole("heading", { level: 1, name: "Teams" })).toBeVisible({ timeout: 120_000 });
     const rail = desk.getByRole("navigation", { name: "Desk settings" });
-    const assets = rail.getByRole("link", { name: /^Assets/ });
+    // The release's first New page (1.19.4: Appearance; the list grows as areas land).
+    const assets = rail.getByRole("link", { name: new RegExp(`^${FIRST_NEW.label}`) });
     await expect(assets).toContainText("New");
     await expect(rail.getByRole("link", { name: /^Teams$/ })).not.toContainText("New");
-    const strip = desk.getByRole("note").filter({ hasText: "New in 1.19.3" });
+    const strip = desk.getByRole("note").filter({ hasText: `New in ${DESK_NEW_RELEASE}` });
     await expect(strip).toBeVisible();
     await expect(strip).toContainText("badge goes once you've opened the page");
     await expect(desk.getByText("Loading…")).toHaveCount(0, { timeout: 60_000 });
     await shot(desk, "e2-settings-new-badges-1440-light");
 
     await assets.click();
-    await desk.waitForURL(/\/desk\/settings\/assets/);
-    await expect(rail.getByRole("link", { name: /^Assets/ })).not.toContainText("New");
-    await expect.poll(async () => (await db.query("SELECT 1 FROM hd_desk_seen WHERE user_id = $1 AND item = '/desk/settings/assets'", [deskUserId])).rowCount, { timeout: 60_000 }).toBe(1);
+    await desk.waitForURL((u) => u.pathname.startsWith(FIRST_NEW.href));
+    await expect(assets).not.toContainText("New");
+    await expect.poll(async () => (await db.query("SELECT 1 FROM hd_desk_seen WHERE user_id = $1 AND item = $2", [deskUserId, FIRST_NEW.href])).rowCount, { timeout: 60_000 }).toBe(1);
     await desk.goto("/desk/settings/teams");
-    await expect(rail.getByRole("link", { name: /^Assets/ })).not.toContainText("New");
+    await expect(assets).not.toContainText("New");
     await strip.getByRole("button", { name: /Dismiss what's new/ }).click();
     await expect(strip).toHaveCount(0);
-    await expect.poll(async () => (await db.query("SELECT 1 FROM hd_desk_seen WHERE user_id = $1 AND item = 'strip:1.19.3'", [deskUserId])).rowCount, { timeout: 60_000 }).toBe(1);
+    await expect.poll(async () => (await db.query("SELECT 1 FROM hd_desk_seen WHERE user_id = $1 AND item = $2", [deskUserId, `strip:${DESK_NEW_RELEASE}`])).rowCount, { timeout: 60_000 }).toBe(1);
     await desk.reload();
     await expect(desk.getByRole("heading", { level: 1, name: "Teams" })).toBeVisible();
-    await expect(desk.getByRole("note").filter({ hasText: "New in 1.19.3" })).toHaveCount(0);
+    await expect(desk.getByRole("note").filter({ hasText: `New in ${DESK_NEW_RELEASE}` })).toHaveCount(0);
     await ctx.close();
   });
 

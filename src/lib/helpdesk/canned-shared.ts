@@ -11,6 +11,8 @@
 // sent reply never carries raw {{braces}}; saving one is refused, so the
 // library never holds one in the first place.
 
+import { mdInline } from "./md-inline";
+
 export const CANNED_LIMITS = { title: 120, body: 10_000, folder: 60, total: 2000, personal: 200, query: 40 } as const;
 
 /** The ";" picker shows (and Enter or Tab inserts) only from this many letters after the ";". */
@@ -106,9 +108,13 @@ export function firstNameOf(name: string): string {
   return name.trim().split(/\s+/)[0] ?? "";
 }
 
-/** One value escaped for the Markdown a reply is ("*Bob*" stays those characters), on one line. */
+/**
+ * One value escaped for the Markdown a reply is ("*Bob*" stays those characters), on one
+ * line: lib/helpdesk/md-inline, so it can't become a link (www. and addresses too), a
+ * directive, or a heading or list at the start of a line (1.19.4 review).
+ */
 export function escapeMarkdownInline(s: string): string {
-  return s.replace(/[\r\n]+/g, " ").replace(/([\\`*_[\]{}<>()#!|~&])/g, "\\$1");
+  return mdInline(s);
 }
 
 export interface CannedValues {

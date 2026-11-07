@@ -97,6 +97,11 @@ describe("style drift guard", () => {
       "app/(portal)/support/requests/page.tsx",
       "app/(portal)/support/signin/page.tsx",
       "components/helpdesk/portal/PortalSignIn.tsx",
+      // The portal's help centre (1.19.4 C3, §Helpdesk: customer portal help centre).
+      "app/(portal)/support/articles/[article]/page.tsx",
+      "app/(portal)/support/categories/[key]/page.tsx",
+      "app/(portal)/support/search/page.tsx",
+      "components/helpdesk/portal/help/HelpCentre.tsx",
       // Sign-in surfaces (1.16.0, §Sign-in surfaces): AuthHeading is the one
       // h1 of AuthShell, for /login, its preview and the forced password
       // change, so none of those pages writes an <h1> of its own.

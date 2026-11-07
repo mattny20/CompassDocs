@@ -65,6 +65,9 @@ import {
  *   7_281_963 assignment sweep            7_281_971 recurring sweep (this)
  *   7_281_983 status services per team (two-key with the service id, status-teams)
  *   7_281_991 asset source sync claim (assets ASSETS_SYNC_LOCK)
+ *   7_281_992 Intune device sync claim (assets INTUNE_SYNC_LOCK, 1.19.4)
+ *   7_281_947 recycle bin purge sweep (1.19.4 C7, recycle-bin BIN_PURGE_LOCK)
+ *   7_281_977 webhook delivery upkeep (1.19.4 C2, webhooks WEBHOOK_SWEEP_LOCK; two-key with the hook id for claims)
  * test/helpdesk-recurring checks they stay distinct.
  */
 export const RECURRING_SWEEP_LOCK = 7_281_971;
@@ -101,7 +104,7 @@ interface Row {
 
 const SELECT = `SELECT r.*, t.name AS team_name, u.name AS assignee_name,
        (SELECT tk.number FROM hd_recurring_runs rr JOIN hd_tickets tk ON tk.id = rr.ticket_id
-         WHERE rr.recurring_id = r.id ORDER BY rr.created_at DESC LIMIT 1) AS last_ticket_number
+         WHERE rr.recurring_id = r.id AND tk.deleted_at IS NULL ORDER BY rr.created_at DESC LIMIT 1) AS last_ticket_number
   FROM hd_recurring r JOIN hd_teams t ON t.id = r.team_id LEFT JOIN users u ON u.id = r.assignee_id`;
 
 function toApi(r: Row): HdRecurring {

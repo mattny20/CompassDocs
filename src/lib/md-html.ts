@@ -48,6 +48,9 @@ export const MD_SANITIZE_SCHEMA: Schema = {
       "dataTitle",
       "dataSrc",
       "dataHeight",
+      // A ::video's poster (VideoPlayer safePoster re-checks it). It was
+      // dropped here, so no poster ever showed (found in 1.19.4 C3).
+      "dataPoster",
     ],
     table: [...(defaultSchema.attributes?.table ?? []), ["className", "nl-borderless"]],
   },

@@ -192,7 +192,7 @@ export const HELPDESK_TOOL_DEFS: HdToolDef[] = [
     name: "hd_read_ticket",
     side: "agent",
     description:
-      "Helpdesk desk: the full ticket for an agent who works it: fields, reply and resolution targets, the whole conversation including internal notes, form answers, workflow progress and task hand-offs, the requester's contact card (directory visibility applies), agents it can be assigned to, any pending reply drafts, its checklists (required items must be ticked in the desk before it can be solved) and its linked assets (devices from Snipe-IT).",
+      "Helpdesk desk: the full ticket for an agent who works it: fields, reply and resolution targets, the whole conversation including internal notes, form answers, workflow progress and task hand-offs, the requester's contact card (directory visibility applies), agents it can be assigned to, any pending reply drafts, its checklists (required items must be ticked in the desk before it can be solved) and its linked assets (devices from Snipe-IT or Microsoft Intune).",
     inputSchema: obj({ number: NUMBER }, ["number"]),
   },
   {

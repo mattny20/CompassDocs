@@ -33,7 +33,9 @@ export async function listMessages(ticketId: number, opts: { includeInternal?: b
             CASE WHEN m.kind = 'system' OR m.author_id IS NULL OR m.author_id IS NOT DISTINCT FROM t.requester_id THEN NULL
                  ELSE (SELECT tm.name FROM hd_team_members mm JOIN hd_teams tm ON tm.id = mm.team_id
                         WHERE mm.user_id = m.author_id
-                        ORDER BY (mm.team_id IS NOT DISTINCT FROM t.team_id) DESC, tm.position, tm.id LIMIT 1) END AS author_team_name
+                        ORDER BY (mm.team_id IS NOT DISTINCT FROM t.team_id) DESC, tm.position, tm.id LIMIT 1) END AS author_team_name,
+            -- 1.19.4 (C6, lib/helpdesk/share-schema): a feature's own timeline marker, internal lines only.
+            CASE WHEN m.kind = 'internal' THEN m.event END AS event
        FROM hd_messages m JOIN hd_tickets t ON t.id = m.ticket_id
       WHERE m.ticket_id = $1 ${opts.includeInternal === false ? "AND m.kind <> 'internal'" : ""}
       ORDER BY m.created_at, m.id LIMIT ${MESSAGE_LIMITS.page}`,

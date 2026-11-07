@@ -87,6 +87,7 @@ import {
   type PortalBlocker,
   type PortalSettings,
 } from "./portal-shared";
+import { cleanJourneyId } from "./help-centre-shared";
 
 export * from "./portal-shared";
 
@@ -332,7 +333,8 @@ export function contactReachSql(param: string): string {
              UNION ALL
              SELECT mt.merged_into, r.hop + 1 FROM reach r JOIN hd_tickets mt ON mt.id = r.id
               WHERE mt.merged_into IS NOT NULL AND r.hop < 5)
-           SELECT id FROM reach)`;
+           -- 1.19.4 (C7): never a ticket in the recycle bin (every portal read and write goes through here).
+           SELECT reach.id FROM reach JOIN hd_tickets live ON live.id = reach.id WHERE live.deleted_at IS NULL)`;
 }
 
 /** Does the contact reach this ticket (their own, or one theirs was merged into)? */
@@ -413,7 +415,7 @@ export function setPortalLinkSpyForTests(spy: typeof linkSpy): void {
  */
 export async function deliverSignInLink(
   rawEmail: string,
-  opts: { origin: string; next?: string; ip?: string | null; settings?: PortalSettings }
+  opts: { origin: string; next?: string; ip?: string | null; settings?: PortalSettings; journey?: unknown }
 ): Promise<LinkOutcome> {
   const email = cleanEmail(rawEmail);
   if (!email) return "not_allowed";
@@ -437,8 +439,9 @@ export async function deliverSignInLink(
   const contact = existing ?? (await ensureContact(email));
   const token = newPortalToken();
   await hq(
-    "INSERT INTO hd_portal_links (token_hash, contact_id, next_path, expires_at) VALUES ($1, $2, $3, $4)",
-    [hashPortalToken(token), contact.id, cleanNextPath(opts.next ?? ""), new Date(Date.now() + PORTAL_LINK_TTL_MS)]
+    // hc_journey (1.19.4 C3): the asking tab's help centre journey, handed on with the session.
+    "INSERT INTO hd_portal_links (token_hash, contact_id, next_path, expires_at, hc_journey) VALUES ($1, $2, $3, $4, $5)",
+    [hashPortalToken(token), contact.id, cleanNextPath(opts.next ?? ""), new Date(Date.now() + PORTAL_LINK_TTL_MS), cleanJourneyId(opts.journey)]
   );
   const base = await portalLinkOrigin(opts.origin);
   const url = `${base}${PORTAL_PATH}/signin?token=${encodeURIComponent(token)}`;
@@ -476,12 +479,12 @@ export async function peekSignInLink(token: string): Promise<{ email: string } |
 export async function consumeSignInLink(
   token: string,
   opts: { ip?: string | null; userAgent?: string | null; settings?: PortalSettings } = {}
-): Promise<{ sessionToken: string; contact: PortalContact; next: string } | null> {
+): Promise<{ sessionToken: string; contact: PortalContact; next: string; journey: string } | null> {
   if (!token || token.length > 200) return null;
-  const used = await hqOne<{ contact_id: number; next_path: string }>(
+  const used = await hqOne<{ contact_id: number; next_path: string; hc_journey: string }>(
     `UPDATE hd_portal_links SET used_at = now()
       WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
-      RETURNING contact_id, next_path`,
+      RETURNING contact_id, next_path, hc_journey`,
     [hashPortalToken(token)]
   );
   if (!used) return null;
@@ -506,7 +509,7 @@ export async function consumeSignInLink(
       ip: opts.ip ?? null,
     });
   }
-  return { sessionToken, contact, next: used.next_path || `${PORTAL_PATH}/requests` };
+  return { sessionToken, contact, next: used.next_path || `${PORTAL_PATH}/requests`, journey: used.hc_journey ?? "" };
 }
 
 // --- Sessions ---------------------------------------------------------------------
@@ -639,7 +642,7 @@ function portalStatus(status: HdStatus, inWorkflow: boolean, joinedInto: number 
 export async function listContactRequests(contactId: number): Promise<PortalRequestRow[]> {
   const rows = await hq<{ number: number; subject: string; status: HdStatus; request_type_title: string | null; created_at: string; updated_at: string; run_state: string | null; joined_into: number | null }>(
     `SELECT t.number, t.subject, t.status, rt.title AS request_type_title, t.created_at, t.updated_at, r.state AS run_state,
-            (SELECT p.number FROM hd_tickets p WHERE p.id = t.merged_into) AS joined_into
+            (SELECT p.number FROM hd_tickets p WHERE p.id = t.merged_into AND p.deleted_at IS NULL) AS joined_into
        FROM hd_tickets t
        LEFT JOIN hd_request_types rt ON rt.id = t.request_type_id
        LEFT JOIN hd_workflow_runs r ON r.id = t.workflow_run_id
@@ -710,7 +713,7 @@ export async function contactTicket(contactId: number, number: number): Promise<
   return hqOne<PortalTicketRow>(
     `SELECT t.id, t.number, t.subject, t.status, t.request_type_id, t.form_answers, t.created_at, t.updated_at,
             t.requester_email, t.team_id, r.state AS run_state, rt.title AS request_type_title, rt.form,
-            (SELECT p.number FROM hd_tickets p WHERE p.id = t.merged_into) AS joined_into
+            (SELECT p.number FROM hd_tickets p WHERE p.id = t.merged_into AND p.deleted_at IS NULL) AS joined_into
        FROM hd_tickets t
        LEFT JOIN hd_request_types rt ON rt.id = t.request_type_id
        LEFT JOIN hd_workflow_runs r ON r.id = t.workflow_run_id

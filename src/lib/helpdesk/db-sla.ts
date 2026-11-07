@@ -135,7 +135,8 @@ const OPEN = "('new', 'open', 'pending', 'on_hold')";
  * claimed once per target (first_reply_breached_at / resolve_breached_at).
  * Warnings: a running clock inside its warn window (a quarter of the target
  * span, 15 to 60 minutes), claimed once per ticket (sla_warned_at, cleared
- * when the due moves). Paused tickets are skipped: their clock is stopped.
+ * when the due moves). Paused tickets are skipped: their clock is stopped;
+ * so are tickets in the recycle bin (1.19.4, lib/helpdesk/recycle-bin).
  * `ticketIds` limits the claim to those tickets (tests sharing a database).
  */
 export async function claimSlaEvents(now = new Date(), ticketIds?: number[]): Promise<SlaSweepResult> {
@@ -147,7 +148,7 @@ export async function claimSlaEvents(now = new Date(), ticketIds?: number[]): Pr
     const events: SlaSweepEvent[] = [];
     const fr = await client.query<{ id: number }>(
       `UPDATE hd_tickets SET first_reply_breached_at = $1
-        WHERE status IN ${OPEN} AND sla_paused_at IS NULL AND first_replied_at IS NULL
+        WHERE status IN ${OPEN} AND sla_paused_at IS NULL AND deleted_at IS NULL AND first_replied_at IS NULL
           AND first_reply_due IS NOT NULL AND first_reply_due < $1 AND first_reply_breached_at IS NULL ${only}
         RETURNING id`,
       params
@@ -155,7 +156,7 @@ export async function claimSlaEvents(now = new Date(), ticketIds?: number[]): Pr
     for (const r of fr.rows) events.push({ ticket_id: r.id, kind: "breach", target: "first_reply" });
     const rs = await client.query<{ id: number }>(
       `UPDATE hd_tickets SET resolve_breached_at = $1
-        WHERE status IN ${OPEN} AND sla_paused_at IS NULL
+        WHERE status IN ${OPEN} AND sla_paused_at IS NULL AND deleted_at IS NULL
           AND resolve_due IS NOT NULL AND resolve_due < $1 AND resolve_breached_at IS NULL ${only}
         RETURNING id`,
       params
@@ -169,7 +170,7 @@ export async function claimSlaEvents(now = new Date(), ticketIds?: number[]): Pr
                       CASE WHEN first_replied_at IS NULL AND first_reply_due IS NOT NULL THEN first_reply_due ELSE resolve_due END AS due,
                       created_at
                  FROM hd_tickets
-                WHERE status IN ${OPEN} AND sla_paused_at IS NULL AND sla_warned_at IS NULL ${only}) c
+                WHERE status IN ${OPEN} AND sla_paused_at IS NULL AND deleted_at IS NULL AND sla_warned_at IS NULL ${only}) c
         WHERE t.id = c.id AND c.due IS NOT NULL AND c.due >= $1
           AND c.due - $1 <= LEAST(interval '60 minutes', GREATEST(interval '15 minutes', (c.due - c.created_at) / 4))
         RETURNING t.id, c.target`,

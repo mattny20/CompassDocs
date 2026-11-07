@@ -1,8 +1,7 @@
 // Helpdesk 1.19.3: what an asset source ("provider") must offer. Callers in
-// lib/helpdesk/assets only ever use this interface and the registry below,
-// so a second source (Microsoft Intune, 1.19.4) is one more factory in
-// PROVIDER_FACTORIES and one more card in Desk settings → Assets: no
-// caller changes. Maintenance is optional: a read-only source leaves it out
+// lib/helpdesk/assets only ever use this interface and the registry below;
+// the second source (Microsoft Intune, 1.19.4, ./intune) is one more factory
+// in PROVIDER_FACTORIES and one more card in Desk settings → Assets. Maintenance is optional: a read-only source leaves it out
 // and the solve flow never offers it. Server-only.
 
 import "server-only";
@@ -20,6 +19,8 @@ export interface ProviderAsset {
   status_kind: string;
   /** Lower-cased; "" when the asset is not with a person. */
   assigned_email: string;
+  /** A second address the person is known by (Intune's user principal name), lower-cased; matched like assigned_email. */
+  assigned_upn?: string;
   assigned_name: string;
   location: string;
   /** YYYY-MM-DD or null. */
@@ -44,6 +45,14 @@ export interface AssetProvider {
   /** The cache key (hd_assets.provider): "snipeit". */
   key: string;
   label: string;
+  /**
+   * The source identity it was built for (Intune: the tenant ID), so a write
+   * from a provider built before the source changed can be refused
+   * (lib/helpdesk/assets sourceStill). Unset: not checked.
+   */
+  source?: string;
+  /** Sign in and say which source these credentials reach (Intune: the tenant ID the token is for). */
+  identity?(): Promise<string>;
   /** Prove the address and key work; the number of assets the source holds. */
   test(): Promise<{ total: number }>;
   /**
@@ -73,6 +82,11 @@ export interface ProviderConfig {
   /** The cache key to use (tests stamp their own). */
   key: string;
   timeoutMs?: number;
+  /** Intune: the Entra tenant and the app registration's client ID (token is its secret). */
+  tenant?: string;
+  clientId?: string;
+  /** Intune: the tenant ID this provider is for (lib/helpdesk/assets/intune refuses another's token). */
+  expectTid?: string;
 }
 
 /**
@@ -81,4 +95,5 @@ export interface ProviderConfig {
  */
 export const PROVIDER_FACTORIES: Record<string, (cfg: ProviderConfig) => Promise<AssetProvider>> = {
   snipeit: async (cfg) => (await import("./snipeit")).snipeItProvider(cfg),
+  intune: async (cfg) => (await import("./intune")).intuneProvider({ ...cfg, tenant: cfg.tenant ?? "", clientId: cfg.clientId ?? "" }),
 };

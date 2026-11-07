@@ -162,6 +162,8 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.portal.signin": "Signed in to the customer portal",
   // Portal satisfaction survey (1.19.2, agent W5, lib/helpdesk/portal-csat).
   "helpdesk.portal.csat": "Rated a request in the customer portal",
+  // Customer portal help centre (1.19.4 C3, lib/helpdesk/help-centre).
+  "helpdesk.portal.help_centre_updated": "Changed the customer portal help centre",
   // "New" badges in the desk settings rail (1.19.2, agent W5, lib/helpdesk/whats-new).
   "helpdesk.whats_new.seen": "Saw what's new in the desk",
   "helpdesk.automation.created": "Created helpdesk rule",
@@ -183,7 +185,16 @@ export const AUDIT_LABELS: Record<string, string> = {
   // Retention and privacy (1.19.1, agent V5): the sweep's rows carry counts per run.
   "helpdesk.ticket.auto_closed": "Closed solved tickets automatically",
   "helpdesk.ticket.anonymised": "Anonymised helpdesk tickets",
-  "helpdesk.ticket.deleted_by_retention": "Deleted old helpdesk tickets",
+  // 1.19.4 (C7): retention's delete moves tickets to the recycle bin; older rows mean a hard delete.
+  "helpdesk.ticket.deleted_by_retention": "Moved old helpdesk tickets to the recycle bin",
+  // 1.19.4 (area C7, lib/helpdesk/recycle-bin): per ticket (the label keeps "#N subject" after a purge), plus one row per bulk request.
+  "helpdesk.ticket.binned": "Moved a ticket to the recycle bin",
+  "helpdesk.ticket.restored": "Restored a ticket from the recycle bin",
+  "helpdesk.ticket.purged": "Deleted a ticket for good",
+  "helpdesk.ticket.bulk_binned": "Moved tickets to the recycle bin",
+  "helpdesk.ticket.bulk_restored": "Restored tickets from the recycle bin",
+  "helpdesk.ticket.bulk_purged": "Deleted tickets for good",
+  "helpdesk.ticket.purged_by_sweep": "Emptied tickets past 30 days from the recycle bin",
   "helpdesk.ticket.legal_hold_set": "Put a ticket on legal hold",
   "helpdesk.ticket.legal_hold_cleared": "Took a ticket off legal hold",
   "helpdesk.retention.updated": "Changed helpdesk retention settings",
@@ -195,6 +206,9 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.ticket.follower_removed": "Unfollowed a ticket",
   "helpdesk.ticket.merged": "Merged tickets",
   "helpdesk.ticket.bulk_updated": "Bulk edited tickets",
+  // 1.19.4 (area C6, lib/helpdesk/share): details carry the recipients, or the printed parts.
+  "helpdesk.ticket.shared": "Shared a ticket with an agent",
+  "helpdesk.ticket.printed": "Printed a ticket",
   // 1.19.2: major incidents (agent W1).
   "helpdesk.incident.declared": "Declared a major incident",
   "helpdesk.incident.linked": "Linked tickets to a major incident",
@@ -255,6 +269,25 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.asset.unlinked": "Unlinked an asset from a ticket",
   "helpdesk.asset.maintenance_logged": "Logged a maintenance record in Snipe-IT",
   "helpdesk.asset.maintenance_failed": "Failed to log a maintenance record in Snipe-IT",
+  // Chat apps: Microsoft Teams and Slack (1.19.4 C1, lib/helpdesk/chat).
+  "helpdesk.chat.settings_changed": "Changed the chat app settings",
+  "helpdesk.chat.disconnected": "Disconnected a chat app",
+  "helpdesk.chat.tested": "Tested a chat app connection",
+  "helpdesk.chat.request_raised": "Raised a request from a chat app",
+  "helpdesk.chat.channel_ticket": "Opened a ticket from a chat channel message",
+  "helpdesk.chat.approval_clicked": "Answered an approval from a chat app",
+  // Microsoft Intune as an asset source (1.19.4).
+  "helpdesk.assets.intune_on": "Turned on Intune as an asset source",
+  "helpdesk.assets.intune_off": "Turned off Intune as an asset source",
+  "helpdesk.assets.intune_synced": "Synced devices from Intune",
+  "helpdesk.assets.intune_source_changed": "Retired Intune devices from a previous tenant",
+  // Desk background artwork (1.19.4 C5, lib/helpdesk/appearance).
+  "helpdesk.appearance.changed": "Changed the desk's appearance",
+  "helpdesk.appearance.art_uploaded": "Uploaded desk background artwork",
+  "helpdesk.appearance.art_removed": "Removed desk background artwork",
+  "helpdesk.appearance.my_background_changed": "Changed their desk background",
+  "helpdesk.appearance.my_art_uploaded": "Uploaded their own desk background",
+  "helpdesk.appearance.my_art_removed": "Removed their own desk background",
   "helpdesk.reports.exported": "Exported helpdesk report",
   "helpdesk.report.exported": "Exported helpdesk report",
   // Workspace notification policy (1.19.0, agent F's helpdesk notifications).
@@ -285,6 +318,18 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.integration.updated": "Edited a monitoring or API integration",
   "helpdesk.integration.deleted": "Removed a monitoring or API integration",
   "helpdesk.integration.key_rotated": "Issued a new integration API key",
+  // API tokens and outgoing webhooks (1.19.4 C2, lib/helpdesk/api-tokens, api-v1, webhooks).
+  // API writes reuse helpdesk.ticket.updated / helpdesk.note.added with details.via "api".
+  "helpdesk.api_token.created": "Created a helpdesk API token",
+  "helpdesk.api_token.revoked": "Revoked a helpdesk API token",
+  "helpdesk.api.call": "Called the helpdesk API",
+  "helpdesk.reply.added": "Replied to a requester",
+  "helpdesk.webhook.created": "Added a helpdesk webhook",
+  "helpdesk.webhook.updated": "Edited a helpdesk webhook",
+  "helpdesk.webhook.deleted": "Deleted a helpdesk webhook",
+  "helpdesk.webhook.secret_rotated": "Rotated a helpdesk webhook's signing secret",
+  "helpdesk.webhook.tested": "Sent a test to a helpdesk webhook",
+  "helpdesk.webhook.auto_disabled": "Turned off a failing helpdesk webhook",
   "helpdesk.workflow_run.cancelled": "Cancelled a workflow run",
   "helpdesk.workflow_run.step_retried": "Retried a workflow step",
   "helpdesk.workflow_run.step_skipped": "Skipped a workflow step",

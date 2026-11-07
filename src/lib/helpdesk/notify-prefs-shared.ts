@@ -24,6 +24,8 @@ export const HD_NOTIFY_EVENTS = [
   "sla_breach",
   // 1.19.2 (agent W6, lib/helpdesk/status-teams): a Status page service a team follows.
   "service_down",
+  // 1.19.4 (area C6, lib/helpdesk/share): another agent shared a ticket with you.
+  "shared_with_me",
 ] as const;
 export type HdNotifyEvent = (typeof HD_NOTIFY_EVENTS)[number];
 /** The same list under the name the workspace notification policy (lib/notify-policy) imports. */
@@ -131,6 +133,12 @@ export const HD_NOTIFY_EVENT_INFO: Record<HdNotifyEvent, HdNotifyEventInfo> = {
     hint: "A Status page service one of your teams follows degrades or goes down, and when it is back",
     email: false,
     defaults: { push: true, email: false, bell: true },
+  },
+  shared_with_me: {
+    label: "Shared with you",
+    hint: "Another agent shares a ticket with you, with their message",
+    email: true,
+    defaults: { push: true, email: true, bell: true },
   },
 };
 

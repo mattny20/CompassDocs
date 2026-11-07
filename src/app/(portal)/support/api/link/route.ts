@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     return portalJson({ error: "Please complete the check and try again." }, 403);
   }
   const work = () =>
-    deliverSignInLink(email, { origin: originOf(req), next: typeof b?.next === "string" ? b.next : "", ip, settings })
+    deliverSignInLink(email, { origin: originOf(req), next: typeof b?.next === "string" ? b.next : "", ip, settings, journey: b?.j })
       .then((outcome) => logEvent("info", "helpdesk.portal_link", { outcome }))
       .catch((e) => logEvent("error", "helpdesk.portal_link_failed", { error: e instanceof Error ? e.message : String(e) }));
   try {

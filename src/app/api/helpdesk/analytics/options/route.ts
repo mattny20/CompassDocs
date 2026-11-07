@@ -37,12 +37,12 @@ export async function GET() {
       hq<{ id: number; name: string }>("SELECT id, title AS name FROM hd_workflows ORDER BY title LIMIT 500"),
       hq<{ v: string }>(
         `SELECT DISTINCT tg AS v FROM hd_tickets t CROSS JOIN LATERAL unnest(t.tags) tg
-          WHERE t.created_at > now() - interval '365 days' AND ${ticketScope} AND $1::int[] IS NOT NULL AND $2::int IS NOT NULL ORDER BY 1 LIMIT 200`,
+          WHERE t.created_at > now() - interval '365 days' AND t.deleted_at IS NULL AND ${ticketScope} AND $1::int[] IS NOT NULL AND $2::int IS NOT NULL ORDER BY 1 LIMIT 200`,
         p
       ),
       hq<{ v: string }>(
         `SELECT DISTINCT t.category AS v FROM hd_tickets t
-          WHERE t.category <> '' AND t.created_at > now() - interval '365 days' AND ${ticketScope} AND $1::int[] IS NOT NULL AND $2::int IS NOT NULL ORDER BY 1 LIMIT 200`,
+          WHERE t.category <> '' AND t.created_at > now() - interval '365 days' AND t.deleted_at IS NULL AND ${ticketScope} AND $1::int[] IS NOT NULL AND $2::int IS NOT NULL ORDER BY 1 LIMIT 200`,
         p
       ),
     ]);

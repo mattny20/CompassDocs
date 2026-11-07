@@ -544,7 +544,9 @@ export function ReportsDashboard() {
               state={state}
               onPick={(w) => {
                 setGallery(false);
-                setPanel(w);
+                // Idempotent: a second pick before the gallery closes (a double click, a slow
+                // frame) keeps the panel already open instead of re-keying it mid-edit.
+                setPanel((open) => open ?? w);
               }}
             />
             {panel && (

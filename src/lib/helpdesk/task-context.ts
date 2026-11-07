@@ -77,7 +77,7 @@ export async function getWorkflowContext(user: { id: number; role: Role }, ticke
        FROM hd_tickets t
        LEFT JOIN hd_teams tm ON tm.id = t.team_id
        LEFT JOIN hd_workflow_steps s ON s.task_ticket_id = t.id AND s.run_id = $2
-      WHERE t.parent_ticket_id = $1 AND t.source = 'workflow'
+      WHERE t.parent_ticket_id = $1 AND t.source = 'workflow' AND t.deleted_at IS NULL
       ORDER BY t.id
       LIMIT 200`,
     [request.id, run.id]

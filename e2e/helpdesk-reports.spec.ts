@@ -81,12 +81,17 @@ test.describe("reports (licensed)", () => {
     await page.getByRole("button", { name: "Add widget" }).first().click();
     await expect(page.getByRole("heading", { name: "Add a widget" })).toBeVisible();
     await page.getByRole("button", { name: "Add ranked bars" }).click();
+    // Exactly one side panel, and the gallery gone, before typing into it. A second pick before
+    // the gallery closed could re-key the panel mid-edit; the pick is idempotent now (1.19.4).
+    await expect(page.getByRole("heading", { name: "Add a widget" })).toBeHidden();
     const panel = page.getByRole("dialog", { name: "Configure widget" });
+    await expect(panel).toHaveCount(1);
     await expect(panel).toBeVisible();
     await panel.getByLabel("Title").fill(`By priority ${stamp}`);
     await panel.getByLabel("Split by").selectOption("priority");
     await expect(panel.getByRole("button", { name: /^High: / })).toBeVisible(); // the live preview
     await panel.getByRole("button", { name: "Apply" }).click();
+    await expect(panel).toHaveCount(0);
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByText("Dashboard saved.")).toBeVisible();
     const mine = page.locator("section[data-widget]").filter({ has: page.getByRole("heading", { name: `By priority ${stamp}` }) });
@@ -111,8 +116,12 @@ test.describe("reports (licensed)", () => {
     // Explore: any measure by any split, chart and table.
     await page.goto(`/desk/reports/explore`);
     await expect(page.getByRole("heading", { level: 1, name: "Explore" })).toBeVisible();
-    await page.getByLabel("Measure").selectOption("created");
-    await page.getByLabel("Split by").selectOption("priority");
+    // Scoped to the question's controls: an unscoped getByLabel("Measure") once resolved to two
+    // elements under load (1.19.3 CI). Locators here are scoped to the dialog or the group.
+    const question = page.getByRole("group", { name: "Question" });
+    await expect(question).toHaveCount(1);
+    await question.getByLabel("Measure").selectOption("created");
+    await question.getByLabel("Split by").selectOption("priority");
     await expect(page.getByRole("heading", { name: "The numbers" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Add to dashboard" })).toBeVisible();
   });

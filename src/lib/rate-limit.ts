@@ -95,3 +95,12 @@ export function exportRateLimited(key: string): boolean {
 export function apiV1RateLimited(key: string): boolean {
   return limited(`v1:${key}`, 120, 60_000);
 }
+
+/**
+ * Desk background artwork uploads (1.19.4, lib/helpdesk/appearance): 20 an
+ * hour per person. Each one decodes a picture of up to 100 megapixels and
+ * writes four WebP copies; trying a few pictures fits, a loop does not.
+ */
+export function deskArtUploadRateLimited(key: string): boolean {
+  return limited(`desk-art:${key}`, 20, 60 * 60_000);
+}

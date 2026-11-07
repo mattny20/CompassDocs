@@ -1,5 +1,5 @@
-// Helpdesk 1.19.3: outbound HTTP for asset sources (Snipe-IT now; Intune
-// next). One request at a time through lib/safe-fetch's one-hop
+// Helpdesk 1.19.3: outbound HTTP for asset sources (Snipe-IT; Intune's
+// Microsoft Graph and its token endpoint since 1.19.4). One request at a time through lib/safe-fetch's one-hop
 // safeFetchOnce (the SSRF guard and the HTTPS_PROXY routing the rest of the
 // app uses), with what an admin-typed integration address needs on top:
 //
@@ -58,8 +58,11 @@ export const ASSET_HTTP_DEFAULTS = { timeoutMs: 10_000, maxBytes: 12 * 1024 * 10
 export interface AssetRequest {
   url: string;
   method?: "GET" | "POST";
+  /** Sent as "Authorization: Bearer"; "" sends no Authorization header (an OAuth token request). */
   token: string;
   body?: unknown;
+  /** A form body (application/x-www-form-urlencoded) instead of JSON; its secrets are scrubbed like the token. */
+  form?: Record<string, string>;
   /** Who answers, for the messages ("Snipe-IT"). */
   label: string;
   timeoutMs?: number;
@@ -183,11 +186,11 @@ export async function assetRequest(r: AssetRequest): Promise<{ status: number; j
         res = await send(url.toString(), {
           method,
           headers: {
-            authorization: `Bearer ${r.token}`,
+            ...(r.token ? { authorization: `Bearer ${r.token}` } : {}),
             accept: "application/json",
-            ...(r.body !== undefined ? { "content-type": "application/json" } : {}),
+            ...(r.form ? { "content-type": "application/x-www-form-urlencoded" } : r.body !== undefined ? { "content-type": "application/json" } : {}),
           },
-          body: r.body !== undefined ? JSON.stringify(r.body) : undefined,
+          body: r.form ? new URLSearchParams(r.form).toString() : r.body !== undefined ? JSON.stringify(r.body) : undefined,
           signal: ctrl.signal,
           redirect: "manual",
         });
@@ -220,7 +223,11 @@ export async function assetRequest(r: AssetRequest): Promise<{ status: number; j
     } catch {
       json = undefined;
     }
-    if (res.status >= 400) throw statusError(res.status, r.label, scrub(sourceMessage(json), r.token), retryAfter(res));
+    if (res.status >= 400) {
+      let said = scrub(sourceMessage(json), r.token);
+      for (const [k, v] of Object.entries(r.form ?? {})) if (/secret|password/i.test(k)) said = scrub(said, v);
+      throw statusError(res.status, r.label, said, retryAfter(res));
+    }
     if (json === undefined) throw new AssetHttpError(`That address didn't answer like the ${r.label} API. Check it's the address you open ${r.label} at.`, res.status, "not_json");
     return { status: res.status, json };
   } finally {

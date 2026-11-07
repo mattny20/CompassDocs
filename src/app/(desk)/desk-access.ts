@@ -105,6 +105,12 @@ export const SETTINGS_CAP: Record<string, string[]> = {
   retention: ["settings.manage"],
   // Assets: the Snipe-IT source (1.19.3, lib/helpdesk/assets).
   assets: ["settings.manage"],
+  // Chat apps: Microsoft Teams and Slack (1.19.4 C1, lib/helpdesk/chat).
+  chat: ["settings.manage"],
+  // Appearance: the desk's background artwork (1.19.4 C5, lib/helpdesk/appearance).
+  appearance: ["settings.manage"],
+  // API tokens and outgoing webhooks (1.19.4 C2, lib/helpdesk/api-tokens, webhooks).
+  api: ["settings.manage"],
 };
 
 /** May this person open that settings page? */

@@ -32,6 +32,7 @@
 import "server-only";
 import { logEvent } from "../../log";
 import { hq, hqOne, withTx } from "../db-core";
+import { mdInline } from "../md-inline";
 import type { HdTicketRow } from "../types";
 import { HD_PRIORITY_LABEL } from "../types";
 import type { HdRole } from "../roles-shared";
@@ -97,7 +98,7 @@ async function loadTicket(id: number): Promise<TicketForAssign | undefined> {
     `SELECT t.*, COALESCE((to_jsonb(t) ->> 'automated')::int, 0) AS automated, to_jsonb(t) ->> 'integration_id' AS integration_id,
             COALESCE((SELECT m.body FROM hd_messages m WHERE m.ticket_id = t.id AND m.kind IN ('public', 'internal')
                        ORDER BY m.created_at, m.id LIMIT 1), '') AS body
-       FROM hd_tickets t WHERE t.id = $1`,
+       FROM hd_tickets t WHERE t.id = $1 AND t.deleted_at IS NULL`, // 1.19.4 (C7): never a ticket in the recycle bin
     [id]
   );
 }
@@ -395,10 +396,14 @@ type Plan =
   | { kind: "on_call" }
   | { kind: "skills"; criteria: HdSkillCriteria };
 
+// 1.19.4 review (Markdown): every note this engine writes is one plain sentence whose
+// wording carries no Markdown, built around names (agents, rules, skills, a VIP reason),
+// so the whole line goes through mdInline at the three writers below. The raw sentence
+// is still what the log, the queue reason and the caller see.
 async function writeNote(client: import("pg").PoolClient, ticketId: number, body: string, now: Date) {
   await client.query(
     `INSERT INTO hd_messages (ticket_id, author_id, author_name, kind, body, via, created_at) VALUES ($1, NULL, $2, 'internal', $3, 'system', $4)`,
-    [ticketId, NOTE_AUTHOR, body.slice(0, 2000), now]
+    [ticketId, NOTE_AUTHOR, mdInline(body.slice(0, 2000)), now]
   );
 }
 
@@ -603,7 +608,7 @@ async function assignTicketInner(ticketId: number, opts: AssignOptions): Promise
   let stickyId: number | null = null;
   if (!fixed && settings.sticky_requester && t.requester_id && !t.automated) {
     const last = await hqOne<{ assignee_id: number }>(
-      `SELECT assignee_id FROM hd_tickets WHERE requester_id = $1 AND id <> $2 AND assignee_id IS NOT NULL AND solved_at IS NOT NULL
+      `SELECT assignee_id FROM hd_tickets WHERE requester_id = $1 AND id <> $2 AND assignee_id IS NOT NULL AND solved_at IS NOT NULL AND deleted_at IS NULL
         ORDER BY solved_at DESC, id DESC LIMIT 1`,
       [t.requester_id, ticketId]
     );
@@ -616,7 +621,7 @@ async function assignTicketInner(ticketId: number, opts: AssignOptions): Promise
 
   const tx = await withTx(async (client) => {
     const row = (await client.query<{ assignee_id: number | null; team_id: number | null; status: string }>(
-      "SELECT assignee_id, team_id, status FROM hd_tickets WHERE id = $1 FOR UPDATE",
+      "SELECT assignee_id, team_id, status FROM hd_tickets WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
       [ticketId]
     )).rows[0];
     if (!row || !OPEN_STATUSES.includes(row.status) || row.team_id !== teamId || row.assignee_id !== expectAssignee) {
@@ -729,7 +734,7 @@ async function assignTicketInner(ticketId: number, opts: AssignOptions): Promise
 
 async function finishLeave(ticketId: number, note: string | undefined, rule: HdAssignmentRule | null, now: Date): Promise<AssignResult> {
   if (note) {
-    await hq(`INSERT INTO hd_messages (ticket_id, author_name, kind, body, via, created_at) VALUES ($1, $2, 'internal', $3, 'system', $4)`, [ticketId, NOTE_AUTHOR, note, now]);
+    await hq(`INSERT INTO hd_messages (ticket_id, author_name, kind, body, via, created_at) VALUES ($1, $2, 'internal', $3, 'system', $4)`, [ticketId, NOTE_AUTHOR, mdInline(note), now]);
   }
   return { outcome: "left", reason: note ?? "Left in the queue.", rule_id: rule?.id ?? null };
 }
@@ -740,7 +745,7 @@ async function finishQueue(ticketId: number, reason: string, decision: PendingDe
     await hq(`INSERT INTO hd_messages (ticket_id, author_name, kind, body, via, created_at) VALUES ($1, $2, 'internal', $3, 'system', $4)`, [
       ticketId,
       NOTE_AUTHOR,
-      `No one available; waiting in the queue. (${reason}.)`,
+      `No one available; waiting in the queue. (${mdInline(reason)}.)`,
       now,
     ]);
   }
@@ -831,7 +836,7 @@ async function sweepOnce(now: Date, teamIds: number[] | null, res: SweepResult):
   );
   const queued = await hq<{ ticket_id: number }>(
     `SELECT s.ticket_id FROM hd_assignment_ticket s JOIN hd_tickets t ON t.id = s.ticket_id
-      WHERE s.queued_since IS NOT NULL AND s.queued_since <= $1 AND t.assignee_id IS NULL ${scope}
+      WHERE s.queued_since IS NOT NULL AND s.queued_since <= $1 AND t.assignee_id IS NULL AND t.deleted_at IS NULL ${scope}
       ORDER BY s.queued_since, s.ticket_id LIMIT ${SWEEP_BATCH}`,
     p()
   );
@@ -846,7 +851,7 @@ async function sweepOnce(now: Date, teamIds: number[] | null, res: SweepResult):
        JOIN hd_team_assignment a ON a.team_id = t.team_id AND a.mode <> 'manual' AND a.reassign_when_away = 1
        JOIN hd_agent_prefs pr ON pr.user_id = t.assignee_id
        LEFT JOIN hd_assignment_ticket s ON s.ticket_id = t.id
-      WHERE t.status IN ('new', 'open') AND t.assignee_id IS NOT NULL
+      WHERE t.status IN ('new', 'open') AND t.assignee_id IS NOT NULL AND t.deleted_at IS NULL
         AND (pr.availability = 'offline' OR (pr.availability = 'away' AND a.eligible = 'available'))
         AND pr.updated_at <= $1::timestamptz - make_interval(secs => ${graceMs / 1000})
         AND (COALESCE(s.auto_reassigns, 0) < ${ASSIGNMENT_LIMITS.maxAutoReassigns} OR COALESCE(s.cap_noted, 0) = 0) ${scope}
@@ -862,7 +867,7 @@ async function sweepOnce(now: Date, teamIds: number[] | null, res: SweepResult):
        JOIN hd_team_assignment a ON a.team_id = t.team_id AND a.mode <> 'manual' AND a.unanswered_minutes IS NOT NULL
        JOIN LATERAL (SELECT at FROM hd_assignment_log WHERE ticket_id = t.id AND to_user_id = t.assignee_id ORDER BY at DESC, id DESC LIMIT 1) l ON true
        LEFT JOIN hd_assignment_ticket s ON s.ticket_id = t.id
-      WHERE t.status IN ('new', 'open') AND t.assignee_id IS NOT NULL
+      WHERE t.status IN ('new', 'open') AND t.assignee_id IS NOT NULL AND t.deleted_at IS NULL
         AND l.at <= $1::timestamptz - make_interval(mins => a.unanswered_minutes)
         AND NOT EXISTS (SELECT 1 FROM hd_messages m WHERE m.ticket_id = t.id AND m.author_id = t.assignee_id AND m.kind = 'public' AND m.created_at >= l.at)
         AND (COALESCE(s.auto_reassigns, 0) < ${ASSIGNMENT_LIMITS.maxAutoReassigns} OR COALESCE(s.cap_noted, 0) = 0) ${scope}
@@ -934,7 +939,7 @@ export async function teamAssignmentView(teamId: number, now: Date = new Date())
   }
   const q = await hqOne<{ n: number }>(
     `SELECT count(*)::int AS n FROM hd_assignment_ticket s JOIN hd_tickets t ON t.id = s.ticket_id
-      WHERE s.queued_since IS NOT NULL AND t.team_id = $1 AND t.assignee_id IS NULL AND t.status IN ('new', 'open', 'pending', 'on_hold')`,
+      WHERE s.queued_since IS NOT NULL AND t.team_id = $1 AND t.assignee_id IS NULL AND t.status IN ('new', 'open', 'pending', 'on_hold') AND t.deleted_at IS NULL`,
     [teamId]
   );
   return { settings, members, next, open, queued: q?.n ?? 0 };

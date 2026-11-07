@@ -422,7 +422,7 @@ async function earlierTickets(viewer: Viewer, t: TicketRef, person: TicketPerson
     params.push(teams, viewer.id);
     scope = `AND (team_id = ANY($4) OR assignee_id = $5)`;
   }
-  const where = `id <> $3 AND parent_ticket_id IS NULL
+  const where = `id <> $3 AND parent_ticket_id IS NULL AND deleted_at IS NULL
       AND (($1::int IS NOT NULL AND requester_id = $1) OR ($1::int IS NULL AND $2 <> '' AND lower(requester_email) = lower($2))) ${scope}`;
   const [agg, recent] = await Promise.all([
     hqOne<{ n: number; last_at: string | null }>(`SELECT count(*)::int AS n, max(created_at) AS last_at FROM hd_tickets WHERE ${where}`, params),

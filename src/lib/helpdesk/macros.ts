@@ -18,6 +18,7 @@
 
 import "server-only";
 import { hq, hqOne } from "./db-core";
+import { mdInline } from "./md-inline";
 import { HD_PRIORITIES, HD_PRIORITY_LABEL, HD_STATUSES, HD_STATUS_LABEL_REQUESTER } from "./types";
 import type { HdMacro, HdMacroActions, HdPriority, HdStatus } from "./types";
 
@@ -54,9 +55,13 @@ export const MACRO_PLACEHOLDERS: { tag: string; label: string }[] = [
 
 const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? "";
 
-/** One inline value escaped for markdown (no line breaks survive). */
+/**
+ * One inline value escaped for markdown (no line breaks survive): lib/helpdesk/md-inline,
+ * so a subject or name can't become a link (www. and addresses too), a directive, emphasis
+ * or code, or a heading or list at the start of a line (1.19.4 review).
+ */
 export function escapeInline(s: string): string {
-  return s.replace(/[\r\n]+/g, " ").replace(/([\\`*_[\]{}<>()#!|~&])/g, "\\$1");
+  return mdInline(s);
 }
 
 /** Fill a macro body for one ticket. Pure. */

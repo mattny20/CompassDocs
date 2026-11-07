@@ -658,6 +658,10 @@ async function compute(
   const where = [`num_nonnulls(${P.tz}::text, ${P.now}::timestamptz, ${P.lo}::timestamptz, ${P.hi}::timestamptz) = 4`, ...src.where, ...filterSql(filters, src, bind, vip)];
   const sc = scopeSql(scope, src, bind);
   if (sc) where.push(sc);
+  // 1.19.4 (C7): a ticket in the recycle bin counts in no report (every source names its ticket `t`; a step without one has none).
+  where.push("(t.id IS NULL OR t.deleted_at IS NULL)");
+  // A workflow step, approval or run belongs to its run's request (r.ticket_id) too: a binned request's steps count nowhere.
+  if (/\bhd_workflow_runs r\b/.test(src.from)) where.push("NOT EXISTS (SELECT 1 FROM hd_tickets rq WHERE rq.id = r.ticket_id AND rq.deleted_at IS NOT NULL)");
   // Automated tickets (alerts, API) count only when asked for, and never for the people measures.
   const subject = def.subject ?? "ticket";
   if (opt.automated && (subject === "ticket" || subject === "review") && (def.peopleOnly || !automated)) where.push(`NOT (${automatedSql(opt)})`);

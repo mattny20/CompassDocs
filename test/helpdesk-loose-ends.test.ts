@@ -611,22 +611,24 @@ describe("reply-all threading", () => {
 
 describe("New badges in the desk settings rail", () => {
   const ALL = whatsNew.DESK_NEW_PAGES.map((p) => p.href);
+  // The release's first New page (1.19.4: the list grows as areas land, so nothing below names one).
+  const FIRST = ALL[0];
 
   test("per person: every New page the rail shows is flagged until opened; the strip until dismissed", async () => {
     const s0 = await whatsNew.deskNewState(U.agent.id, [...ALL, "/desk/settings/teams"]);
     assert.deepEqual(s0.unseen, ALL);
     assert.equal(s0.strip, true);
-    assert.equal(s0.release, "1.19.3");
-    const narrow = await whatsNew.deskNewState(U.agent.id, ["/desk/settings/assets"]);
-    assert.deepEqual(narrow.unseen, ["/desk/settings/assets"], "only pages this person's rail shows");
+    assert.equal(s0.release, whatsNew.DESK_NEW_RELEASE);
+    const narrow = await whatsNew.deskNewState(U.agent.id, [FIRST]);
+    assert.deepEqual(narrow.unseen, [FIRST], "only pages this person's rail shows");
     const none = await whatsNew.deskNewState(U.agent.id, ["/desk/settings/teams"]);
     assert.equal(none.strip, false, "no strip for someone who reaches none of the pages");
 
-    const opened = await call(whatsNewRoute.POST, "/api/helpdesk/whats-new", app(U.agent, { json: { item: "/desk/settings/assets" } }));
+    const opened = await call(whatsNewRoute.POST, "/api/helpdesk/whats-new", app(U.agent, { json: { item: FIRST } }));
     assert.equal(opened.status, 200, JSON.stringify(opened.body));
-    await call(whatsNewRoute.POST, "/api/helpdesk/whats-new", app(U.agent, { json: { item: "/desk/settings/assets" } }));
+    await call(whatsNewRoute.POST, "/api/helpdesk/whats-new", app(U.agent, { json: { item: FIRST } }));
     const s1 = await whatsNew.deskNewState(U.agent.id, ALL);
-    assert.deepEqual(s1.unseen, ALL.filter((h) => h !== "/desk/settings/assets"));
+    assert.deepEqual(s1.unseen, ALL.filter((h) => h !== FIRST));
     assert.equal(s1.strip, true);
     // Somebody else still sees them all.
     assert.deepEqual((await whatsNew.deskNewState(U.admin.id, ALL)).unseen, ALL);
@@ -634,18 +636,18 @@ describe("New badges in the desk settings rail", () => {
     assert.equal(dismissed.status, 200);
     assert.equal((await whatsNew.deskNewState(U.agent.id, ALL)).strip, false);
     const audits = await pool().query("SELECT target_label FROM audit_log WHERE action = 'helpdesk.whats_new.seen' AND actor_id = $1 ORDER BY id", [U.agent.id]);
-    assert.deepEqual(audits.rows.map((r) => r.target_label), ["/desk/settings/assets", whatsNew.DESK_NEW_STRIP], "written and audited once each");
+    assert.deepEqual(audits.rows.map((r) => r.target_label), [FIRST, whatsNew.DESK_NEW_STRIP], "written and audited once each");
   });
 
   test("only items on the list; only agents; never cross-origin", async () => {
     const odd = await call(whatsNewRoute.POST, "/api/helpdesk/whats-new", app(U.agent, { json: { item: "/desk/settings/teams" } }));
     assert.equal(odd.status, 400);
-    const notAgent = await call(whatsNewRoute.POST, "/api/helpdesk/whats-new", app(U.req, { json: { item: "/desk/settings/assets" } }));
+    const notAgent = await call(whatsNewRoute.POST, "/api/helpdesk/whats-new", app(U.req, { json: { item: whatsNew.DESK_NEW_PAGES[0].href } }));
     assert.equal(notAgent.status, 403);
     const req = new Request("http://localhost/api/helpdesk/whats-new", {
       method: "POST",
       headers: { cookie: `compass_session=${U.admin.session}`, origin: "https://evil.example", host: "localhost", "content-type": "application/json" },
-      body: JSON.stringify({ item: "/desk/settings/assets" }),
+      body: JSON.stringify({ item: whatsNew.DESK_NEW_PAGES[0].href }),
     });
     currentRequest = req;
     try {
@@ -657,11 +659,13 @@ describe("New badges in the desk settings rail", () => {
   });
 
   test("pure: the page a path is on; A, B and C", () => {
-    assert.equal(whatsNew.deskNewPageFor("/desk/settings/assets/12")?.href, "/desk/settings/assets");
-    assert.equal(whatsNew.deskNewPageFor("/desk/settings/assetsx"), undefined);
+    const first = whatsNew.DESK_NEW_PAGES[0].href;
+    assert.equal(whatsNew.deskNewPageFor(`${first}/12`)?.href, first);
+    assert.equal(whatsNew.deskNewPageFor(`${first}x`), undefined);
     assert.equal(whatsNew.andList(["A", "B", "C"]), "A, B and C");
-    assert.equal(whatsNew.isDeskNewItem("strip:1.19.3"), true);
+    assert.equal(whatsNew.isDeskNewItem(`strip:${whatsNew.DESK_NEW_RELEASE}`), true);
     assert.equal(whatsNew.isDeskNewItem("strip:1.19.2"), false);
+    assert.equal(whatsNew.isDeskNewItem("/desk/settings/assets"), false, "1.19.3's page is no longer New");
     assert.equal(whatsNew.isDeskNewItem("/desk/settings/canned"), false, "1.19.2's pages are no longer New");
   });
 });

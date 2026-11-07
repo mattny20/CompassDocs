@@ -25,6 +25,10 @@ import { DeskMeContext } from "./me";
 import { StatusPill } from "./team-status/StatusPill";
 import { StatusPopups } from "./team-status/StatusPopups";
 import { TeamStatusProvider } from "./team-status/data";
+// Desk background artwork (1.19.4 C5, ./appearance): the root that paints it, and "My desk background".
+import type { HdDeskLook } from "@/lib/helpdesk/appearance-shared";
+import { DeskLookRoot } from "./appearance/DeskLook";
+import { DeskBackgroundMenuItem, MyDeskBackgroundPanel } from "./appearance/MyDeskBackground";
 
 export interface DeskCaps {
   agent: boolean;
@@ -94,6 +98,8 @@ export function DeskShell({
   installSlot,
   role,
   roleCaps,
+  look = null,
+  lookMenu = false,
   children,
 }: {
   user: { id: number; name: string };
@@ -104,6 +110,10 @@ export function DeskShell({
   installSlot?: ReactNode;
   role: { key: string; label: string } | null;
   roleCaps: string[];
+  /** The desk background for this person (1.19.4, lib/helpdesk/appearance deskLookFor); null is the plain desk. */
+  look?: HdDeskLook | null;
+  /** The user menu offers "Desk background…". */
+  lookMenu?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() || "/desk";
@@ -111,6 +121,7 @@ export function DeskShell({
   const dests = destinations(caps, counts);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuBtn = useRef<HTMLButtonElement>(null);
+  const userMenu = useRef<HTMLDivElement>(null);
 
   // The fold menu closes when the page changes under it.
   useEffect(() => setMenuOpen(false), [pathname]);
@@ -119,7 +130,7 @@ export function DeskShell({
     <DeskMeContext.Provider value={{ id: user.id, name: user.name, agent: caps.agent, admin: caps.admin, reports: caps.reports, role, caps: roleCaps }}>
     <DeskCountsContext.Provider value={{ counts, refresh }}>
     <TeamStatusProvider enabled={caps.agent}>
-      <div className="flex h-dvh flex-col overflow-hidden bg-canvas print:h-auto print:overflow-visible">
+      <DeskLookRoot look={look} menu={lookMenu} className="flex h-dvh flex-col overflow-hidden bg-canvas print:h-auto print:overflow-visible">
         <a
           href="#main"
           className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-compass-600 focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
@@ -190,7 +201,20 @@ export function DeskShell({
               <span className="sr-only"> (opens in a new tab)</span>
             </a>
             <DeskBell initialUnread={unread} />
-            <AvailabilityMenu name={user.name} role={role?.key ?? null} initial={availability} extra={installSlot} />
+            <div ref={userMenu} className="relative">
+              <AvailabilityMenu
+                name={user.name}
+                role={role?.key ?? null}
+                initial={availability}
+                extra={
+                  <>
+                    {installSlot}
+                    <DeskBackgroundMenuItem />
+                  </>
+                }
+              />
+              <MyDeskBackgroundPanel anchor={userMenu} />
+            </div>
           </div>
         </header>
         <div className="flex min-h-0 flex-1">
@@ -226,7 +250,7 @@ export function DeskShell({
             {children}
           </main>
         </div>
-      </div>
+      </DeskLookRoot>
       {caps.agent && <StatusPopups />}
     </TeamStatusProvider>
     </DeskCountsContext.Provider>

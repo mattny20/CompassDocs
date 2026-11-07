@@ -6,7 +6,8 @@
 // system events (assignments, rules, workflow steps) as one muted line.
 // Bodies are Markdown through the house MarkdownView (sanitised).
 
-import { Lock, Paperclip, RotateCw } from "lucide-react";
+import { Forward, Lock, Paperclip, RotateCw } from "lucide-react";
+import { isShareLine } from "@/lib/helpdesk/share-shared";
 import { ReviewStateChip } from "../roles/role-ui";
 import { ContactHoverCard } from "@/components/helpdesk/contacts/ContactHoverCard";
 import type { HdReviewState } from "@/lib/helpdesk/roles-shared";
@@ -17,7 +18,7 @@ import { initialsOf } from "@/components/UserAvatar";
 import type { HdMessage } from "@/lib/helpdesk/types";
 import { bytesLabel } from "../ui";
 
-const VIA: Record<string, string> = { email: "by email", portal: "in Get help", desk: "", system: "", mcp: "via Claude", customer_portal: "in the customer portal" };
+const VIA: Record<string, string> = { email: "by email", portal: "in Get help", desk: "", system: "", mcp: "via Claude", customer_portal: "in the customer portal", api: "via API" };
 
 export function Conversation({
   messages,
@@ -45,6 +46,19 @@ export function Conversation({
                 {m.body} · <RelativeTime value={m.created_at} />
                 {origins?.[m.id] && ` · from #${origins[m.id]}`}
               </span>
+            </li>
+          );
+        }
+        // 1.19.4 (area C6): "Ana shared this with Sam", an internal line agents alone see.
+        if (isShareLine(m)) {
+          return (
+            <li key={m.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-slate-200 bg-surface px-3 py-2 text-xs text-slate-600" data-testid="share-line">
+              <Forward className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+              {/* The body is Markdown (names escaped by lib/helpdesk/md-inline), as in a note card. */}
+              <div className="min-w-0 flex-1 [&>.doc-prose]:inline [&_.doc-prose]:text-xs! [&_.doc-prose]:text-slate-600! [&_.doc-prose_p]:my-0 [&_.doc-prose_p]:inline">
+                <MarkdownView content={m.body} inline /> · <RelativeTime value={m.created_at} />
+              </div>
+              <span className={chipClass("warn", "sm")}>Agents only</span>
             </li>
           );
         }

@@ -3540,8 +3540,9 @@ account, so there is no preference to honour and no app shell.
   `data-tt` names why) and *Who can use it* (a `Segmented` Anyone with an
   email / Approved domains only, Brand, Protection); then the lock
   banner (`border-compass-200 bg-compass-50 text-compass-800`,
-  `dark:border-compass-500/40`, a 16px `Lock`) and the Customers card
-  (search, a `sm` **Blocked** `error` chip, Block behind a danger
+  `dark:border-compass-500/40`, a 16px `Lock`); and the Customers card, on
+  its own **Customers** page since 1.19.4 (§Helpdesk: customer portal help
+  centre) (search, a `sm` **Blocked** `error` chip, Block behind a danger
   `confirmDialog`). A `notice-warn` asks for the workspace domain when the
   portal is on without one.
 - **The satisfaction survey** (1.19.2, `PortalSurvey`, mock e3) sits under
@@ -3563,6 +3564,92 @@ account, so there is no preference to honour and no app shell.
   in the reader's zone), then "Your request #N was joined with this one,
   because it was about the same problem. Replies to either go here." No
   icon, no link (they are on the kept request already).
+
+## Helpdesk: customer portal help centre
+
+The help centre (1.19.4, mocks h1 at 1440 and 390, h2) is the portal's
+home while it is on: anyone who can reach `/support` searches and reads a
+chosen set of documents before raising a request, with no sign-in.
+Components in `components/helpdesk/portal/help`; the settings in
+`components/helpdesk/desk/settings/PortalHelpCentre.tsx`.
+
+- **One rule decides what is public**: `lib/helpdesk/help-centre`
+  `publicArticleScope` (its readers `publicHelpArticles` and
+  `publicHelpCounts` only add a SELECT). Every surface (home, category,
+  search, the request form's suggestions, an article, its links and
+  files) reads through it; a page never selects documents itself. What it
+  hands out is an allowlist (`HelpArticle`): never an author, tags,
+  comments or history. Search matches only what the outside reads (title,
+  summary, body without comments; never tags). An article's body loses
+  its HTML comments (`publicBody`) and is drawn by the sanitising
+  `MarkdownView` with `rewriteUrl` (`lib/md-url-rewrite`): every address,
+  in any Markdown or HTML form, is decided on the parsed tree by
+  `helpCentreUrl` (files through `/support/api/help/files`, links to
+  documents that are not public reduced to their text, other addresses
+  into the workspace dropped, other sites' left as written). Counts are
+  true: a category past 300 says "Showing the first 300 of N. Search to
+  find the others."
+- **Home**: a full-width hero band (`-mx-4 sm:-mx-6 bg-compass-50`,
+  hairline under it) holding the h1 "How can we help?" and the search;
+  then the categories as a `max-w-5xl` grid of bordered `rounded-xl`
+  `bg-surface` link cards (name `font-semibold`, "8 articles" under it in
+  `text-slate-500`), three across from `sm` and two on a phone (three at
+  390 broke "Troubleshooting" mid-word); then "Still need help?".
+- **The search** (`HelpSearch`) is a GET form to `/support/search` (it
+  works without script): a 48px `rounded-xl` `TextInput` with a `Search`
+  glyph, and the suggestions as an **inline** card right under it, not a
+  `Popover` (the hero grows to hold them, as in the mock): one row per
+  article, a 16px `BookOpen` in `text-slate-500` and the title, hairlines
+  between. Arrows walk the box and the rows, Escape closes; an
+  `sr-only` live region says how many. Nothing matching is a
+  `SectionEmpty` in the card; a rate-limited answer is the server's
+  sentence in a `notice-warn` row over the last suggestions, never "No
+  articles match".
+- **"Still need help?"** (`StillNeedHelp`) is one bordered `bg-surface`
+  card: the question bold, "Raise a request and we'll get back to you by
+  email." under it, and a primary **New request** at the end (it stays
+  beside the text on a phone). Not shown when nothing can be raised.
+- **Article, category and results pages** are the portal's `max-w-3xl`
+  column: a back link "Help centre" (`ChevronLeft`), the h1, then the
+  content. An article: breadcrumb "Help centre / Category", the title at
+  `text-3xl`, "Updated 4 Nov 2026" in the reader's zone, the summary as a
+  lede, the body in the `doc-read` card, a **Files** card, then "Still
+  need help?". Lists are `ArticleRows`: one link per row with a
+  `BookOpen` in `text-compass-600`, the title and a two-line summary.
+- **The header** gains "Help centre · Your requests" (a `nav` named
+  "Portal") before the address and Sign out, or **Sign in** when signed
+  out; the row wraps on a phone. With the help centre on, the sign-in
+  form lives at `/support?signin=1` (and wherever `?next=` sends people).
+- **The request form** shows "These articles might answer it" under the
+  subject from three characters: a `border-compass-200 bg-compass-50`
+  box (`dark:border-compass-500/40`) of up to three links that open in a
+  new tab (`ExternalLink` glyph and an `sr-only` "(opens in a new tab)"),
+  so the form keeps what was typed. Nothing renders with no match. The
+  subject goes in a POST body and is never stored as a search.
+- **Indexing**: every portal page is `noindex` except the help centre's
+  home, categories and articles when the admin ticks "Let search engines
+  index the help centre"; `robots.ts` then allows exactly those paths.
+  Results pages are never indexed.
+- **Desk settings → Customer portal is three pages** under one header
+  (§Settings pages: a section with several jobs gets pages; `SubNav`
+  "Customer portal settings"): **Settings**, **Help centre**,
+  **Customers**. The Help centre page's cards: *Show a help centre*
+  (`Toggle`s for it and for indexing; a `notice-warn` when the portal
+  itself is off; the Settings page's **Open portal** opens it),
+  *What's public* (two **option cards**: the whole card is the label of a
+  checkbox, on = `border-compass-400 bg-compass-50`, off = `border-slate-200
+  bg-surface`, title `font-semibold` and a `text-slate-500` sentence; the
+  chosen spaces as neutral `md` chips with a remove `X` and a secondary
+  `sm` **+ Space** menu that never lists private spaces; a stored private
+  space shows as an `error` chip with `Lock`), *Categories* (hairline rows:
+  the checklist editor's grip, which drags with a pointer, opens Move up /
+  Move down from a click or the keyboard, and moves at once with
+  Alt+Arrow, announced in a live region; the name; the count in `text-xs`;
+  a quiet eye button, `aria-pressed`, `EyeOff` and a neutral `sm`
+  **Hidden** chip when off) and *Last 30 days* (a `dl` of three: label in
+  `text-sm text-slate-500`, value `text-xl font-bold`, "Not enough yet"
+  in `text-sm text-slate-500` when there is no data). One `SaveRow`
+  "Save help centre".
 
 ## Helpdesk: drafts from Claude and the Claude connector
 
@@ -3976,6 +4063,15 @@ live in `components/helpdesk/desk/checklists`.
   checklist** that opens a picker menu (§Overlays and modals) of the
   library, each option's hint "7 items · 2 required". An empty library
   is a `SectionEmpty` with "Set one up" for people who manage it.
+  The limit (ten) is for adding, as with assets (1.19.4): at ten or more
+  **Add a checklist** is the same button `disabled` inside `Tooltip`
+  ("A ticket holds up to 10 checklists."), and the server refuses an
+  eleventh by hand. A merge moves every checklist, so a ticket may hold
+  more than ten; the card lists them all and the solve check reads every
+  one. A request type or workflow that would add one past ten leaves an
+  internal line instead ("The workflow didn't add the checklist "…": a
+  ticket holds up to 10 checklists. An agent can remove one and add it
+  by hand.").
 - **A refused solve** (every path: Solve, `e`, Send and set Solved, a
   macro, bulk edit, the Claude connector) says "Finish the required
   checklist items first: "…", "…" and 2 more." The desk toasts it and
@@ -4093,6 +4189,43 @@ components live in `components/helpdesk/desk/assets`, the server in
   toast the result, and the page polls while a sync runs. "Who sees
   assets" is a plain `Card` with the **Agents can search all assets**
   `Toggle`. One `SaveRow` for the page.
+- **Microsoft Intune** (1.19.4; mock-ups i1 to i3) is a second source
+  with no fields of its own: it signs in with the Microsoft 365 directory
+  sync's app registration. Its card sits between Snipe-IT's and "Who sees
+  assets": the `Laptop` tile beside a full-width `Toggle` whose label is
+  **Microsoft Intune** (`font-semibold`) and whose help line reads "Uses
+  your Microsoft 365 directory sync · 1,190 devices · matched to Snipe-IT
+  by serial" (the last part only while Snipe-IT is connected). The switch
+  applies at once, outside the page's `SaveRow`: switching on tests Graph
+  first, and a refusal (most often the missing
+  `DeviceManagementManagedDevices.Read.All` permission) stays on the card
+  as a `notice-warn` `role="alert"` line with an "About this permission"
+  link; switching off is confirmed (`confirmDialog({ danger: true })`)
+  and follows Snipe-IT's disconnect rules. Without the licence or the
+  directory credentials the switch is `disabled` and the line says why,
+  with a "Set up Microsoft 365 directory sync" link for the credentials
+  case. While on, a `text-xs` line under it says when it synced, how many
+  devices are shown as their Snipe-IT asset, and offers a ghost **Sync
+  now** (`RefreshCw`).
+- **One asset per device.** A device Intune manages whose serial a
+  connected Snipe-IT asset has is shown only as that asset: on the side
+  card it gains an **Intune** row in the `dl` ("Compliant · seen 2h
+  ago", `intuneSeenLine`); in the picker it reads as its Snipe-IT asset
+  (an Intune device's own line adds "Intune: compliant"); on its page the masthead says "from Snipe-IT, matched to
+  Intune" (`sourceLine`) and Details end with "Intune: Compliant · macOS
+  15.2" (`intuneOsLine`). The Intune line shows only while Intune is on.
+  A device only Intune has is an asset of its own with an **Intune** chip:
+  Intune has no tags, so the serial stands where the tag would ("SERIAL ·
+  Intune"), its page adds "Last seen" and has no maintenance card, and
+  **Open in Intune** goes to the Intune admin centre.
+- **System notes quote outside text safely.** A name or sentence that
+  comes from outside (a device name, which Intune lets its user set, a
+  source's error, a checklist, item or person's name) goes into a
+  system-written Markdown note only through `mdInline`
+  (`lib/helpdesk/md-inline`): on one line, with what could start a link,
+  image, emphasis, code, HTML or directive escaped, and literal autolinks
+  ("https://", "www.", addresses) broken with an invisible word joiner.
+  Ordinary names read unchanged.
 - **Solving with a maintenance record** is a `Modal` (max-w-xl) before
   the solve, never after: "`CircleCheck` Solve #N", the subject, then a
   bordered panel with a native checkbox **Log a maintenance record in
@@ -4117,3 +4250,325 @@ components live in `components/helpdesk/desk/assets`, the server in
   requester has devices assigned to their address, and only when that
   address is confirmed (not typed by them, held by no other account). Requesters never see
   anyone else's assets, and never see links on their requests.
+
+## Helpdesk: share and print a ticket
+
+Sharing a ticket with another agent and printing one (1.19.4, mock-ups
+u1 to u5). The client pieces live in `desk/share/ShareActions.tsx`
+(`useShareMenu`, `ShareDialog`, `PrintDialog`); the paper in
+`desk/share/TicketPrint.tsx`; the rules in `lib/helpdesk/share-shared.ts`.
+
+- **The ticket's … menu opens with this group**: "Share with an agent…"
+  (`Forward`), "Copy link" (`Link2`, a toast says it was copied) and
+  "Print or save as PDF…" (`Printer`) with a `Kbd` Mod P cap at its right
+  (`aria-hidden`; the item carries `aria-keyshortcuts`). A separator, then
+  the incident items, Merge and Delete. The menu is `w-64` so the cap fits.
+- **Ctrl/Cmd+P on an open ticket opens the print dialog** instead of
+  printing the desk as it stands. It goes through `blockModKey` and stands
+  aside while any other overlay is open (the browser then prints as usual).
+- **The share dialog** is a house `Modal`: `Forward` "Share #1047" and the
+  subject; "Share with" is a chip field (accent chips with a 16px round
+  `X`, `aria-label` "Remove {name}", `data-tt` "Remove") whose input is a
+  `combobox` over a bordered `listbox` (`aria-multiselectable`) of every
+  other desk agent: initials, name, their teams and "viewing now" or
+  "following". An agent who can't work the ticket stays in the list,
+  `aria-disabled`, at 60% with the reason at the right ("Can't see IT
+  Service Desk tickets"); never hide them, so nobody wonders where a
+  colleague went. Arrows walk the enabled rows, Enter ticks, Backspace on
+  an empty input drops the last chip. Under it: Message (optional,
+  500 characters, a live count as the field's help), the "Make them follow
+  this ticket" checkbox (on) with its hint, one muted sentence on what
+  they get, then `CopyButton` "Copy link" at the left and Cancel /
+  **Share** (or "Share with 3") at the right.
+- **A share leaves one timeline row, not a note card**: `Forward`, "Ana
+  shared this with Sam · 2m ago" and a `warn` `sm` chip **Agents only**,
+  in a bordered surface row. It is an internal/system message marked
+  `hd_messages.event = 'share'` (`isShareLine` reads the marker, never the
+  text), so requesters, CCs, the portal and follower notices never see it,
+  and a note that merely reads like a share stays a note.
+- **The print dialog** lists "Include" as checkboxes with a hint line each:
+  The conversation (ticked and disabled: it is always printed), Details,
+  Internal notes (off), Checklists and linked assets, Time logged (off),
+  Attachment names. "Printing is noted in the audit log." Print opens the
+  print page in a new tab (`?include=…&print=1`); the page writes the audit
+  row itself as it renders, from the parts it rendered, so the browser never
+  reports what was printed.
+- **The print page** follows §Print's print-first pattern: the `(print)`
+  route group (`/desk/tickets/[number]/print`), a `PageHeader` toolbar
+  ("Print preview", back to the ticket, "Print or save as PDF") that is
+  never printed, one sheet that borrows the printed handbook's sheet
+  styles (light on paper in dark mode too), and `@page` margin boxes for
+  the furniture: "Workspace · Team" | "Ticket #1047" on top, "Printed by
+  … on …. Internal notes (not) included." | "Page 1 of 2" below, every
+  string through `cssString`. On screen the same two lines sit inside
+  the sheet, `print:hidden`. Each message is `break-inside: avoid`; an
+  internal note, when included, has an amber left rule and "internal
+  note" in its meta line. Held newbie replies and Claude drafts are never
+  printed. One ticket at a time: there is no bulk print.
+
+## Helpdesk: chat apps (Microsoft Teams and Slack)
+
+Desk settings → Chat apps (1.19.4; mock-ups f1 and f2). The page is
+`components/helpdesk/desk/chat/ChatAppsSettings`; the server is
+`lib/helpdesk/chat` (the platforms in `teams.ts` and `slack.ts`, what the
+apps do in `core.ts`).
+
+- **One card per app**, side by side from `lg` and stacked under it, each a
+  `section` with the 36px `bg-compass-50` `MessageCircle` tile (never a
+  vendor logo), the app's name as an `h2`, one status line ("Connected ·
+  tenant 1a2b3c4d…", "Connected · Acme", "Not connected") and, on the
+  right, a Connected `ok` chip or a primary **Connect**. Under it one
+  `text-sm text-slate-500` line says who connected it and when, and the
+  last Test's answer is a `text-xs` line (`ink-warn` when it failed).
+- **Connect and Edit open the card's own form** (a hairline above it), not
+  a dialog: the credentials, the address to paste into the bot or app as
+  read-only `font-mono` text in a control box with a `CopyButton`, the
+  setup steps as a closed native `<details>` (Slack's holds **Copy app
+  manifest**, with the address already in it), then **Connect** (or
+  **Save**) and a ghost **Cancel**. A saved secret is the Assets recipe:
+  dots, `Lock`, and a **Replace** link that turns it into an empty password
+  input; a new app ID asks for the secret again. Saving calls nobody;
+  **Test** (`PlugZap`, secondary) asks Microsoft or Slack and toasts the
+  answer. **Disconnect** is ghost and confirmed with
+  `confirmDialog({ danger: true })`.
+- **What people can do in <App>** is one `Card` per connected app holding
+  four full-width `Toggle`s in a `divide-y` list, the label over its help
+  line and the switch at the right edge. "Turn a channel message into a
+  ticket" is off by default.
+- **Channels that open tickets** is a `padding="none"` `Card` with a house
+  `Table` (scrolls sideways on a phone): the channel as `Hash` + name over
+  the app in `text-xs`, the team, "Opened by" in `text-slate-600` ("Any
+  message that mentions @CompassDocs", "The :ticket: reaction"), and an
+  icon-only Remove (`Trash2`, `aria-label` "Remove #name", `data-tt`).
+  Nothing listed is a `SectionEmpty`. **Add a channel** opens an inline row
+  of fields under the table; a Teams channel offers only "A mention".
+  Toggles and channels share the page's one `SaveRow`.
+- **In the chat** the app writes plain, short lines in the house voice:
+  the suggestion ("That sounds like a **Laptop or device problem** for IT
+  Service Desk. These might help first: • …"), the **Raise a request?**
+  card (type · team, Device, What's wrong; **Raise request** primary and
+  **Edit**), "Done: **#1047**. I'll message you here when IT Service Desk
+  replies.", a desk reply as "**Ana Kowalski (IT Service Desk)** replied
+  on #1047:" with the text, and the **Approval needed** card (requester
+  asks for **type** · #N, the answers as facts, **Approve**, **Decline…**,
+  **Ask a question**, **Open**). A decision replaces the card with
+  "Approved"/"Declined" and one line. Never an internal note, a held
+  reply, an emoji the workspace didn't choose, or a word of an error's
+  internals.
+
+## Helpdesk: recycle bin
+
+Deleting tickets (1.19.4, mock-ups v1 to v4). Client pieces in
+`desk/recycle-bin/` (`DeleteTicketsDialog`, `RecycleBinView`,
+`RecycleBinSplit`, `BinnedTicketPane`, `RecycleBinNav`, `actions.ts`);
+rules and copy helpers in `lib/helpdesk/recycle-bin-shared.ts`.
+
+- **Delete is a move, so it says where to.** Every place that deletes a
+  ticket says "recycle bin" and "30 days": the … menu's "Delete ticket…",
+  the bulk bar's red `Trash2` icon button (`aria-label` "Delete 3 selected
+  tickets", `data-tt` "Delete…", after Merge and before Clear), the Roles
+  row ("Delete tickets" with a `label` chip **Changed**; "Delete for good"
+  with **New**, `HD_CAP_BADGES`). Never "This cannot be undone" on a move.
+- **The delete dialog lists before it asks** (one dialog for one ticket or
+  up to 200): `Trash2` in red beside the question ("Move #1047 to the
+  recycle bin?", "Move 2 of 3 tickets to the recycle bin?"), one lede
+  ("They leave every queue, view and report, and their requesters no
+  longer see them. Nothing is sent to anyone."), a bordered list of the
+  tickets as the server's preview checked them, a ticket that stays shown
+  muted with a `warn` chip saying why ("Legal hold, stays"; the full
+  sentence as `data-tt` and sr-only text) and, under a request's subject,
+  one `text-xs text-slate-500` line about its task tickets ("Its task #1101
+  goes with it. Task #1102 stays open: you can't delete HR's tickets."),
+  the `Undo2` hint line, then
+  Cancel (focused first) and the `danger` primary that counts what goes
+  ("Move 2 to the recycle bin"). This is the one reversible action that
+  asks first: bulk moves change many queues at once and the list is the
+  point. The toast after it still offers **Undo** (§Feedback).
+- **The bin is a Views row** (`Trash2`, "Recycle bin", the count) after
+  the incidents group, for roles with `tickets.delete` only. Its page
+  (`/desk/recycle-bin`) keeps the Views rail and drops the queue's list
+  column: `PageHeader` with `Trash2`, a search box and a "Team: all"
+  `PickMenu`, then a house table (checkbox, Ticket, Team, Deleted by,
+  Deleted, "Deleted for good in" in `ink-warn` at 3 days or fewer, a
+  `secondary` `sm` **Restore** per row). Selecting rows puts "{n}
+  selected", **Restore** and, with `tickets.purge`, the `danger` "Delete
+  for good…" at the toolbar's end. Delete for good is irreversible, so it
+  is a `confirmDialog` with `typeToConfirm` DELETE. Under `md` the Team
+  and Deleted by columns fold into a line under the subject; under `sm`
+  the date does too, so the table never scrolls sideways on a phone.
+- **A binned ticket opens read-only under a red banner** (`notice-error`,
+  `rounded-xl`, `Trash2`): "**This ticket is in the recycle bin.** Ana
+  Kowalski deleted it today at 14:02. It's deleted for good on 6 Dec
+  unless it's restored." (`binBannerText`) with a `secondary` **Restore**
+  for `tickets.delete` and, for `settings.manage`, a `secondary` **Place
+  legal hold** / **Lift legal hold** (`Lock` / `LockOpen`) beside it: a held
+  ticket is never deleted for good. The ticket under it is dimmed to 60% and `inert`:
+  no composer, status menu, side panel or … menu. From the bin it sits
+  beside the bin's own list column (`#1038` · "30 days left", subject,
+  "Deleted by … · Today, 14:02"); opened by link from a queue it fills the
+  ticket pane. A live ticket that points at a binned one never names it:
+  "task of a deleted ticket", "Merged into a deleted ticket". Requesters, CCs, approvers and the portal get the ordinary
+  not-found page.
+
+## Helpdesk: API tokens and webhooks
+
+Desk settings → **API and webhooks** (1.19.4; mock-up g1; lucide `Webhook`;
+`settings.manage`). Components in `components/helpdesk/desk/settings/
+ApiWebhooksSettings.tsx`; the server in `lib/helpdesk/api-tokens`,
+`api-v1` and `webhooks`.
+
+- **Two table cards, one page.** Each is a `padding="none"` `Card` whose
+  header action is its one primary (**New token**, **New webhook**, with
+  `Plus`), a house `Table scroll` (it scrolls sideways inside its card on a
+  phone, never the page) and a `text-xs text-slate-500` footer line under
+  a hairline that says the rule in one sentence. An empty card is a
+  `SectionEmpty` with an inline action, not an `EmptyState`: the page
+  always has the other card.
+- **A secret is shown once, then only its last four.** A token or a
+  signing secret appears in exactly one place: the dialog that made it,
+  as the intake `KeyOnce` recipe (a `notice-ok` banner "Copy the token
+  now. It won't be shown again.", the value in a mono `code` box with a
+  `primary` `CopyButton`, a curl example with **Copy command** for a
+  token, the signature rule for a secret). Afterwards a row shows the hint
+  only, as a mono `code` chip that never wraps (`cdh_…a91f`). A secret is
+  never in a toast, an audit row, a log line, a URL or a later GET. The
+  dialog is mounted only while open, so a reload of the page behind it
+  can't clear the value before it is copied.
+- **Token rows**: name (`font-semibold`) over the hint; **Can**, one line
+  built from the role's capabilities joined with " · " ("Read tickets ·
+  update status, priority, team and tags · add notes · reply"); **Acts
+  as** "Shown-as name (Role, Team, Team)" or "(Manager, every team)";
+  **Last used** `RelativeTime` or "Never"; **Expires** a short date,
+  "Never", or "Expired" in red ink. One quiet icon action, `Ban`
+  **Revoke** (`data-tt` + `aria-label` "Revoke <name>"), confirmed with
+  `confirmDialog({ danger: true })`.
+- **Webhook rows**: the optional name over the endpoint (mono `code`,
+  truncated), the event keys as written (`ticket.created, …`, they are the
+  receiver's vocabulary), the teams or "All", and **Last delivery** as a
+  `sm` chip: `ok` "200 · 2m ago", `error` "Failing · retrying" (or
+  "Failing"), `neutral` "Off" (its `data-tt` says why: "Turned off after
+  failing for 24 hours."), `info` "No deliveries yet". Actions: `Pencil`
+  Edit and `Send` "Send a test" inline (the test toasts the endpoint's
+  answer), then the `MoreHorizontal` menu: Delivery log, Rotate secret…,
+  Turn off… / Turn on, a separator, Delete… (`danger`). Rotate, turn off
+  and delete ask first.
+- **The webhook dialog** is a `Modal` (max-w-xl): Endpoint (`https` only;
+  the server's sentence for a private or local address), an optional
+  name, the events as checkboxes each with its mono key and a
+  `text-xs` hint, the teams as a two-column checkbox grid (only the
+  admin's own teams; "Leave all unticked for every team" only for someone
+  who works every team, else "choose at least one of yours", as the
+  server enforces), and the **Include internal notes** `Toggle`.
+- **The delivery log** is a `Modal` (max-w-3xl) with a bordered `Refresh`:
+  When (`RelativeTime` of the last attempt), Event (mono, with "#1053" and
+  "Test" lines), Outcome chip (**Delivered** `ok`, **Queued** / **Retrying**
+  `warn` with "4 attempts" and "next in 40m" lines, **Sending** `info`,
+  **Failed** `error`), Code (mono; red ink from 400) and Answer (the
+  error sentence, then the first 2 KB of the response folded in a
+  `details`). Never the payload. One `text-xs` line under it says what is
+  kept.
+- **What the API and webhooks write is labelled.** A note or reply made
+  with a token carries via `api` ("via API" beside the author, like "via
+  Claude"), and a ticket change's timeline line ends "via API". The author
+  is the token's "Shown as" name.
+
+## Helpdesk: desk background
+
+The transparent desk with artwork (1.19.4; mock-ups t1 to t5). Components
+live in `components/helpdesk/desk/appearance`, the server in
+`lib/helpdesk/appearance` (the readability rule in `appearance-contrast`,
+the image work in `appearance-upload`).
+
+- **Only the desk.** `DeskLookRoot` is the desk shell's root element
+  (`.desk-art`) and every rule in `desk-look.css` hangs off it, so the
+  CompassDocs app, the portal and print views never get the artwork. The
+  CSS is unlayered (it must beat Tailwind's `@layer utilities`) and each
+  selector carries the theme, `.desk-art` and its data attribute so it
+  also outranks globals.css's dark-mode ink rules. Colours are
+  `rgb(var(--…) / alpha)` as everywhere.
+- **Three layers, never more.** A fixed layer behind the whole desk
+  holds the picture (`cover`, blurred 8px, bleeding 24px past the edges)
+  and over it the **scrim**, `rgb(var(--surface) / S)`, so text that sits
+  straight on the artwork (the views column, the ticket pane, a settings
+  page) has a calm ground. **Panels** are the existing `.bg-surface`
+  elements (top bar, rail, list, cards), painted
+  `rgb(var(--surface) / P)`. Only the shell's own panels (the top bar,
+  the rail, the queue list, the settings rail) add
+  `backdrop-filter: blur() saturate(1.35)`, with an explicit stacking
+  order: a backdrop filter makes its element a stacking context, so on a
+  card a menu opened inside it would be painted under the next card
+  (1.19.4 caught this before release: the user menu under the ticket
+  pane). The top bar is z 40, above every layer a page uses (popovers 30,
+  the pinned Save row 20) and below modals and toasts (50, rendered
+  outside the desk root, which is isolated); the rail, the queue list and
+  the settings rail are 1. Cards still read as frosted, since the picture
+  under them is already blurred. Floating
+  panels (`shadow-float`, menus, listboxes, popover dialogs, the sticky
+  Save row) stay solid: they open over text, and inside a frosted panel
+  (a backdrop root) their own blur could not reach the text under them. Borders on `border-slate-200` drop to 0.6.
+  No component changes its classes for the artwork: a new desk screen
+  that uses the house surfaces is frosted for free.
+- **Readability is measured, not hoped for.** The levels are the
+  approved mock-ups' (Glass: S 0.38, P 0.355, blur 18px; Subtle: S 0.6,
+  P 0.6, blur 10px; a panel composes to 0.6 / 0.84 over the base scrim).
+  Each artwork is measured once (a 64 × 40 probe, composited in sRGB with
+  each mode's surface) for the scrim it needs so the weakest ink keeps
+  4.5:1 everywhere on it, and S is the larger of the two. Over the
+  artwork the inks are strengthened: light mode secondary text as
+  slate-600, accent text as the accent's 800 step, red-800, amber-800,
+  emerald-800; dark mode secondary as slate-600, accent ink plus 30%
+  white (`color-mix`), red-300. `test/helpdesk-appearance` re-measures the
+  built-ins and fails if a ratio drops. When a picture needs well over the
+  level's base (0.2 more: a bright picture in dark mode, a dark one in
+  light), the Appearance page says so under the mode's select ("In dark
+  mode the desk covers Sunrise 78% so text stays readable").
+- **The plain desk is the fallback, always.** Solid, None, Reduce
+  transparency, Increase contrast, forced colours, a data saver and paper
+  all give the desk as it was. The first paint is always plain (the
+  server can't know the device); the picture is fetched after hydration,
+  at the stored width that fits the screen, and the desk turns
+  see-through when it has arrived (a 0.4s fade, none with reduced
+  motion). It is a fixed layer, so nothing moves.
+- **Off until an admin turns it on.** No artwork, and "Let agents choose
+  their own" off: an upgrade adds nothing to the desk or its user menu.
+- **Uploads are landscape** (at most 4:1), decoded once into a 2560-wide
+  master that every copy and the probe come from, two at a time per
+  process (a third answers 503 with `Retry-After`). The probe keeps each
+  cell's darkest and brightest pixel of the picture as painted (covering
+  2560 × 1440, blurred σ 8), never an average. An agent's own picture is
+  served `private, no-cache` with an ETag, so the owner check runs on
+  every use.
+- **Desk settings → Appearance** (`Sparkle`): a "Background artwork" card
+  with the library as a grid of thumbnails (uploads first, then the
+  built-ins Aurora, Night ridge, Sunrise; labels "(uploaded)" / "(built
+  in)"; the ones in use carry the accent border and ring and a bold
+  accent label, with the modes in an `sr-only` phrase), a bordered quiet
+  **X** on an upload's corner (`aria-label` and `data-tt` "Remove Name",
+  confirmed with `confirmDialog({ danger: true })`), and a **dashed upload
+  tile** in the grid's last cell (`Upload` icon over "Upload artwork";
+  the file input `sr-only`, `tabIndex={-1}`). The tile is the gallery's
+  own upload control; a page with one image and no gallery keeps the
+  secondary `ImageUp` button (§Settings pages). Uploads act at once and
+  never dirty the page. Under the grid, **Light mode** and **Dark mode**
+  `Select`s. Then a "Transparency" card: a `Segmented` (Solid, Subtle,
+  Glass, each with a `hint`), the help sentence, a hairline and the
+  **Let agents choose their own** `Toggle`. One `SaveRow` "Save" with a
+  secondary **Preview** (`Eye`; `aria-pressed`, "Stop preview" with
+  `EyeOff`) that shows the unsaved choices on this desk until it is
+  turned off, saved or left.
+- **My desk background** is a row in the desk's user menu, "Desk
+  background…" (`ImageIcon`), marked `data-closes-menu` so the menu
+  closes and a `Popover role="dialog"` opens under the avatar
+  (`w-[min(21rem,calc(100vw-1.5rem))]`, so a phone keeps no sideways
+  scroll; `max-h-[calc(100dvh-4.5rem)]` and scrolling inside itself, since
+  the desk shell never scrolls and a short window would cut it off). It holds "Only you see this.", `RadioCards` (Workspace artwork
+  with the workspace's line, "Fernwood brand · Night ridge in dark mode";
+  My own with the thumbnail, a dashed icon-only upload tile and a quiet
+  `Trash2`; None, "Plain desk, no transparency") and a `sm` `Segmented`
+  for their level. Choosing My own with nothing uploaded opens the file
+  picker. Every change saves at once and repaints the desk without a
+  reload. Removing their picture asks in place (a small bordered group
+  with **Remove** in `danger` and **Keep it**), because a modal would
+  close the popover. The row shows while the workspace lets agents
+  choose, or while they still have an upload (then the panel says the
+  admin has set the background and offers only **Remove it**).

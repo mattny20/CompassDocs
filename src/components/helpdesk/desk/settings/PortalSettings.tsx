@@ -6,18 +6,20 @@
 // request types, each with the team it goes to; types that need the
 // directory are shown disabled with the reason), who can use it (anyone
 // with an email, or approved domains), the brand (name and logo), and
-// protection (per-address limits, blocked words and domains). Below, the
-// customers who have used it, to block or unblock. Saves through
+// protection (per-address limits, blocked words and domains). Saves through
 // /api/helpdesk/admin/portal (settings.manage); the logo uploads at once.
+//
+// 1.19.4 (C3): the page is the Settings tab of three under one header
+// (app/(desk)/desk/settings/portal/layout.tsx): Settings, Help centre
+// (PortalHelpCentre) and Customers (PortalContacts, below, the customers
+// who have used the portal, to block or unblock).
 
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, Globe, ImagePlus, Lock, Trash2, UserX, UserCheck } from "lucide-react";
+import { ExternalLink, ImagePlus, Lock, Trash2, UserX, UserCheck } from "lucide-react";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { chipClass } from "@/components/Chip";
 import { Field, SectionEmpty, Select, TextInput, Textarea, Toggle } from "@/components/form";
-import { PageHeader } from "@/components/PageHeader";
-import { PageContainer } from "@/components/PageWidth";
 import { RelativeTime } from "@/components/RelativeTime";
 import { SaveRow } from "@/components/SaveRow";
 import { Segmented } from "@/components/Segmented";
@@ -95,8 +97,8 @@ export function PortalSettings() {
       .catch((e: Error) => setError(e.message));
   }, []);
 
-  if (error && !s) return <PageContainer><p className="notice-error rounded-lg border px-3 py-2 text-sm">{error}</p></PageContainer>;
-  if (!s || !data) return <PageContainer><LoadingRow className="py-10" /></PageContainer>;
+  if (error && !s) return <p className="notice-error rounded-lg border px-3 py-2 text-sm">{error}</p>;
+  if (!s || !data) return <LoadingRow className="py-10" />;
 
   const set = (p: Partial<Settings>) => {
     markDirty();
@@ -167,12 +169,7 @@ export function PortalSettings() {
   const logoSrc = s.brand_logo ? `/support/api/logo?v=${s.brand_logo.slice(0, 12)}` : null;
 
   return (
-    <PageContainer>
-      <PageHeader
-        icon={<Globe />}
-        title="Customer portal"
-        subtitle="Let people outside your organisation raise and follow requests, without a CompassDocs account."
-      />
+    <>
       <div className="flex flex-col gap-4">
         <Card
           actions={
@@ -361,16 +358,14 @@ export function PortalSettings() {
           <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           Customers only ever see their own requests and the public conversation. They never see CompassDocs, your directory or internal notes.
         </p>
-
-        <PortalContacts />
       </div>
       <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save portal settings" className="mt-4" />
-    </PageContainer>
+    </>
   );
 }
 
-/** The customers who have used the portal: search, block and unblock. */
-function PortalContacts() {
+/** The customers who have used the portal: search, block and unblock (the Customers tab). */
+export function PortalContacts() {
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<ContactRow[] | null>(null);
   const [error, setError] = useState("");

@@ -504,7 +504,7 @@ export async function deleteRequestType(id: number): Promise<HdRequestType | und
 /** Open requests of a type (the delete dialog's warning). */
 export async function openRequestCount(typeId: number): Promise<number> {
   const r = await hqOne<{ n: number }>(
-    `SELECT count(*)::int AS n FROM hd_tickets WHERE request_type_id = $1 AND status IN ('new', 'open', 'pending', 'on_hold')`,
+    `SELECT count(*)::int AS n FROM hd_tickets WHERE request_type_id = $1 AND status IN ('new', 'open', 'pending', 'on_hold') AND deleted_at IS NULL`,
     [typeId]
   );
   return r?.n ?? 0;

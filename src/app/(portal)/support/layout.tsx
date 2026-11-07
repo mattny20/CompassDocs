@@ -3,12 +3,15 @@
 // (app) route group: no app session is read, no sidebar, no link into the
 // app; a branded header (the portal's logo and name from Desk settings,
 // Customer portal) and, when signed in, the address and Sign out. Never
-// indexed, and no Referer leaves a portal page (sign-in links carry a token).
+// indexed (the help centre's own pages excepted, when its admin ticks
+// "Let search engines index the help centre": 1.19.4, C3), and no Referer
+// leaves a portal page (sign-in links carry a token).
 // When the portal is off or unlicensed the pages answer 404 (support/
 // not-found) and this frame shows no brand.
 
 import type { Metadata } from "next";
 import { currentPortalContact, getPortalSettings, portalBrand, portalOpen } from "@/lib/helpdesk/portal";
+import { helpCentreOpen } from "@/lib/helpdesk/help-centre";
 import { PortalHeader } from "@/components/helpdesk/portal/PortalHeader";
 
 export const dynamic = "force-dynamic";
@@ -36,9 +39,11 @@ export default async function PortalLayout({ children }: { children: React.React
   const open = await portalOpen(settings);
   const brand = open ? await portalBrand(settings) : null;
   const contact = open ? await currentPortalContact(settings) : null;
+  // The help centre (1.19.4, C3) adds "Help centre · Your requests" to the header.
+  const helpCentre = open ? await helpCentreOpen({ portal: settings }).catch(() => false) : false;
   return (
     <div className="min-h-screen bg-canvas text-slate-700">
-      {brand && <PortalHeader name={brand.name} logoUrl={brand.logo_url} email={contact?.email ?? null} />}
+      {brand && <PortalHeader name={brand.name} logoUrl={brand.logo_url} email={contact?.email ?? null} helpCentre={helpCentre} />}
       <main id="main" className="px-4 pb-16 sm:px-6">
         {children}
       </main>

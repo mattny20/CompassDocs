@@ -324,7 +324,8 @@ describe("on a ticket", () => {
     const again = await call(ticketListsRoute.POST, req(`/tickets/${t.number}/checklists`, P.agent.session, { template_id: tpl }), { number: String(t.number) });
     assert.equal(again.status, 409);
     const l = await lines(t.id);
-    assert.deepEqual(l.at(-1), { kind: "internal", body: `${P.agent.name} added the checklist "Leaver: IT ${STAMP}"` });
+    // The name Markdown-escaped (lib/helpdesk/md-inline escapes every ":"); the desk shows "Leaver: IT".
+    assert.deepEqual(l.at(-1), { kind: "internal", body: `${P.agent.name} added the checklist "Leaver\\: IT ${STAMP}"` });
     assert.equal((await auditRows("helpdesk.checklist.added", P.agent.id))[0].template_id, tpl);
   });
 
@@ -378,7 +379,7 @@ describe("on a ticket", () => {
     const again = await tick("newbie", t.number, required.id, true);
     assert.equal(again.status, 200);
     const l = (await lines(t.id)).filter((x) => /ticked/.test(x.body));
-    assert.deepEqual(l, [{ kind: "internal", body: `${P.newbie.name} ticked "Disable sign-in on the leaving date" (Leaver: IT ${STAMP})` }]);
+    assert.deepEqual(l, [{ kind: "internal", body: `${P.newbie.name} ticked "Disable sign-in on the leaving date" (Leaver\\: IT ${STAMP})` }]);
     assert.equal((await auditRows("helpdesk.checklist.item_ticked", P.newbie.id)).length, 1, "once: the repeat changed nothing");
     const un = await tick("agent", t.number, required.id, false);
     assert.equal(un.body.checklists[0].items[0].done, false);
@@ -681,5 +682,90 @@ describe("added automatically", () => {
     assert.match(String((delLive as Error).message), /on its way still adds it/);
     void engine;
     void workflowId;
+  });
+});
+
+// 1.19.4 follow-up: the ten-a-ticket limit is for adding, as with assets.
+describe("more than ten checklists after a merge (1.19.4)", () => {
+  test("a merge moves all of them (6 + 7 = 13); the card lists 13, the solve gate counts every one, adding is refused at ten or more", async () => {
+    const tpls: number[] = [];
+    for (let i = 0; i < 13; i++) tpls.push(await template(`Many ${i}`, [{ title: `Step ${i}`, required: true }]));
+    const keep = await ticket("Many keep");
+    const dup = await ticket("Many dup");
+    const who = { id: P.agent.id, name: P.agent.name };
+    for (const id of tpls.slice(0, 6)) await checklists.addChecklistToTicket(keep.id, id, who);
+    for (const id of tpls.slice(6)) await checklists.addChecklistToTicket(dup.id, id, who);
+    await merge.mergeTickets({ id: P.agent.id, role: "viewer", name: P.agent.name }, { keep: keep.number, merge: [dup.number], notify: false });
+    const kept = await checklists.ticketChecklists(keep.id);
+    assert.equal(kept.length, 13, "every checklist moved, past the limit");
+    assert.equal((await checklists.ticketChecklists(dup.id)).length, 0);
+
+    // The card: all 13, still editable (a closed ticket would not be).
+    const v = await view("agent", keep.number);
+    assert.equal(v.status, 200, JSON.stringify(v.body));
+    assert.equal(v.body.checklists.length, 13);
+    assert.equal(v.body.can_edit, true);
+    assert.match(v.body.solve_block, /"Step 0", "Step 1", "Step 2" and 10 more\.$/);
+
+    // Adding by hand: refused at ten or more, with the sentence the card's tooltip uses.
+    const extra = await template("Many extra", [{ title: "Extra" }]);
+    await assert.rejects(checklists.addChecklistToTicket(keep.id, extra, who), /A ticket holds up to 10 checklists\./);
+
+    // The solve gate counts the 13th checklist's item too.
+    for (const c of kept.slice(0, 12)) for (const i of c.items) assert.equal((await tick("agent", keep.number, i.id, true)).status, 200);
+    let refused = await solve("agent", keep.number);
+    assert.equal(refused.status, 409);
+    assert.match(refused.body.error, /"Step 12"\.$/);
+    await tick("agent", keep.number, kept[12].items[0].id, true);
+    refused = await solve("agent", keep.number);
+    assert.equal(refused.status, 200, JSON.stringify(refused.body));
+
+    // The route answers the same 409 (the card disables Add with this sentence).
+    const viaRoute = await call(ticketListsRoute.POST, req(`/tickets/${keep.number}/checklists`, P.agent.session, { template_id: extra }), { number: String(keep.number) });
+    assert.equal(viaRoute.status, 409);
+    assert.equal(viaRoute.body.error, "A ticket holds up to 10 checklists.");
+  });
+
+  test("an automatic addition on a full ticket says which checklist wasn't added and why (not that it no longer exists)", async () => {
+    const t = await ticket("Full task");
+    const who = { id: P.agent.id, name: P.agent.name };
+    for (let i = 0; i < 10; i++) await checklists.addChecklistToTicket(t.id, await template(`Full ${i}`, [{ title: `F${i}` }]), who);
+    const late = await template("Late task list", [{ title: "Late" }]);
+    await withTx((c) => checklists.addTaskChecklistsTx(c, t.id, [late], "laptop", new Date()));
+    assert.equal((await checklists.ticketChecklists(t.id)).length, 10);
+    const last = (await lines(t.id)).at(-1)!;
+    assert.equal(last.body, `The workflow didn't add the checklist "Late task list ${STAMP}": a ticket holds up to 10 checklists. An agent can remove one and add it by hand.`);
+    assert.ok(!(await lines(t.id)).some((l) => /no longer exists/.test(l.body)));
+    const r = await withTx((c) => checklists.addChecklistTx(c, t.id, late, null, { source: "request_type", byLine: "The request type Laptop" }));
+    assert.deepEqual(r && { full: r.full, id: r.checklist_id }, { full: true, id: 0 });
+  });
+});
+
+// 1.19.4 review: names and titles in system-written notes are Markdown-escaped.
+describe("checklist notes show names as text (1.19.4 review: Markdown)", () => {
+  test("a checklist and an item named like a link make no link in the timeline", async () => {
+    const { fromMarkdown } = await import("mdast-util-from-markdown");
+    const { gfm } = await import("micromark-extension-gfm");
+    const { gfmFromMarkdown } = await import("mdast-util-gfm");
+    const { directive } = await import("micromark-extension-directive");
+    const { directiveFromMarkdown } = await import("mdast-util-directive");
+    const types = (md: string) => {
+      const out = new Set<string>();
+      const walk = (n: { type: string; children?: { type: string }[] }) => {
+        out.add(n.type);
+        for (const c of n.children ?? []) walk(c);
+      };
+      walk(fromMarkdown(md, { extensions: [gfm(), directive()], mdastExtensions: [gfmFromMarkdown(), directiveFromMarkdown()] }) as never);
+      return out;
+    };
+    const tpl = await template("[Reset here](https://evil.example/x) **now**", [{ title: "Step" }]);
+    const t = await ticket("Evil checklist");
+    await checklists.addChecklistToTicket(t.id, tpl, { id: P.agent.id, name: P.agent.name });
+    const c = (await checklists.ticketChecklists(t.id))[0];
+    await checklists.addItem(t.id, c.id, "see www.evil.example or <b>ops@evil.example</b>", { id: P.agent.id, name: P.agent.name });
+    for (const l of (await lines(t.id)).slice(-2)) {
+      const ty = types(l.body);
+      for (const k of ["link", "strong", "emphasis", "html"]) assert.ok(!ty.has(k), `${k}: ${l.body}`);
+    }
   });
 });

@@ -193,7 +193,7 @@ export function Explore() {
             </>
           }
         />
-        <div className={`${CARD_CLASS} mb-4 grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4`}>
+        <div className={`${CARD_CLASS} mb-4 grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4`} role="group" aria-label="Question">
           <Field label="Measure" help={def.description}>
             <Select value={q.measure} onChange={(e) => set({ measure: e.target.value as HdMeasureKey, groupBy: q.groupBy.filter((d) => dimensionsFor(e.target.value as HdMeasureKey).includes(d)) })}>
               {HD_MEASURE_GROUPS.map((g) => (

@@ -10,6 +10,7 @@ import { ipFrom } from "@/lib/audit";
 import { originOf } from "@/lib/helpdesk/routes";
 import { PortalRefusal, createPortalRequest, listContactRequests, portalGate, portalHumanCheck } from "@/lib/helpdesk/portal";
 import { portalJson, readPortalForm, refusalResponse } from "@/lib/helpdesk/portal-http";
+import { journeyRaisedRequest } from "@/lib/helpdesk/help-centre";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,8 @@ export async function POST(req: Request) {
       { request_type_id: Number.isInteger(typeId) ? typeId : 0, subject: fields.subject ?? "", body: fields.body ?? "", answers, name: fields.name, files },
       { settings: gate.settings, origin: originOf(req), ip: ipFrom(req) }
     );
+    // A help centre journey (1.19.4 C3) that ends in this request is not "answered without a request".
+    if (fields.j) await journeyRaisedRequest(fields.j);
     return portalJson({ number: r.number }, 201);
   } catch (e) {
     return refusalResponse(e);

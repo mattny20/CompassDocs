@@ -26,7 +26,8 @@ export function listNames(names: string[]): string {
 /** What the ticket pane shows about merges (agents only). */
 export interface HdMergeInfo {
   /** This ticket was merged into … */
-  into: { number: number; subject: string } | null;
+  /** `deleted`: it is in the recycle bin (1.19.4): show "a deleted ticket", never its number or subject. */
+  into: { number: number; subject: string; deleted?: boolean } | null;
   /** … and these were merged into this one. */
   merged_in: { number: number; subject: string }[];
   /** Message id → the number of the ticket it came from ("from #1051"). */

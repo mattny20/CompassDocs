@@ -32,7 +32,7 @@ export default async function PortalSignInLink({ searchParams }: { searchParams:
         <>
           <h1 className="text-2xl font-bold text-slate-900">This link has expired</h1>
           <p className="mt-1.5 text-sm text-slate-600">Sign-in links work once and for 15 minutes. Ask for a new one and use it straight away.</p>
-          <Button href="/support" size="lg" className="mt-5 w-full">
+          <Button href="/support?signin=1" size="lg" className="mt-5 w-full">
             Ask for a new link
           </Button>
         </>

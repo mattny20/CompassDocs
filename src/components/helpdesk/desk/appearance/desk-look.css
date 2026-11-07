@@ -1,0 +1,145 @@
+/* Desk background artwork (1.19.4; STYLEGUIDE §Helpdesk: desk background;
+ * mock-ups t1 to t5). Only the desk is affected: every rule hangs off
+ * .desk-art, which DeskLookRoot puts on the desk shell's root, never on the
+ * CompassDocs app or the portal.
+ *
+ * DeskLookRoot sets on that root:
+ *   data-art-light / data-art-dark   once that mode's picture has loaded,
+ *                                    and only while the device allows it
+ *                                    (no Reduce transparency, no Increase
+ *                                    contrast, no data saver);
+ *   --desk-img-l / --desk-img-d      url() of each mode's picture;
+ *   --desk-tint-l / --desk-tint-d    its average colour;
+ *   --desk-s-l / --desk-s-d          the scrim's alpha over the picture;
+ *   --desk-p, --desk-filter          the panels' layer alpha and backdrop filter
+ *                                    (one variable for the whole filter, prefixed
+ *                                    first, as globals.css's sign-in glass: a
+ *                                    var() inside blur() is dropped by the build).
+ * The alphas come from lib/helpdesk/appearance-contrast, which measured the
+ * picture so the text colours below keep 4.5:1 on it.
+ *
+ * Unlayered on purpose: these beat Tailwind's @layer utilities. Each rule
+ * also carries .desk-art plus the theme and data attribute, so it outranks
+ * globals.css's dark-mode ink rules whatever the load order. Screen only:
+ * paper gets the plain desk. Hand-written colours are rgb(var(--…)). */
+
+.desk-art-layer {
+  display: none;
+}
+
+@media screen {
+  :root:not([data-theme="dark"]) .desk-art[data-art-light] {
+    --desk-img: var(--desk-img-l);
+    --desk-tint: var(--desk-tint-l);
+    --desk-s: var(--desk-s-l);
+    /* Stronger inks (appearance-contrast HD_DESK_INKS): secondary text as slate-600. */
+    --slate-500: 71 85 105;
+    --color-slate-500: rgb(71 85 105);
+  }
+  :root[data-theme="dark"] .desk-art[data-art-dark] {
+    --desk-img: var(--desk-img-d);
+    --desk-tint: var(--desk-tint-d);
+    --desk-s: var(--desk-s-d);
+    --slate-500: 176 187 204;
+    --color-slate-500: rgb(176 187 204);
+  }
+
+  /* The root lets the picture through; the layer sits behind every child. */
+  :is(:root:not([data-theme="dark"]) .desk-art[data-art-light], :root[data-theme="dark"] .desk-art[data-art-dark]) {
+    background: transparent;
+    isolation: isolate;
+  }
+  :is(:root:not([data-theme="dark"]) .desk-art[data-art-light], :root[data-theme="dark"] .desk-art[data-art-dark]) > .desk-art-layer {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+    background: var(--desk-tint);
+  }
+  /* The picture, blurred 8px (the mock-ups' pane), bleeding past the edges so the blur never fades them. */
+  :is(:root:not([data-theme="dark"]) .desk-art[data-art-light], :root[data-theme="dark"] .desk-art[data-art-dark]) > .desk-art-layer::before {
+    content: "";
+    position: absolute;
+    inset: -24px;
+    background: var(--desk-img) center / cover no-repeat;
+    filter: blur(8px);
+    animation: desk-art-in 0.4s ease-out;
+  }
+  /* The scrim: wherever text sits straight on the artwork it sits on this. */
+  :is(:root:not([data-theme="dark"]) .desk-art[data-art-light], :root[data-theme="dark"] .desk-art[data-art-dark]) > .desk-art-layer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgb(var(--surface) / var(--desk-s));
+  }
+
+  /* Frosted panels: every .bg-surface (top bar, rail, list, cards) is tinted with the panel layer. */
+  :is(:root:not([data-theme="dark"]) .desk-art[data-art-light], :root[data-theme="dark"] .desk-art[data-art-dark]) .bg-surface {
+    background-color: rgb(var(--surface) / var(--desk-p));
+  }
+  /* The backdrop blur goes on the shell's own panels only: the top bar, the rail, the queue list and
+     the settings rail. A backdrop filter makes its element a stacking context, so on a card a menu
+     opened inside it would be painted under the next card; the shell panels get an explicit order
+     instead. The top bar is 40: above every layer a page uses (popovers 30, the pinned Save row
+     20, the workflow builder's 10), so its menus and "My desk background" stay on top (review C5
+     finding 10), and below modals and toasts (50), which are rendered outside the desk's root,
+     itself a stacking context here (isolation above). The rail, the queue list and the settings
+     rail are 1. Cards stay frosted all the same: the picture under them is already blurred. */
+  :is(:root:not([data-theme="dark"]) .desk-art[data-art-light], :root[data-theme="dark"] .desk-art[data-art-dark]) > header.bg-surface {
+    position: relative;
+    z-index: 40;
+    -webkit-backdrop-filter: var(--desk-filter);
+    backdrop-filter: var(--desk-filter);
+  }
+  :is(:root:not([data-theme="dark"]) .desk-art[data-art-light], :root[data-theme="dark"] .desk-art[data-art-dark]) > div > nav.bg-surface,
+  :is(:root:not([data-theme="dark"]) .desk-art[data-art-light], :root[data-theme="dark"] .desk-art[data-art-dark]) :is(section[aria-labelledby="queue-title"], nav[aria-label="Desk settings"]).bg-surface {
+    position: relative;
+    z-index: 1;
+    -webkit-backdrop-filter: var(--desk-filter);
+    backdrop-filter: var(--desk-filter);
+  }
+  /* Floating panels (menus, pickers, the sticky Save row) stay solid: they open over text, and
+     inside a frosted panel (a backdrop root) their own blur could not reach the text under them. */
+  :is(:root:not([data-theme="dark"]) .desk-art[data-art-light], :root[data-theme="dark"] .desk-art[data-art-dark]) :is(.shadow-float, [role="menu"], [role="listbox"], [role="dialog"]).bg-surface {
+    background-color: rgb(var(--surface));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  :is(:root:not([data-theme="dark"]) .desk-art[data-art-light], :root[data-theme="dark"] .desk-art[data-art-dark]) .border-slate-200 {
+    border-color: rgb(var(--slate-200) / 0.6);
+  }
+
+  /* Stronger inks over the artwork, light mode: accent text as the 800 step, red-800, amber-800, emerald-800. */
+  :root:not([data-theme="dark"]) .desk-art[data-art-light] :is(.text-compass-600, .text-compass-700, .link, .hover\:text-compass-700:hover) {
+    color: rgb(var(--compass-800));
+  }
+  :root:not([data-theme="dark"]) .desk-art[data-art-light] :is(.text-red-600, .text-red-500) {
+    color: rgb(153 27 27);
+  }
+  :root:not([data-theme="dark"]) .desk-art[data-art-light] .ink-warn {
+    color: rgb(146 64 14);
+  }
+  :root:not([data-theme="dark"]) .desk-art[data-art-light] .ink-ok {
+    color: rgb(6 95 70);
+  }
+  /* Dark mode: accent ink lifted by 30% white (any accent stays at 0.5 luminance or more), red-300. */
+  :root[data-theme="dark"] .desk-art[data-art-dark] :is(.text-compass-600, .text-compass-700, .link, .hover\:text-compass-700:hover) {
+    color: color-mix(in srgb, rgb(var(--compass-ink-strong)) 70%, white);
+  }
+  :root[data-theme="dark"] .desk-art[data-art-dark] :is(.text-red-600, .text-red-500) {
+    color: rgb(252 165 165);
+  }
+}
+
+@keyframes desk-art-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .desk-art-layer::before {
+    animation: none !important;
+  }
+}

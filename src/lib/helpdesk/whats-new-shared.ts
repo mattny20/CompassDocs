@@ -6,15 +6,26 @@
 // stored per person (lib/helpdesk/whats-new, hd_desk_seen), so a page
 // someone opened once stays unflagged for them in later releases too.
 
-export const DESK_NEW_RELEASE = "1.19.3";
+export const DESK_NEW_RELEASE = "1.19.4";
 
 export interface DeskNewPage {
   href: string;
   label: string;
 }
 
-/** The pages 1.19.3 adds to Desk settings (labels as the rail shows them). 1.19.2's were Skills and languages, Canned responses and Checklists. */
-export const DESK_NEW_PAGES: readonly DeskNewPage[] = [{ href: "/desk/settings/assets", label: "Assets" }];
+/**
+ * The pages 1.19.4 adds to Desk settings (labels as the rail shows them), one
+ * line each so every 1.19.4 area appends its own. 1.19.3's was Assets;
+ * 1.19.2's were Skills and languages, Canned responses and Checklists.
+ */
+export const DESK_NEW_PAGES: readonly DeskNewPage[] = [
+  // Appearance: the desk's background artwork (1.19.4 C5, lib/helpdesk/appearance).
+  { href: "/desk/settings/appearance", label: "Appearance" },
+  // Chat apps: Microsoft Teams and Slack (1.19.4 C1, lib/helpdesk/chat).
+  { href: "/desk/settings/chat", label: "Chat apps" },
+  // API and webhooks: API tokens and outgoing webhooks (1.19.4 C2, lib/helpdesk/api-tokens, webhooks).
+  { href: "/desk/settings/api", label: "API and webhooks" },
+];
 
 /** The release strip's seen-record key. */
 export const DESK_NEW_STRIP = `strip:${DESK_NEW_RELEASE}`;

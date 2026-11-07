@@ -14,6 +14,8 @@ function safePoster(url?: string): string | undefined {
   const t = (url || "").trim();
   if (!t) return undefined;
   if (t.startsWith("/api/attachments/")) return t;
+  // The customer portal's help centre serves an article's files here (1.19.4).
+  if (/^\/support\/api\/help\/files\/\d+$/.test(t)) return t;
   try {
     if (new URL(t).protocol === "https:") return t;
   } catch {

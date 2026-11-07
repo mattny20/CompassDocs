@@ -7,6 +7,7 @@ import type { Components } from "react-markdown";
 import { MD_SANITIZE_SCHEMA, rehypeFilterStyles } from "@/lib/md-html";
 import { remarkDocBlocks } from "@/lib/doc-blocks";
 import { remarkDropTitle } from "@/lib/drop-title";
+import { rehypeRewriteUrls, type UrlRewrite } from "@/lib/md-url-rewrite";
 import { CodeBlock } from "./CodeBlock";
 import { EmailTemplate } from "./EmailTemplate";
 import { DocImage } from "./DocImage";
@@ -109,6 +110,7 @@ export function MarkdownView({
   dropTitle,
   inline,
   headingOffset = 0,
+  rewriteUrl,
 }: {
   content: string;
   docKey?: string;
@@ -140,6 +142,12 @@ export function MarkdownView({
    * published document hides them entirely ("hidden"). Default: a normal rule.
    */
   slideBreaks?: "indicator" | "hidden";
+  /**
+   * Every address in the rendered body passes through this, after the
+   * sanitiser (lib/md-url-rewrite): null drops it. The customer portal's
+   * help centre (1.19.4) uses it so no link or file points into the app.
+   */
+  rewriteUrl?: UrlRewrite;
 }) {
   // External links become favicon chips; internal links stay plain. Email
   // CTA buttons keep their own styling. The one component inline mode maps.
@@ -186,6 +194,7 @@ export function MarkdownView({
           rehypeRaw,
           [rehypeSanitize, MD_SANITIZE_SCHEMA],
           rehypeFilterStyles,
+          ...(rewriteUrl ? [[rehypeRewriteUrls, rewriteUrl] as [typeof rehypeRewriteUrls, UrlRewrite]] : []),
           ...(headingOffset > 0 ? [[rehypeHeadingOffset, headingOffset] as [typeof rehypeHeadingOffset, number]] : []),
         ]}
         components={{

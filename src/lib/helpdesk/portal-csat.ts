@@ -141,7 +141,8 @@ export async function submitPortalCsat(
   const comment = String(input.comment ?? "").replace(/\u0000/g, "").trim();
   if (comment.length > CSAT_COMMENT_MAX) return { ok: false, status: 400, error: `Keep the comment under ${CSAT_COMMENT_MAX} characters.` };
   if (hdRateLimited(`portal-csat:${contact.id}`, 10, 60_000)) return { ok: false, status: 429, error: "Too many attempts. Try again in a minute." };
-  const t = await hqOne<SurveyTicket>(`SELECT ${SURVEY_COLS} FROM hd_tickets WHERE id = $1`, [ticketId]);
+  // 1.19.4 (C7): a request in the recycle bin is "not found".
+  const t = await hqOne<SurveyTicket>(`SELECT ${SURVEY_COLS} FROM hd_tickets WHERE id = $1 AND deleted_at IS NULL`, [ticketId]);
   if (!t || t.parent_ticket_id) return { ok: false, status: 404, error: "Not found." };
   if (t.merged_into) return { ok: false, status: 409, error: "This request was joined with another one. Rate that one instead." };
   const who = await surveyContact(t);

@@ -79,9 +79,14 @@ export async function canReadReports(user: U): Promise<boolean> {
   return hdCan(user, "reports.all");
 }
 
-/** The teams this person belongs to (any role), whatever their keys. */
+/** The teams this person belongs to (any role), whatever their keys. An API token's service account: its live token's teams (1.19.4 C2, lib/helpdesk/api-tokens). */
 export const memberTeamIds = cache(async (userId: number): Promise<number[]> => {
-  const rows = await hq<{ team_id: number }>("SELECT team_id FROM hd_team_members WHERE user_id = $1 ORDER BY team_id", [userId]);
+  const rows = await hq<{ team_id: number }>(
+    `SELECT team_id FROM hd_team_members WHERE user_id = $1
+     UNION SELECT unnest(team_ids) FROM hd_api_tokens WHERE principal_id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+     ORDER BY 1`,
+    [userId]
+  );
   return rows.map((r) => r.team_id);
 });
 
@@ -170,7 +175,7 @@ export function requesterMessages(messages: HdMessage[]): HdMessage[] {
       return state !== "pending" && state !== "returned";
     })
     .map((m) => {
-      const { review_state: _s, reviewed_by: _b, reviewed_at: _a, review_note: _n, ...rest } = m as HdMessage & {
+      const { review_state: _s, reviewed_by: _b, reviewed_at: _a, review_note: _n, event: _e, ...rest } = m as HdMessage & {
         review_state?: unknown;
         reviewed_by?: unknown;
         reviewed_at?: unknown;

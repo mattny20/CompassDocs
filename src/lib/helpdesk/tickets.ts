@@ -14,6 +14,7 @@ import { randomBytes } from "node:crypto";
 import type { PoolClient } from "pg";
 import { hq, hqOne, normalizeRow, withTx } from "./db-core";
 import type { HdQueryable } from "./db-core";
+import { mdInline } from "./md-inline";
 import { afterTicketCreated, afterTicketUpdated } from "./events";
 import type { HdHookContext } from "./events";
 import { computeDues, dueLabel, nextDue, pausesSla, resumedDues, resumesSla, slaState } from "./sla";
@@ -164,22 +165,31 @@ async function teamTimezones(rows: { team_id: number | null }[], client?: HdQuer
   return (teamId) => zones.get(teamId) ?? "UTC";
 }
 
+// 1.19.4 (C7, lib/helpdesk/recycle-bin): a ticket in the recycle bin
+// (deleted_at set) is not found by these reads, so every route, tool and
+// hook that loads a ticket by id or number treats it as gone. The bin's
+// own reads use getTicketIncludingBinned.
 export async function getTicketById(id: number, client?: HdQueryable): Promise<HdTicket | undefined> {
-  return (await readTickets("t.id = $1", [id], client))[0];
+  return (await readTickets("t.id = $1 AND t.deleted_at IS NULL", [id], client))[0];
 }
 
 export async function getTicketByNumber(number: number, client?: HdQueryable): Promise<HdTicket | undefined> {
+  return (await readTickets("t.number = $1 AND t.deleted_at IS NULL", [number], client))[0];
+}
+
+/** A ticket by number whether or not it is in the recycle bin (the bin's own reads only). */
+export async function getTicketIncludingBinned(number: number, client?: HdQueryable): Promise<HdTicket | undefined> {
   return (await readTickets("t.number = $1", [number], client))[0];
 }
 
-/** The plain row (no joins), optionally locked FOR UPDATE inside a transaction. */
+/** The plain row (no joins), optionally locked FOR UPDATE inside a transaction. Not a binned ticket (1.19.4). */
 export async function getTicketRow(id: number, client?: HdQueryable, lock = false): Promise<HdTicketRow | undefined> {
-  return hqOne<HdTicketRow>(`SELECT * FROM hd_tickets WHERE id = $1${lock ? " FOR UPDATE" : ""}`, [id], client);
+  return hqOne<HdTicketRow>(`SELECT * FROM hd_tickets WHERE id = $1 AND deleted_at IS NULL${lock ? " FOR UPDATE" : ""}`, [id], client);
 }
 
 /** A workflow request's child tickets (tasks). */
 export async function listChildTickets(parentId: number): Promise<HdTicketListRow[]> {
-  const tickets = await readTickets("t.parent_ticket_id = $1 ORDER BY t.id", [parentId]);
+  const tickets = await readTickets("t.parent_ticket_id = $1 AND t.deleted_at IS NULL ORDER BY t.id", [parentId]);
   return withClockNotes(tickets, tickets.map(listRow));
 }
 
@@ -447,8 +457,8 @@ export interface UpdateActor {
   id: number | null;
   name: string;
   role?: Role;
-  /** "mcp": the change came through the Claude connector; each timeline line ends "via Claude" (1.19.1). */
-  via?: "mcp";
+  /** "mcp": the change came through the Claude connector; each timeline line ends "via Claude" (1.19.1). "api": an API token (1.19.4 C2), "via API". */
+  via?: "mcp" | "api";
 }
 
 /** May `userId` be assigned a ticket of `teamId`: active, and a member of that team (any team when none) or an agent_all holder. */
@@ -500,19 +510,23 @@ export async function updateTicket(
     const changed: (keyof HdTicketPatch)[] = [];
     const lines: { kind: "system" | "internal"; body: string }[] = [];
     const who = actor.name || "Someone";
+    // 1.19.4 review (Markdown): internal lines are Markdown in the desk, so the names and the
+    // old subject in them are escaped. The status line (kind system) is drawn as plain text
+    // in the desk and the portal, so it keeps the name as typed.
+    const whoMd = mdInline(who);
 
     if (patch.subject !== undefined && patch.subject !== before.subject) {
       set("subject", patch.subject);
       changed.push("subject");
-      lines.push({ kind: "internal", body: `${who} renamed the ticket from "${before.subject}"` });
+      lines.push({ kind: "internal", body: `${whoMd} renamed the ticket from "${mdInline(before.subject)}"` });
     }
     let teamId = before.team_id;
     if (patch.team_id !== undefined && patch.team_id !== before.team_id) {
       if (patch.team_id !== null) {
         const team = (await client.query<{ name: string }>("SELECT name FROM hd_teams WHERE id = $1", [patch.team_id])).rows[0];
         if (!team) throw new HdTicketError("That team does not exist.");
-        lines.push({ kind: "internal", body: `${who} moved the ticket to ${team.name}` });
-      } else lines.push({ kind: "internal", body: `${who} took the ticket out of its team` });
+        lines.push({ kind: "internal", body: `${whoMd} moved the ticket to ${mdInline(team.name)}` });
+      } else lines.push({ kind: "internal", body: `${whoMd} took the ticket out of its team` });
       set("team_id", patch.team_id);
       teamId = patch.team_id;
       changed.push("team_id");
@@ -526,9 +540,9 @@ export async function updateTicket(
         const name = (await client.query<{ name: string }>("SELECT name FROM users WHERE id = $1", [patch.assignee_id])).rows[0]?.name ?? "";
         lines.push({
           kind: "internal",
-          body: patch.assignee_id === actor.id ? `${who} took the ticket` : `${who} assigned the ticket to ${name}`,
+          body: patch.assignee_id === actor.id ? `${whoMd} took the ticket` : `${whoMd} assigned the ticket to ${mdInline(name)}`,
         });
-      } else lines.push({ kind: "internal", body: `${who} unassigned the ticket` });
+      } else lines.push({ kind: "internal", body: `${whoMd} unassigned the ticket` });
       set("assignee_id", patch.assignee_id);
       assigneeChangedTo = patch.assignee_id;
       changed.push("assignee_id");
@@ -536,7 +550,7 @@ export async function updateTicket(
     if (patch.category !== undefined && patch.category !== before.category) {
       set("category", patch.category);
       changed.push("category");
-      lines.push({ kind: "internal", body: patch.category ? `${who} set the category to ${patch.category}` : `${who} cleared the category` });
+      lines.push({ kind: "internal", body: patch.category ? `${whoMd} set the category to ${mdInline(patch.category)}` : `${whoMd} cleared the category` });
     }
     if (patch.tags !== undefined && JSON.stringify(patch.tags) !== JSON.stringify(before.tags ?? [])) {
       set("tags", patch.tags);
@@ -572,7 +586,7 @@ export async function updateTicket(
     if (patch.priority !== undefined && patch.priority !== before.priority) {
       set("priority", patch.priority);
       changed.push("priority");
-      lines.push({ kind: "internal", body: `${who} changed the priority from ${HD_PRIORITY_LABEL[before.priority]} to ${HD_PRIORITY_LABEL[patch.priority]}` });
+      lines.push({ kind: "internal", body: `${whoMd} changed the priority from ${HD_PRIORITY_LABEL[before.priority]} to ${HD_PRIORITY_LABEL[patch.priority]}` });
       // Business time already used is kept and counted against the new
       // target (lib/helpdesk/calendars reprioritisedDues): never from
       // wall-clock paused time, which would add whole nights and weekends.
@@ -643,7 +657,7 @@ export async function updateTicket(
       await client.query(
         `INSERT INTO hd_messages (ticket_id, author_id, author_name, kind, body, via, created_at)
          VALUES ($1, $2, $3, $4, $5, 'system', $6)`,
-        [ticketId, actor.id, actor.name, l.kind, actor.via === "mcp" ? `${l.body} via Claude` : l.body, now]
+        [ticketId, actor.id, actor.name, l.kind, actor.via === "mcp" ? `${l.body} via Claude` : actor.via === "api" ? `${l.body} via API` : l.body, now]
       );
     }
     return { before, changed, assigneeChangedTo, solved };
@@ -730,9 +744,10 @@ const IN_WORKFLOW_SQL = `(EXISTS (SELECT 1 FROM hd_workflow_runs wr WHERE wr.id 
 
 /** The scope predicate for an agent: their teams' tickets and tickets assigned to them; everything with agent_all. */
 function scopeSql(teams: number[] | "all", userId: number, params: unknown[]): string {
-  if (teams === "all") return "TRUE";
+  // 1.19.4 (C7): a ticket in the recycle bin is in no queue, view, count or search.
+  if (teams === "all") return "t.deleted_at IS NULL";
   params.push(teams, userId);
-  return `(t.team_id = ANY($${params.length - 1}::int[]) OR t.assignee_id = $${params.length})`;
+  return `(t.deleted_at IS NULL AND (t.team_id = ANY($${params.length - 1}::int[]) OR t.assignee_id = $${params.length}))`;
 }
 
 function viewSql(view: HdView, userId: number, params: unknown[], tz: string): string {
@@ -928,7 +943,7 @@ export async function countViews(user: { id: number; role: Role }): Promise<HdCo
   const teamScope = teams === "all" ? "TRUE" : "tm.id = ANY($1::int[])";
   const teamRows = await hq<{ team_id: number; name: string; icon: string; open: number }>(
     `SELECT tm.id AS team_id, tm.name, tm.icon,
-            (SELECT count(*)::int FROM hd_tickets t WHERE t.team_id = tm.id AND ${OPEN_SQL}) AS open
+            (SELECT count(*)::int FROM hd_tickets t WHERE t.team_id = tm.id AND ${OPEN_SQL} AND t.deleted_at IS NULL) AS open
        FROM hd_teams tm WHERE ${teamScope} ORDER BY tm.position, tm.name`,
     teamParams
   );
@@ -981,6 +996,8 @@ export async function listMyRequests(
     // includeCopied (1.19.1, agent V3): requests the person is a CC of too.
     opts.includeCopied ? "(t.requester_id = $1 OR t.id IN (SELECT c.ticket_id FROM hd_ticket_ccs c WHERE c.user_id = $1))" : "t.requester_id = $1",
     "t.parent_ticket_id IS NULL",
+    // 1.19.4 (C7): a binned ticket leaves My requests and CC views.
+    "t.deleted_at IS NULL",
   ];
   if (opts.status === "open") where.push(OPEN_SQL);
   if (opts.status === "solved") where.push("t.status IN ('solved', 'closed')");
@@ -1031,7 +1048,7 @@ export async function listMyRequests(
 /** Requests waiting on this requester (status pending, theirs): the Get help badge. */
 export async function countWaitingOnRequester(userId: number): Promise<number> {
   const row = await hqOne<{ n: number }>(
-    "SELECT count(*)::int AS n FROM hd_tickets WHERE requester_id = $1 AND status = 'pending' AND parent_ticket_id IS NULL",
+    "SELECT count(*)::int AS n FROM hd_tickets WHERE requester_id = $1 AND status = 'pending' AND parent_ticket_id IS NULL AND deleted_at IS NULL",
     [userId]
   );
   return row?.n ?? 0;
@@ -1041,7 +1058,7 @@ export async function countWaitingOnRequester(userId: number): Promise<number> {
 export async function requesterHistory(requesterId: number | null, email: string, exceptId: number): Promise<{ count: number; last_at: string | null }> {
   const row = await hqOne<{ n: number; last_at: string | null }>(
     `SELECT count(*)::int AS n, max(created_at) AS last_at FROM hd_tickets
-      WHERE id <> $3 AND parent_ticket_id IS NULL
+      WHERE id <> $3 AND parent_ticket_id IS NULL AND deleted_at IS NULL
         AND (($1::int IS NOT NULL AND requester_id = $1) OR ($1::int IS NULL AND $2 <> '' AND lower(requester_email) = lower($2)))`,
     [requesterId, email, exceptId]
   );

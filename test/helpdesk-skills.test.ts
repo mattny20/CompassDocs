@@ -733,7 +733,8 @@ describe("routing on skills and language", () => {
       const t = await ticket({ team: "desk", subject: "VPN", body: FR });
       await events.afterTicketCreated({ id: t.id, request_type_id: null, source: "portal", parent_ticket_id: null }, { silent: true });
       const note = (await notesOf(t.id)).find((n) => n.startsWith("Assigned to"))!;
-      assert.match(note, new RegExp(`^Assigned to (Ana Kowalski|Marie Bernard) by rule “French speakers ${STAMP}”: (Ana|Marie) speaks French\\.$`));
+      // The stored note is Markdown-escaped (lib/helpdesk/md-inline escapes every ":").
+      assert.match(note, new RegExp(`^Assigned to (Ana Kowalski|Marie Bernard) by rule “French speakers ${STAMP}”\\\\: (Ana|Marie) speaks French\\.$`));
       // An English ticket doesn't match the rule: the team's round robin, which can be Sam.
       const en = await ticket({ team: "desk", subject: "VPN", body: EN });
       await events.afterTicketCreated({ id: en.id, request_type_id: null, source: "portal", parent_ticket_id: null }, { silent: true });

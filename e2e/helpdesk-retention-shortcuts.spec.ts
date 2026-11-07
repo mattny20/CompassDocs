@@ -106,7 +106,7 @@ test.describe("Helpdesk shortcuts and retention settings", () => {
       // Delete asks first; Cancel saves nothing.
       await page.getByRole("radiogroup", { name: "Then" }).getByRole("radio", { name: "Delete" }).click();
       await page.getByRole("button", { name: "Save", exact: true }).click();
-      await expect(page.getByRole("dialog", { name: "Delete old tickets for good?" })).toBeVisible(SLOW);
+      await expect(page.getByRole("dialog", { name: "Move old tickets to the recycle bin?" })).toBeVisible(SLOW);
       await page.getByRole("button", { name: "Cancel" }).click();
       expect((await api(page, "/api/helpdesk/admin/retention")).body.settings.action).toBe(before.action);
       await page.getByRole("radiogroup", { name: "Then" }).getByRole("radio", { name: "Anonymise" }).click();

@@ -35,7 +35,8 @@ export async function POST(req: Request) {
   const token = typeof b?.token === "string" ? b.token : "";
   const done = await consumeSignInLink(token, { ip, userAgent: req.headers.get("user-agent"), settings });
   if (!done) return portalJson({ error: "This link has expired or was already used. Ask for a new one." }, 400);
-  const res = portalJson({ ok: true, next: done.next });
+  // journey (1.19.4 C3): the help centre journey of the tab that asked for the link, for this browser to keep.
+  const res = portalJson({ ok: true, next: done.next, ...(done.journey ? { journey: done.journey } : {}) });
   res.cookies.set(PORTAL_COOKIE, done.sessionToken, portalCookieOptions(await secureCookie(req)));
   return res;
 }

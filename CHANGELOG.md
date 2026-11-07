@@ -4,6 +4,118 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.19.4] - 2026-11-07
+
+Teams and Slack, an API with webhooks, a help centre for customers, Intune
+devices, your own artwork behind the desk, sharing and printing tickets, and
+a recycle bin. People raise and follow requests and approve them from a
+chat, other tools work with the helpdesk through tokens and signed webhooks,
+customers find answers before they ask, and a deleted ticket can be restored
+for 30 days.
+
+### Added
+- **Desk settings → Chat apps:** connect your own Microsoft Teams bot (Azure
+  Bot app ID, client secret and tenant ID) and Slack app (bot token and
+  signing secret). Secrets are stored encrypted and never shown again; the
+  page shows the address to paste in, with Test and the setup steps.
+- **Raise a request from Teams or Slack** by messaging the app, or with the
+  Get help message action. It suggests a request type and articles, then a
+  card to raise it. Desk replies arrive in that chat and the answers there
+  go back to the ticket; internal notes and replies waiting for review are
+  never sent.
+- **Approval cards in Teams and Slack** with Approve, Decline, Ask a
+  question and Open. Only the approver's own click decides, and a question
+  reaches the requester as it does from the app.
+- **Channels that open tickets:** a mention in a chosen channel, or a chosen
+  Slack reaction, opens a ticket for that channel's team. Agents can turn a
+  channel message into a ticket when that option is on. Teams requests are
+  checked against the Bot Framework token and your tenant, Slack requests
+  against the signing secret.
+- **Desk settings → API and webhooks:** API tokens that act as a desk role
+  with chosen teams (never above the creator's), shown once, with expiry,
+  last used and Revoke.
+- **Helpdesk REST API** under `/api/helpdesk/v1`: list and search tickets
+  with cursor paging, read a ticket, change status, priority, team, owner
+  and tags, add notes and replies, list approvals and read report numbers.
+  Every call is checked like the desk and recorded in the audit log.
+- **Outgoing webhooks** for ticket, message, note and approval events,
+  signed with `X-CompassDocs-Signature`, sent in order per webhook, retried
+  for 24 hours, with a delivery log and Send a test. A webhook failing for a
+  day turns off and tells admins.
+- **Customer portal help centre:** customers search your chosen articles
+  with suggestions as they type, browse categories and read articles before
+  raising a request, with no sign-in needed. The request form suggests
+  matching articles from the subject.
+- **Desk settings → Customer portal** gains Help centre and Customers tabs:
+  choose spaces and/or documents tagged `public`, reorder or hide
+  categories, and see searches, answered without a request and the top
+  search for the last 30 days. Drafts, private spaces, handbook-only and
+  confirm-required policies, comments, version history and authors are never
+  public, and search engines are told not to index it unless you allow it.
+- **Microsoft Intune as an asset source** (Desk settings → Assets), signing
+  in with the Microsoft 365 directory sync's app registration. Devices sync
+  every 30 minutes; a device whose serial a Snipe-IT asset has shows as that
+  asset with an Intune line (compliance, last check-in, OS), and other
+  devices are Intune assets of their own. Turning it on names the missing
+  `DeviceManagementManagedDevices.Read.All` permission when Microsoft
+  refuses.
+- **Desk settings → Appearance:** artwork behind the desk with Solid, Subtle
+  or Glass panels, chosen separately for light and dark mode. Pick a
+  built-in artwork or upload a landscape JPG, PNG or WebP (8 MB, 1920 × 1080
+  or more), re-saved without metadata. The desk dims each picture as much as
+  it needs so text keeps WCAG AA contrast. Agents can pick their own
+  background from their menu once you turn on Let agents choose their own
+  (off by default); only they see it.
+- **Share a ticket with another agent** from its … menu, with an optional
+  message. Only agents who can already see the ticket can be picked; they
+  get a "Shared with you" bell, email and push and can be made to follow it.
+  The timeline notes the share for agents only.
+- **Print a ticket or save it as a PDF:** choose what to include (details,
+  internal notes, checklists and assets, time, attachment names), then a
+  paper layout with a header, footer and page numbers opens. Ctrl/Cmd+P on a
+  ticket opens the same dialog. Held replies and Claude drafts are never
+  printed, and each print is recorded in the audit log.
+- **Recycle bin:** deleting a ticket moves it to the bin, where it can be
+  restored for 30 days before it is deleted for good. Delete many tickets at
+  once from the bulk bar, with Undo after each delete. Deleted tickets leave
+  queues, search, reports, the portal, the Claude connector, the API and
+  webhooks.
+- **Desk roles:** Delete tickets now moves tickets to the recycle bin and
+  restores them, in the teams of the role; the new **Delete for good**
+  empties the bin early and is Admin only.
+
+### Changed
+- **Linking an asset** is refused, with the reason, when it is gone from its
+  source, came from a replaced Snipe-IT address or Intune tenant, or its
+  source is switched off.
+- **A merge may leave a ticket with more than 10 checklists.** Add a
+  checklist is disabled at 10 with the reason, every checklist still counts
+  for solving, and a request type or workflow that would add an eleventh
+  leaves an internal note.
+- **Retention's Delete** now moves old closed tickets to the recycle bin,
+  never their open task tickets.
+- **Names in automatic timeline notes** (assets, devices, checklists,
+  agents, rules) are shown as plain text.
+- **Video posters** in documents now show.
+
+### Upgrading
+- **Additive schema, applied on start:** new tables for chat apps, API
+  tokens and webhooks, the help centre, desk artwork and each agent's
+  background; new columns `hd_tickets.deleted_at`, `deleted_by` and
+  `deleted_by_name`, `hd_assets.assigned_upn`, `hd_messages.event` and
+  `hd_portal_links.hc_journey`. No existing data changes.
+- **Roles:** a role customised before 1.19.4 keeps Delete tickets, which now
+  moves tickets to the bin. Only Admin gets Delete for good. Tickets deleted
+  after upgrading can be restored for 30 days.
+- **Teams:** the tenant must be entered as its ID (a GUID), not a domain.
+- **Intune** needs the enterprise directory sync and the
+  `DeviceManagementManagedDevices.Read.All` application permission with
+  admin consent. Only Microsoft's global cloud is supported.
+- **New sweeps** (webhook deliveries, Intune sync, recycle bin purge) run
+  with the other helpdesk sweeps and only with the helpdesk licensed.
+- **Rolling back to 1.19.3 is safe**, except that tickets in the recycle bin
+  would show as live again; empty or restore the bin first.
+
 ## [1.19.3] - 2026-11-06
 
 Assets on helpdesk tickets, with Snipe-IT as the source. Agents see which

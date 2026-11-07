@@ -29,8 +29,12 @@
 //                replaced, so past Reopened counts and pick-up times stay.
 //                Content added to an anonymised ticket later (messages,
 //                files, CCs, drafts, time notes) is anonymised again.
-//                Delete removes the ticket (its rows cascade) and its
-//                files. Open tickets are never touched; neither is a
+//                Delete moves the ticket to the recycle bin (1.19.4,
+//                lib/helpdesk/recycle-bin, "Deleted by Retention rule"),
+//                where it can be restored for 30 days before the bin's
+//                purge removes it (its rows cascade) and its files; a
+//                ticket already in the bin is left to that purge, and
+//                auto-close skips it too. Open tickets are never touched; neither is a
 //                ticket on legal hold (hd_tickets.legal_hold), whatever
 //                the settings say.
 //   Account removal   (lib/db deleteUser, in the same transaction as the
@@ -71,6 +75,7 @@ import { hq, hqOne, withTx } from "./db-core";
 import type { HdQueryable } from "./db-core";
 import { answerText } from "./request-types";
 import { HD_STATUS_LABEL_REQUESTER } from "./types";
+import { BIN_RETENTION_ACTOR } from "./recycle-bin-shared";
 import type { HdFormField, HdStatus } from "./types";
 import {
   HD_FORMER_REQUESTER,
@@ -110,8 +115,8 @@ export async function saveRetentionSettings(patch: Partial<HdRetentionSettings>)
 
 // --- What a run would touch (one SQL for the preview and the run) ------------------
 
-/** Solved, not on hold, solved before the cutoff. $1 cutoff, $2 only (int[] | null). */
-const CLOSE_WHERE = `status = 'solved' AND legal_hold = 0 AND solved_at IS NOT NULL AND solved_at <= $1
+/** Solved, not on hold, solved before the cutoff. $1 cutoff, $2 only (int[] | null). Never a ticket in the recycle bin (1.19.4). */
+const CLOSE_WHERE = `status = 'solved' AND legal_hold = 0 AND solved_at IS NOT NULL AND solved_at <= $1 AND deleted_at IS NULL
   AND ($2::int[] IS NULL OR id = ANY($2::int[]))`;
 
 /**
@@ -135,7 +140,8 @@ const REPORT_LINE_SQL = (m: string) =>
 
 /** Closed, not on hold, closed before the cutoff; anonymise skips what is already anonymised (unless added to since). */
 function purgeWhere(action: HdRetentionSettings["action"]): string {
-  return `status = 'closed' AND legal_hold = 0 AND coalesce(closed_at, solved_at, updated_at) <= $1
+  // 1.19.4 (C7): a ticket in the recycle bin is left to the bin's purge.
+  return `status = 'closed' AND legal_hold = 0 AND deleted_at IS NULL AND coalesce(closed_at, solved_at, updated_at) <= $1
   ${action === "anonymise" ? `AND ${needsAnonymisingSql()}` : ""}
   AND ($2::int[] IS NULL OR id = ANY($2::int[]))`;
 }
@@ -410,6 +416,10 @@ export async function anonymiseTicketTx(client: PoolClient, ticketId: number, no
   await (await import("./incidents")).anonymiseIncidentTx(client, ticketId, ANONYMISED_SUBJECT);
   // 1.19.3: which device the requester had is theirs too: the asset links go (lib/helpdesk/assets).
   await (await import("./assets")).anonymiseTicketAssetsTx(client, ticketId);
+  // 1.19.4: an undelivered webhook event still holds the ticket's text: it is dropped (C2, lib/helpdesk/webhooks).
+  await (await import("./webhooks")).anonymiseWebhookDeliveriesTx(client, ticketId);
+  // 1.19.4: where the request lived in Teams or Slack is the requester's: its chat threads go (lib/helpdesk/chat/privacy).
+  await (await import("./chat/privacy")).anonymiseChatTx(client, ticketId);
   const files = await client.query<{ stored_name: string }>("DELETE FROM hd_attachments WHERE ticket_id = $1 RETURNING stored_name", [ticketId]);
   await client.query(
     `UPDATE hd_tickets
@@ -463,6 +473,8 @@ export async function deleteTicketTx(client: PoolClient, ticketId: number): Prom
     ? (await hqOne<{ c: number | null }>("SELECT portal_contact_id AS c FROM hd_tickets WHERE id = $1", [ticketId], client))?.c
     : null;
   const files = await client.query<{ stored_name: string }>("DELETE FROM hd_attachments WHERE ticket_id = $1 RETURNING stored_name", [ticketId]);
+  // 1.19.4: its undelivered webhook events go with it, payloads and all (C2, lib/helpdesk/webhooks).
+  await (await import("./webhooks")).dropTicketWebhookDeliveriesTx(client, ticketId);
   await client.query("DELETE FROM hd_tickets WHERE id = $1", [ticketId]);
   await dropOrphanPortalContact(client, contact);
   return files.rows.map((r) => r.stored_name);
@@ -544,7 +556,11 @@ export async function runRetention(
         for (const { id } of rows.rows) {
           await client.query("SAVEPOINT hd_retention_one");
           try {
-            files.push(...(s.action === "delete" ? await deleteTicketTx(client, id) : await anonymiseTicketTx(client, id, now)));
+            // 1.19.4 (C7): "delete" moves it to the recycle bin (one rule for every delete); the bin's purge removes it 30 days later.
+            if (s.action === "delete") {
+              const { binTicketTx } = await import("./recycle-bin");
+              await binTicketTx(client, id, { id: null, name: BIN_RETENTION_ACTOR }, now);
+            } else files.push(...(await anonymiseTicketTx(client, id, now)));
             await client.query("RELEASE SAVEPOINT hd_retention_one");
             (s.action === "delete" ? out.deleted : out.anonymised).push(id);
           } catch (e) {
@@ -564,6 +580,13 @@ export async function runRetention(
     }
   }
 
+  // 1.19.4 (C7): webhooks hear about tickets retention moved to the recycle bin (after the commits).
+  if (out.deleted.length) await (await import("./recycle-bin")).emitBinEvents("ticket.deleted", out.deleted, { id: null, name: BIN_RETENTION_ACTOR });
+  // 1.19.4: webhooks hear about the solved tickets closed automatically (C2, lib/helpdesk/webhooks; never throws).
+  if (out.closed.length) {
+    const { emitHelpdeskWebhookEvent } = await import("./webhooks");
+    for (const id of out.closed) await emitHelpdeskWebhookEvent("ticket.updated", { ticketId: id, changed: ["status"], actor: { id: null, name: "Helpdesk" } });
+  }
   const actor = opts.actor ?? null;
   const details = { auto_close_days: s.auto_close_days, keep: `${s.keep_amount} ${s.keep_unit}`, action: s.action };
   if (out.closed.length) {
@@ -657,6 +680,8 @@ export interface HdRemovedAccount {
  */
 export async function anonymiseRemovedAccountTx(client: PoolClient, userId: number, now: Date = new Date()): Promise<HdRemovedAccount> {
   const files: string[] = [];
+  // 1.19.4 (C5): the person's own desk background artwork goes whatever the settings say (lib/helpdesk/appearance).
+  files.push(...(await (await import("./appearance")).removeOwnArtTx(client, userId)));
   const user = await hqOne<{ email: string }>(
     "SELECT coalesce(email, '') AS email FROM users WHERE id = $1",
     [userId],
@@ -704,6 +729,8 @@ export async function anonymiseRemovedAccountTx(client: PoolClient, userId: numb
     [userId, email, HD_FORMER_REQUESTER, copied, ownIds]
   );
   const mids = msgs.rows.map((r) => r.id);
+  // 1.19.4: undelivered webhook events they caused, or that carry a message just blanked, are dropped too (C2, lib/helpdesk/webhooks).
+  await (await import("./webhooks")).scrubRemovedAccountWebhookDeliveriesTx(client, userId, mids);
   if (mids.length) {
     const f = await client.query<{ stored_name: string }>("DELETE FROM hd_attachments WHERE message_id = ANY($1::int[]) RETURNING stored_name", [mids]);
     files.push(...f.rows.map((r) => r.stored_name));
@@ -804,6 +831,8 @@ export interface HdPersonalExport {
   }[];
   /** 1.19.2: major incidents they said affect them ("Me too" in Get help; agent W1, lib/helpdesk/incidents). */
   incidents_affected?: { incident: string; at: string }[];
+  /** 1.19.4: their linked Teams and Slack accounts, and which of their requests were raised or followed there (lib/helpdesk/chat/privacy). */
+  chat?: import("./chat/privacy").HdChatExport;
 }
 
 /**
@@ -857,7 +886,8 @@ export async function personalHelpdeskExport(userId: number): Promise<HdPersonal
     [userId, email]
   );
   const incidentsAffected = await (await import("./incidents")).incidentsAffectedFor(userId);
-  if (!tickets.length) return { included: true, requests: [], incidents_affected: incidentsAffected };
+  const chat = await (await import("./chat/privacy")).chatForExport(userId, tickets.filter((t) => t.relation === "requester").map((t) => t.id));
+  if (!tickets.length) return { included: true, requests: [], incidents_affected: incidentsAffected, chat };
   const own = tickets.filter((t) => t.relation === "requester");
   const msgs = await hq<{
     id: number;
@@ -903,6 +933,7 @@ export async function personalHelpdeskExport(userId: number): Promise<HdPersonal
   return {
     included: true,
     incidents_affected: incidentsAffected,
+    chat,
     requests: tickets.map((t) => ({
       number: t.number,
       subject: t.subject,

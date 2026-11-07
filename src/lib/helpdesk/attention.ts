@@ -25,7 +25,7 @@ export async function approvalsWaitingFor(user: U): Promise<number> {
 export async function requestsWaitingOn(user: U): Promise<number> {
   if (!(await canUseHelpdesk(user))) return 0;
   const r = await hqOne<{ n: number }>(
-    "SELECT count(*)::int AS n FROM hd_tickets WHERE requester_id = $1 AND status = 'pending' AND parent_ticket_id IS NULL",
+    "SELECT count(*)::int AS n FROM hd_tickets WHERE requester_id = $1 AND status = 'pending' AND parent_ticket_id IS NULL AND deleted_at IS NULL",
     [user.id]
   );
   return r?.n ?? 0;

@@ -153,6 +153,10 @@ export const HELPDESK_SWEEPS: HelpdeskSweep[] = [
   { name: "hd_canned", run: async () => (await import("./helpdesk/canned")).pruneCannedUses() },
   // 1.19.3 assets: a full Snipe-IT sync every 30 minutes (claims under ASSETS_SYNC_LOCK; quiet when not due).
   { name: "hd_assets", run: async () => (await import("./helpdesk/assets")).assetsSweep() },
+  // 1.19.4 C7 recycle bin: once a day, delete for good the tickets binned 30 days ago (BIN_PURGE_LOCK).
+  { name: "hd_recycle_bin", run: async (now) => (await import("./helpdesk/recycle-bin")).recycleBinSweep(now) },
+  // 1.19.4 C2 webhooks: requeue stale claims (WEBHOOK_SWEEP_LOCK), then send the due deliveries and retries.
+  { name: "hd_webhooks", run: async (now) => (await import("./helpdesk/webhooks")).webhookSweep(now) },
 ];
 
 export interface HelpdeskSweepResult {

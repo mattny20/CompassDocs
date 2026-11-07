@@ -25,6 +25,13 @@ import { HD_WHATS_NEW_SCHEMA } from "./helpdesk/whats-new-schema";
 import { HD_IMPORT_CHECK_SCHEMA } from "./helpdesk/import-check-schema";
 import { HD_STATUS_TEAMS_SCHEMA } from "./helpdesk/status-teams-schema";
 import { HD_ASSETS_SCHEMA } from "./helpdesk/assets-schema";
+import { HD_INTUNE_SCHEMA } from "./helpdesk/intune-schema";
+import { HD_RECYCLE_BIN_SCHEMA } from "./helpdesk/recycle-bin-schema";
+import { HD_HELP_CENTRE_SCHEMA } from "./helpdesk/help-centre-schema";
+import { HD_API_SCHEMA } from "./helpdesk/api-schema";
+import { HD_CHAT_SCHEMA } from "./helpdesk/chat-schema";
+import { HD_APPEARANCE_SCHEMA } from "./helpdesk/appearance-schema";
+import { HD_SHARE_SCHEMA } from "./helpdesk/share-schema";
 import { createHash, randomBytes } from "node:crypto";
 import { SEED_SPACES, SEED_DOCS } from "./seed-data";
 import { hashPassword } from "./password";
@@ -2327,6 +2334,20 @@ const SCHEMA_SQL = `
   ${HD_STATUS_TEAMS_SCHEMA}
   -- Assets on tickets, Snipe-IT (1.19.3, lib/helpdesk/assets-schema; after hd_tickets).
   ${HD_ASSETS_SCHEMA}
+  -- Intune as an asset source (1.19.4 C4, lib/helpdesk/intune-schema; after HD_ASSETS_SCHEMA).
+  ${HD_INTUNE_SCHEMA}
+  -- Recycle bin for deleted tickets (1.19.4 C7, lib/helpdesk/recycle-bin-schema; after hd_tickets).
+  ${HD_RECYCLE_BIN_SCHEMA}
+  -- Customer portal help centre stats (1.19.4 C3, lib/helpdesk/help-centre-schema).
+  ${HD_HELP_CENTRE_SCHEMA}
+  -- API tokens and outgoing webhooks (1.19.4 C2, lib/helpdesk/api-schema; after users and hd_tickets).
+  ${HD_API_SCHEMA}
+  -- Chat apps: Microsoft Teams and Slack (1.19.4 C1, lib/helpdesk/chat-schema; after users, hd_tickets, hd_request_types).
+  ${HD_CHAT_SCHEMA}
+  -- Desk background artwork (1.19.4 C5, lib/helpdesk/appearance-schema; after users).
+  ${HD_APPEARANCE_SCHEMA}
+  -- Share a ticket: hd_messages.event, the share line's marker (1.19.4 C6, lib/helpdesk/share-schema; after hd_messages).
+  ${HD_SHARE_SCHEMA}
   --- end Helpdesk 1.19.0 ---------------------------------------------------
   ${EMAIL_PARTS_SCHEMA}
   ${NOTIFY_POLICY_SCHEMA}
@@ -5021,7 +5042,8 @@ export async function getUserByUsername(
 }
 
 export async function listUsers(): Promise<User[]> {
-  return q(`SELECT ${USER_COLUMNS} FROM users ORDER BY role DESC, username`);
+  // 1.19.4: helpdesk API tokens' service accounts (status 'service', lib/helpdesk/api-tokens) are not people.
+  return q(`SELECT ${USER_COLUMNS} FROM users WHERE status <> 'service' ORDER BY role DESC, username`);
 }
 
 /** SSO identity lookup: the (provider, external_id) pair is the stable key. */
