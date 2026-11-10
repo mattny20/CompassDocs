@@ -6,8 +6,9 @@
 
 import "server-only";
 import { randomBytes } from "node:crypto";
-import { getSetting, setSetting } from "../db";
+import { getSetting } from "../db";
 import { openSecret } from "../secretbox";
+import { withTx } from "./db-core";
 import type { HdQueryable } from "./db-core";
 import { HD_SETUP_STEPS } from "./types";
 import type { HdBusinessHours, HdSettings, HdSetupStep } from "./types";
@@ -121,12 +122,22 @@ export async function saveHelpdeskSettings(
   patch: Partial<HdSettings>,
   opts: { syncMailboxes?: boolean } = {}
 ): Promise<{ settings: HdSettings; changed: (keyof HdSettings)[] }> {
-  const before = await getHelpdeskSettings();
-  const next = normalizeSettings({ ...before, ...patch }, before.timezone);
-  const changed = (Object.keys(next) as (keyof HdSettings)[]).filter(
-    (k) => JSON.stringify(next[k]) !== JSON.stringify(before[k])
-  );
-  if (changed.length) await setSetting(HD_SETTINGS_KEY, JSON.stringify(next));
+  // 1.20.2: read and written under the row's lock, on one connection. The
+  // mailbox module rewrites two keys of this value inside its own
+  // transactions (mirrorDefaultToSettings); without the lock a save that
+  // read before such a write would put the older address back.
+  const { next, changed } = await withTx(async (client) => {
+    await client.query("SELECT 1 FROM settings WHERE key = $1 FOR UPDATE", [HD_SETTINGS_KEY]);
+    const before = await getHelpdeskSettings(client);
+    const next = normalizeSettings({ ...before, ...patch }, before.timezone);
+    const changed = (Object.keys(next) as (keyof HdSettings)[]).filter(
+      (k) => JSON.stringify(next[k]) !== JSON.stringify(before[k])
+    );
+    if (changed.length) {
+      await client.query("INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [HD_SETTINGS_KEY, JSON.stringify(next)]);
+    }
+    return { next, changed };
+  });
   // 1.20.2 (lib/helpdesk/mailboxes): inbound_address and email_from_name are
   // the default mailbox's address and name. A write to them here moves that
   // mailbox, so the two never disagree; the mailbox module's own mirror

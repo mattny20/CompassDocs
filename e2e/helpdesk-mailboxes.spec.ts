@@ -279,15 +279,26 @@ test.describe("help addresses (licensed)", () => {
     // An address that is not listed counts as the default.
     const unknown = await mailIn(`sales-${stamp}@acme.example`, `Do you sell licences ${stamp}`);
     expect(unknown.outcome).toBe("created");
-    // Mail from one of our own addresses is a loop, never a ticket.
-    const loop = await page.request.post(hook, { data: { from: BILLING, to: HELP, subject: `Loop ${stamp}`, text: "x", dmarc: "pass" } });
+    // Delivered to the help address (the envelope) with the billing address written into To: the
+    // envelope decides, the sender does not.
+    const forgedTo = await mailIn(BILLING, `Payroll question ${stamp}`, { recipients: [HELP] });
+    expect(forgedTo.outcome).toBe("created");
+    // Mail from one of our own addresses that is also in one of our threads is a loop, never a
+    // ticket, and the drop is in the audit log.
+    const loop = await page.request.post(hook, {
+      data: { from: BILLING, to: HELP, subject: `Loop ${stamp}`, text: "x", dmarc: "pass", in_reply_to: "<hd.k7q2xz9m4pqa1b2c.root@acme.example>" },
+    });
     expect((await loop.json()).outcome).toBe("ignored_loop");
+    const dropped = await db.query("SELECT details FROM audit_log WHERE action = 'helpdesk.inbound.rejected' AND target_label = $1 AND details->>'subject' = $2", [BILLING, `Loop ${stamp}`]);
+    expect(dropped.rows.map((r) => [r.details.reason, r.details.signal])).toEqual([["own_address_loop", "thread"]]);
+    await db.query("DELETE FROM audit_log WHERE action = 'helpdesk.inbound.rejected' AND target_label = $1", [BILLING]);
 
     const facts = async (n: number) => (await db.query("SELECT t.team_id, m.address FROM hd_tickets t LEFT JOIN hd_mailboxes m ON m.id = t.mailbox_id WHERE t.number = $1", [n])).rows[0];
     expect(await facts(toHelp.ticket)).toEqual({ team_id: teamId.Support, address: HELP });
     expect(await facts(toBilling.ticket)).toEqual({ team_id: teamId.Billing, address: BILLING });
     expect(await facts(viaEnvelope.ticket)).toEqual({ team_id: teamId.Billing, address: BILLING });
     expect(await facts(unknown.ticket)).toEqual({ team_id: teamId.Support, address: HELP });
+    expect(await facts(forgedTo.ticket)).toEqual({ team_id: teamId.Support, address: HELP });
 
     // --- The agent: the address on the ticket and in the queue, and the reply's From ---
     const agentCtx = await browser.newContext();

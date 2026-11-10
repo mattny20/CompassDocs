@@ -3,9 +3,10 @@
 // mail to the caller's own address, sent exactly as a reply on this address would leave: From
 // the address itself when it sends from it, else the workspace address under its name. The
 // mail provider's refusal comes back in its own words (ok: false, status 200: the request
-// worked, the provider said no). A refusal of the address is kept on the mailbox (the list's
-// warning chip); a test that goes through clears it. channels.manage (settings.manage covers
-// it). Five a minute per person. Audited (helpdesk.mailbox.tested).
+// worked, the provider said no). A permanent refusal of the address itself (lib/helpdesk/email
+// isSenderRejection) is kept on the mailbox (the list's warning chip), any other failure only
+// comes back in the answer; a test that goes through clears it. channels.manage
+// (settings.manage covers it). Five a minute per person. Audited (helpdesk.mailbox.tested).
 
 import { NextResponse } from "next/server";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
@@ -46,7 +47,8 @@ export async function POST(req: Request, { params }: Ctx) {
   const r = await sendMailboxTestMail(box, to);
   if (box.send_from && r.from) {
     if (r.ok) await clearSendFromFailure(box.id).catch(() => {});
-    else if (r.error) await recordSendFromFailure(box.id, r.error).catch(() => {});
+    // Only a refusal of the address itself: a bad recipient, a timeout or a "try again" says nothing about it.
+    else if (r.error && r.senderRejected) await recordSendFromFailure(box.id, r.error).catch(() => {});
   }
   await audit({
     actor: actorFrom(gate),

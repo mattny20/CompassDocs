@@ -39,6 +39,8 @@ sign-in. Plus two fixes on the desk's settings and ticket pages.
 ### Fixed
 - **The Save row sat flush against the last card** on desk settings pages;
   it now keeps the page's gap, pinned or not.
+- **A very long address header in inbound mail could stall the desk.**
+  Addresses are now read in one pass, with caps on length and count.
 - **Tooltips at the top of the ticket pane were cut off.** A tooltip with no
   room above now opens below, and stays inside the screen edges.
 

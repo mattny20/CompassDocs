@@ -813,9 +813,10 @@ export interface HdTicketDetail {
    * 1.20.2 (lib/helpdesk/mailboxes): the address mail about this ticket goes
    * out under (`own`: it is the ticket's own, the one it came in on or an
    * agent chose; otherwise its team's or the default stands in). Null when no
-   * address is listed. `mailboxes` are the "Answer from" choices, sent only
-   * while more than one is listed; `can_change_mailbox` whether this agent
-   * may choose.
+   * address is listed. `mailboxes` are the "Answer from" choices this agent
+   * has (the default, addresses with no team, their teams'; it may not hold
+   * `mailbox` itself, and may be empty), sent only while more than one is
+   * listed; `can_change_mailbox` whether this agent may choose.
    */
   mailbox?: (import("./mailboxes-shared").HdTicketMailbox & { own: boolean }) | null;
   mailboxes?: import("./mailboxes-shared").HdMailboxOption[];

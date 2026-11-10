@@ -4,6 +4,8 @@
 //         trust_unverified_senders }
 //         → { settings, inbound_path }. Audited (helpdesk.settings.updated,
 //         changed keys only; helpdesk.inbound.secret_rotated for a new secret).
+//         1.20.2: inbound_address is the default mailbox's address: "" clears it, anything
+//         else that is not one address (or carries a + tag) answers 400 and changes nothing.
 // settings.trust_unverified_senders is the email channel's sender check
 // (lib/helpdesk/inbound, its own settings key): match mail to accounts
 // even when the provider reports no SPF/DKIM/DMARC result. Off by default.
@@ -24,6 +26,7 @@ import type { HdCap } from "@/lib/helpdesk/roles";
 import { getHelpdeskSettings, markSetupSteps, newInboundSecret, publicSettings, saveHelpdeskSettings, validTimezone } from "@/lib/helpdesk/settings";
 import type { HdSettings } from "@/lib/helpdesk/types";
 import { badRequest } from "@/lib/helpdesk/routes";
+import { mailboxAddressProblem } from "@/lib/helpdesk/mailboxes-shared";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +103,17 @@ export async function PATCH(req: Request) {
   if (b.trust_unverified_senders !== undefined && typeof b.trust_unverified_senders !== "boolean") return badRequest("trust_unverified_senders is true or false.");
   if (b.holidays !== undefined && (!Array.isArray(b.holidays) || b.holidays.length > 366 || b.holidays.some((d) => typeof d !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(d)))) {
     return badRequest("Holidays are YYYY-MM-DD dates.");
+  }
+  // 1.20.2: inbound_address is the default mailbox's address (lib/helpdesk/mailboxes). Empty
+  // clears it; anything else must be one address, or a typo would count as "cleared" and
+  // remove the mailbox. The value already stored may be sent back as it is.
+  if (b.inbound_address !== undefined) {
+    if (typeof b.inbound_address !== "string") return badRequest("inbound_address is an email address, or empty to clear it.");
+    const typed = b.inbound_address.trim();
+    if (typed && typed !== (await getHelpdeskSettings()).inbound_address) {
+      const problem = mailboxAddressProblem(typed);
+      if (problem) return badRequest(problem);
+    }
   }
   const patch: Partial<HdSettings> = {};
   for (const k of KEYS) if (b[k] !== undefined) (patch as Record<string, unknown>)[k] = b[k];

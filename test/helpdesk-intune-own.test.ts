@@ -335,6 +335,55 @@ describe("Intune's own app registration", () => {
   });
 });
 
+describe("own mode with a saved secret that can't be read", () => {
+  // The secret is stored sealed; a master key that changed (or a damaged value) opens as ''.
+  const BROKEN = (over: Partial<NonNullable<Settings["intune"]>> = {}): Settings =>
+    BASE({ on: true, cache_source: TID, cred_tag: assets.credTag({ tenant: OWN.tenant, clientId: OWN.client_id }), tenant: OWN.tenant, client_id: OWN.client_id, secret: "", ...over });
+
+  test("it is 'enter the credentials', never the directory sync app, and the device list is left alone", async () => {
+    await seedDevices();
+    // Directory sync is licensed and set up for ANOTHER tenant, with credentials that open.
+    directorySyncLicensed = true;
+    directoryConfig = { tenant: OTHER_TENANT, clientId: DIR.clientId, clientSecret: DIR.clientSecret };
+    assets.setIntuneCredentialsForTests(undefined);
+    intune.clearIntuneTokensForTests();
+    try {
+      for (const [name, st] of [
+        ["no secret", BROKEN()],
+        ["only the tenant is left", BROKEN({ client_id: "" })],
+        ["only the client ID is left", BROKEN({ tenant: "" })],
+        ["switched off, no secret", BROKEN({ on: false })],
+      ] as const) {
+        assets.setAssetSettingsForTests(st);
+        directoryConfigReads = 0;
+        const seen = graph.seen.length;
+        assert.equal(await assets.intuneCredentials(), "credentials", name);
+        assert.equal(await assets.intuneSourceCheck(), null, `${name}: no source check`);
+        const t = await assets.testIntune();
+        assert.match((t as { error: string }).error, /Enter the Intune app registration's tenant, application \(client\) ID and client secret first/, name);
+        const v = await view();
+        assert.deepEqual({ mode: v.intune.mode, secret_set: v.intune.secret_set, unavailable: v.intune.unavailable }, { mode: null, secret_set: false, unavailable: "credentials" }, name);
+        assert.equal(directoryConfigReads, 0, `${name}: the directory sync's settings were never read`);
+        assert.equal(graph.seen.length, seen, `${name}: nothing signed in anywhere`);
+        assert.deepEqual((await assets.getAssetSettings()).intune?.cache_source, TID, `${name}: the source is unchanged`);
+      }
+      assert.deepEqual((await rows()).map((x) => [x.external_id, x.gone_at]), [["d-linked", null], ["d-loose", null]], "no device was retired or removed");
+      // Entering the secret again brings it back as its own app, in place.
+      assets.setAssetSettingsForTests(BROKEN());
+      const r = await put({ intune_credentials: OWN });
+      assert.equal(r.status, 200, r.text);
+      assert.deepEqual([r.body.intune.on, r.body.intune.mode, r.body.intune.unavailable], [true, "own", null]);
+      assert.ok(!(await auditRows("helpdesk.assets.intune_credentials")).at(-1).changed.includes("intune_own_app"), "it was its own app already, not a move off directory sync");
+      assert.deepEqual((await rows()).map((x) => [x.external_id, x.gone_at]), [["d-linked", null], ["d-loose", null]]);
+    } finally {
+      directorySyncLicensed = false;
+      directoryConfig = { tenant: "", clientId: "", clientSecret: "" };
+      assets.setIntuneCredentialsForTests(undefined);
+      assets.setAssetSettingsForTests(BASE());
+    }
+  });
+});
+
 describe("an install connected before 1.20.2 (the directory sync's app)", () => {
   const LEGACY = (): Settings => BASE({ on: true, cache_source: TID, cred_tag: assets.credTag({ tenant: DIR.tenant, clientId: DIR.clientId }) });
 
@@ -464,6 +513,25 @@ describe("as stored", () => {
         assert.equal((await put({ intune: true })).status, 200);
         assert.equal((await put({ intune_credentials: null })).status, 200);
         assert.equal(JSON.parse((await db.query("SELECT value FROM settings WHERE key = 'helpdesk_assets'")).rows[0].value).intune.key, "");
+        // A sealed secret this key can't open (the master key changed): it reads as no secret, and
+        // Intune is still its own app, waiting for credentials. It never signs in with the directory sync app.
+        await db.query("UPDATE settings SET value = $1 WHERE key = 'helpdesk_assets'", [
+          JSON.stringify({ snipeit: { url: "", key: "", on_solve: "nothing" }, agents_search_all: true, cache_source: "", intune: { on: true, cache_source: TID, cred_tag: "x", tenant: TENANT, client_id: OWN.client_id, key: `enc:v1:${Buffer.alloc(48, 7).toString("base64")}` } }),
+        ]);
+        directorySyncLicensed = true;
+        directoryConfig = DIR;
+        assets.setIntuneCredentialsForTests(undefined);
+        try {
+          s = await assets.getAssetSettings();
+          assert.deepEqual([s.intune?.on, s.intune?.tenant, s.intune?.client_id, s.intune?.secret], [true, TENANT, OWN.client_id, ""]);
+          directoryConfigReads = 0;
+          assert.equal(await assets.intuneCredentials(), "credentials");
+          assert.equal(await assets.intuneSourceCheck(), null);
+          assert.equal(directoryConfigReads, 0);
+        } finally {
+          directorySyncLicensed = false;
+          directoryConfig = { tenant: "", clientId: "", clientSecret: "" };
+        }
       } finally {
         if (saved === undefined) await db.query("DELETE FROM settings WHERE key = 'helpdesk_assets'");
         else await db.query("UPDATE settings SET value = $1 WHERE key = 'helpdesk_assets'", [saved]);

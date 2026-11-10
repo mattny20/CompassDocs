@@ -32,7 +32,10 @@
 //      accepted on this one webhook, the ticket remembers which, and mail
 //      to none of them counts as the default address), else the first
 //      team. Rules, request types and automations run after, as before.
-//      Mail From one of our own addresses is dropped as a loop. Someone with no account
+//      Mail From one of our own addresses that also carries a Message-ID
+//      of ours (its own, In-Reply-To or References) or Auto-Submitted is
+//      dropped as a loop and audited; From alone is not enough, that mail
+//      is handled like any other. Someone with no account
 //      is refused unless Outside senders is on (Desk → Settings → Email);
 //      the refusal is logged and audited (helpdesk.inbound.rejected) and no
 //      mail is sent back, since the From of unsolicited mail is easily
@@ -361,6 +364,22 @@ async function mergeRaced(e: unknown): Promise<boolean> {
   return e instanceof HdTicketError && e.status === 409 && e.messageUnsent === true;
 }
 
+const OUR_MESSAGE_ID = /^<?hd(?:\.[a-z0-9]{16}\.|-note-[a-z0-9]{16}-)/i;
+
+/**
+ * What marks a mail as one of the desk's own besides its From address: a
+ * Message-ID of ours (<hd.TOKEN.…@…>, <hd-note-TOKEN-…@…>) as its own or in
+ * In-Reply-To / References, or an Auto-Submitted header. Null when nothing
+ * does.
+ */
+export function ownMailSignal(email: Pick<InboundEmail, "messageId" | "inReplyTo" | "references" | "headers">): "message_id" | "thread" | "auto_submitted" | null {
+  if (OUR_MESSAGE_ID.test((email.messageId ?? "").trim())) return "message_id";
+  if ([email.inReplyTo ?? "", ...(email.references ?? [])].some((id) => OUR_MESSAGE_ID.test(id.trim()))) return "thread";
+  const auto = (email.headers?.["auto-submitted"] ?? "").trim().toLowerCase();
+  if (auto && auto !== "no") return "auto_submitted";
+  return null;
+}
+
 /** Everything after parsing (tests call it with an InboundEmail of their own). */
 export async function processInboundEmail(
   email: InboundEmail,
@@ -377,10 +396,23 @@ export async function processInboundEmail(
   if (email.headers["x-compassdocs-helpdesk"]) return reply(200, { ok: true, outcome: "ignored_loop" });
   // 1.20.2: mail From one of our own addresses (a listed mailbox or a ticket
   // reply address) is our own mail coming back, or a forward loop between
-  // two of them. Never a requester.
+  // two of them, only when something else says so too: a Message-ID of ours
+  // on it or in its thread headers, or Auto-Submitted. (Our own header was
+  // answered one line up.) The address alone proves nothing: a colleague
+  // writing as the shared mailbox, or a group that rewrites From, is real
+  // mail and goes on as any other. A dropped one is audited.
   const mailboxes = await import("./mailboxes");
-  if (await mailboxes.isOwnAddress(email.from.email)) {
-    logEvent("info", "helpdesk.inbound_ignored", { reason: "own_address", from: email.from.email, provider: email.provider });
+  const loop = ownMailSignal(email);
+  if (loop && (await mailboxes.isOwnAddress(email.from.email))) {
+    logEvent("info", "helpdesk.inbound_ignored", { reason: "own_address", signal: loop, from: email.from.email, provider: email.provider });
+    await audit({
+      actor: { name: "inbound email" },
+      action: "helpdesk.inbound.rejected",
+      targetType: "helpdesk_inbound",
+      targetLabel: email.from.email,
+      details: { reason: "own_address_loop", signal: loop, from: email.from.email, subject: email.subject.slice(0, 200), provider: email.provider },
+      ip: opts.ip ?? null,
+    }).catch(() => {});
     return reply(200, { ok: true, outcome: "ignored_loop" });
   }
   // A monitoring tool's mail from an address an email integration lists is

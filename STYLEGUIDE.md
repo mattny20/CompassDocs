@@ -4845,7 +4845,11 @@ the image work in `appearance-upload`).
   shrink (`flex min-w-0 flex-1 justify-end [&>div]:min-w-0`) and the
   value truncates with the full address in `data-tt` and `aria-label`.
   Without the capability the value is the same control, disabled and
-  without its chevron, as the other properties are.
+  without its chevron, as the other properties are. The options are the
+  agent's own: the default, addresses with no team and their teams'
+  (every address with "See every team's tickets"). The address in use
+  is always the value, also when it is not one of them; with no other
+  address to choose the control is disabled in the same way.
 - **The queue's Filter dialog** offers Address (a `Select` of the listed
   addresses) only while more than one is listed, or when the filter in
   hand already names one.

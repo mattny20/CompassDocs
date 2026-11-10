@@ -252,11 +252,40 @@ function providerError(e: unknown): string {
   return text.replace(/\s+/g, " ").trim().slice(0, 500);
 }
 
+const SENDER_POLICY =
+  /sender (?:address |identity |domain )?(?:rejected|denied|refused|not (?:allowed|authori[sz]ed|permitted|verified|owned))|not owned by|send(?:ing)?[ -]?as\b|sendasden|on behalf of|(?:from|sender) (?:address|header|domain|identity|email)|(?:address|domain|identity|sender) (?:is )?not verified|unverified (?:sender|address|domain)|not (?:allowed|authori[sz]ed|permitted) to (?:send|use)|\b5\.7\.60\b|\b5\.2\.252\b/i;
+
+/**
+ * Whether a failed send is the mail provider permanently refusing the From
+ * address itself: a 5xx answer to MAIL FROM or to DATA, or a 5xx at any
+ * step whose text is a sender-policy refusal ("Sender address rejected: not
+ * owned by user", "not allowed to send as", "The from address does not
+ * match a verified Sender Identity", 5.7.60, SendAsDenied; Postfix reports
+ * the sender at RCPT TO). A timeout, a dropped connection, a 4xx "try
+ * again" or a refused recipient is not: nothing is known about the address
+ * then, and the mail may already have been accepted.
+ */
+export function isSenderRejection(e: unknown): boolean {
+  const err = (e ?? {}) as { responseCode?: unknown; response?: unknown; command?: unknown; message?: unknown };
+  const response = typeof err.response === "string" ? err.response : "";
+  const message = typeof err.message === "string" ? err.message : "";
+  const code =
+    typeof err.responseCode === "number"
+      ? err.responseCode
+      : Number(response.match(/^\s*(\d{3})(?=[ -]|$)/)?.[1] ?? message.match(/(?:^|:\s*)([45]\d{2})[ -]/)?.[1] ?? 0);
+  if (!(code >= 500 && code <= 599)) return false;
+  const command = typeof err.command === "string" ? err.command.trim().toUpperCase() : "";
+  if (command === "MAIL FROM" || command === "DATA") return true;
+  return SENDER_POLICY.test(`${response} ${message}`.slice(0, 2000));
+}
+
 /**
  * Hand one mail to the transport under a mailbox's own address when it
- * sends from it. A refusal there sends the same mail from the workspace
- * address (mail.from) and records the refusal on the mailbox; a refusal of
- * that too throws, as any failed send does.
+ * sends from it. A permanent refusal of that address (isSenderRejection)
+ * sends the same mail from the workspace address (mail.from) and records
+ * the refusal on the mailbox; a refusal of that too throws, as any failed
+ * send does. Any other failure throws as it is, with no second send: the
+ * first one may have gone through, and the address is not to blame.
  */
 async function sendAsMailbox(
   transport: { send: HelpdeskTransport; from: string },
@@ -271,6 +300,7 @@ async function sendAsMailbox(
   try {
     await transport.send({ ...mail, from: own });
   } catch (e) {
+    if (!isSenderRejection(e)) throw e;
     await transport.send(mail);
     await (await import("./mailboxes")).recordSendFromFailure(who.mailboxId!, providerError(e)).catch(() => {});
     return;
@@ -283,11 +313,13 @@ async function sendAsMailbox(
  * `to` exactly as a reply would leave (From the address when it sends from
  * it, else the workspace address under its name; Reply-To the address).
  * No fallback here: the provider's refusal is the answer, in its own words.
+ * `senderRejected` says the failure was a refusal of the From address
+ * (isSenderRejection), the only kind that is kept on the mailbox.
  */
 export async function sendMailboxTestMail(
   box: { id: number; address: string; name: string; send_from: boolean },
   to: string
-): Promise<{ ok: boolean; from: string; error?: string }> {
+): Promise<{ ok: boolean; from: string; error?: string; senderRejected?: boolean }> {
   const transport = await smtpTransport().catch(() => null);
   if (!transport) return { ok: false, from: "", error: "Outgoing mail isn't set up yet. Add your mail server in Settings, Notifications, Email first." };
   const from = box.send_from ? fromWithName(box.address, box.name) : fromWithName(transport.from, box.name);
@@ -308,7 +340,7 @@ export async function sendMailboxTestMail(
     });
     return { ok: true, from: shown };
   } catch (e) {
-    return { ok: false, from: shown, error: providerError(e) };
+    return { ok: false, from: shown, error: providerError(e), senderRejected: isSenderRejection(e) };
   }
 }
 

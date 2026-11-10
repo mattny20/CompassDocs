@@ -8,8 +8,10 @@
 //          agent who works it (the desk then reads GET /api/helpdesk/recycle-bin/[number]); 404 otherwise.
 // Each PATCH field needs its desk capability (lib/helpdesk/patch-caps patchRefusal).
 // 1.20.2: `mailbox_id` (an address's id, or null = the team's or the default) is "Answer from":
-// tickets.reply_public in the ticket's team; an agents-only timeline line; audited
-// (helpdesk.ticket.mailbox_changed).
+// tickets.reply_public in the ticket's team, and an address the agent may answer from (the
+// default, one with no team, one of their teams'; any with tickets.view_all), else 403; an
+// agents-only timeline line; audited (helpdesk.ticket.mailbox_changed). Stored only once the
+// whole request has passed its checks and the other fields are saved.
 // 1.20.0: `via: "claude_desk"` in the body marks a change applied from a Claude in the desk
 // card; it is audited (helpdesk.ticket.updated, via "claude_desk") and changes no rule.
 // Helpdesk 1.19.0 (helpdesk.agent). 404 for a ticket outside the caller's queues.
@@ -18,7 +20,7 @@ import { NextResponse } from "next/server";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { helpdeskGate, readJson } from "@/lib/helpdesk/access";
 import { ticketDetail } from "@/lib/helpdesk/detail";
-import { HdTicketError, parseTicketNumber, updateTicket, validateTicketPatch } from "@/lib/helpdesk/tickets";
+import { HdTicketError, getTicketById, parseTicketNumber, updateTicket, validateTicketPatch } from "@/lib/helpdesk/tickets";
 import { badRequest, loadTicketFor, notFound, originOf } from "@/lib/helpdesk/routes";
 import { hdCan, HD_FORBIDDEN } from "@/lib/helpdesk/roles";
 import { patchRefusal } from "@/lib/helpdesk/patch-caps";
@@ -60,14 +62,15 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
   const refused = await patchRefusal(gate, found.ticket, patch);
   if (refused) return NextResponse.json({ error: refused }, { status: 403 });
-  // 1.20.2 (lib/helpdesk/mailboxes): "Answer from". Its own capability check, timeline line and
-  // audit row; applied before the other fields so a refusal changes nothing.
-  let mailboxChanged = false;
+  // 1.20.2 (lib/helpdesk/mailboxes): "Answer from". Checked here (its own capability, the
+  // agent's teams' addresses), stored last: after every other check and once the other fields
+  // are saved, so a request that is refused changes nothing.
+  let answerFrom: { id: number | null } | null = null;
   if (b.mailbox_id !== undefined) {
-    const { changeAnswerFrom } = await import("@/lib/helpdesk/mailboxes");
-    const m = await changeAnswerFrom(gate, found.ticket, b.mailbox_id, { ip: ipFrom(req) });
+    const { checkAnswerFrom } = await import("@/lib/helpdesk/mailboxes");
+    const m = await checkAnswerFrom(gate, found.ticket, b.mailbox_id);
     if ("error" in m) return NextResponse.json({ error: m.error }, { status: m.status });
-    mailboxChanged = m.changed;
+    answerFrom = m;
   }
   // 1.19.1: a merged ticket's status is locked (closed into the kept ticket; lib/helpdesk/merge mergedLock).
   if (patch.status !== undefined && patch.status !== found.ticket.status) {
@@ -115,7 +118,18 @@ export async function PATCH(req: Request, { params }: Ctx) {
         actorId: gate.id,
       });
     }
-    return NextResponse.json({ ticket: r.ticket, changed: mailboxChanged ? [...r.changed, "mailbox_id"] : r.changed });
+    if (answerFrom) {
+      const { applyAnswerFrom } = await import("@/lib/helpdesk/mailboxes");
+      const m = await applyAnswerFrom(gate, found.ticket, answerFrom.id, { ip: ipFrom(req) });
+      // Only when the address was removed since the check above.
+      if ("error" in m) return NextResponse.json({ error: m.error }, { status: m.status });
+      if (m.changed) {
+        // The row as it is now (its address), for the reply.
+        const fresh = await getTicketById(r.ticket.id);
+        return NextResponse.json({ ticket: fresh ?? r.ticket, changed: [...r.changed, "mailbox_id"] });
+      }
+    }
+    return NextResponse.json({ ticket: r.ticket, changed: r.changed });
   } catch (e) {
     if (e instanceof HdTicketError) return NextResponse.json({ error: e.message }, { status: e.status });
     throw e;

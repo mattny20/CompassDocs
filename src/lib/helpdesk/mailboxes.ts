@@ -15,10 +15,12 @@
 //     .inbound_address / email_from_name) becomes the default mailbox the
 //     first time this module is asked (mailboxesReady, once per process).
 //     From then on the default mailbox is mirrored back into those two
-//     settings, and a write to them (the old settings API) moves the
+//     settings (in the transaction that changes the mailboxes, only those
+//     two keys), and a write to them (the old settings API) moves the
 //     default mailbox, so both stay one fact and a 1.20.1 binary on the
 //     same database keeps answering as before. With no mailbox at all the
-//     old settings are read as they always were.
+//     old settings are read as they always were. A 1.20.1 address with a
+//     plus tag (company+help@…) is listed without the tag.
 //
 // Mailbox addresses are the workspace's configuration, not personal data:
 // retention, anonymise and the personal data export leave them alone.
@@ -29,7 +31,7 @@ import type { AuditActor } from "../audit";
 import { logEvent } from "../log";
 import { hq, hqOne, withTx } from "./db-core";
 import type { HdQueryable } from "./db-core";
-import { getHelpdeskSettings, saveHelpdeskSettings } from "./settings";
+import { HD_SETTINGS_KEY, getHelpdeskSettings } from "./settings";
 import {
   MAILBOX_LIMITS,
   cleanMailboxAddress,
@@ -38,6 +40,7 @@ import {
   mailboxAddressProblem,
   mailboxForRecipients,
   mailboxForTicket,
+  mailboxKey,
   matchMailbox,
 } from "./mailboxes-shared";
 import type { HdMailbox, HdMailboxOption, HdMailboxView, HdTicketMailbox, MailboxRecipientSource } from "./mailboxes-shared";
@@ -58,13 +61,24 @@ export class HdMailboxError extends Error {
 let readyPromise: Promise<void> | null = null;
 
 /**
+ * The 1.20.1 setting as a mailbox address: lower-cased and without its plus
+ * tag. 1.20.1 took a tagged address (company+help@gmail.com) and answered
+ * on company+hd-<token>@…; a mailbox is the address before the tag, and
+ * every tagged form of it still matches (mailboxKey). Null when the setting
+ * holds no address.
+ */
+export function legacyMailboxAddress(raw: unknown): string | null {
+  return typeof raw === "string" ? cleanMailboxAddress(mailboxKey(raw)) : null;
+}
+
+/**
  * The 1.20.1 address becomes the default mailbox when none exists yet.
  * Idempotent (the address is unique); answers the mailbox it made, if any.
  * Exported for tests; everything else goes through mailboxesReady().
  */
 export async function seedMailboxFromSettings(): Promise<HdMailbox | null> {
   const s = await getHelpdeskSettings();
-  const address = cleanMailboxAddress(s.inbound_address);
+  const address = legacyMailboxAddress(s.inbound_address);
   if (!address) return null;
   return withTx(async (client) => {
     const has = await client.query("SELECT 1 FROM hd_mailboxes LIMIT 1");
@@ -126,9 +140,42 @@ export async function mailboxViews(): Promise<HdMailboxView[]> {
   );
 }
 
-/** What a ticket's "Answer from" offers: every mailbox, short. */
-export async function mailboxOptions(): Promise<HdMailboxOption[]> {
-  return (await listMailboxes()).map((m) => ({ id: m.id, address: m.address, name: m.name, is_default: m.is_default, send_from: m.send_from }));
+type DeskUser = { id: number; role: import("../types").Role };
+
+/**
+ * Which mailboxes an agent may read and answer from: "all" with
+ * tickets.view_all or settings.manage, else the ids of their teams. A
+ * mailbox mapped to a team is that team's identity: an agent of another
+ * team neither sees it listed nor sends a requester mail under it.
+ */
+export async function mailboxScope(user: DeskUser): Promise<"all" | number[]> {
+  const { hdCan, roleFacts } = await import("./roles");
+  if ((await hdCan(user, "tickets.view_all")) || (await hdCan(user, "settings.manage"))) return "all";
+  return (await roleFacts(user)).teams;
+}
+
+/** Within the scope: the default, a mailbox with no team, or one of the agent's teams. */
+export function mailboxInScope(m: { is_default: boolean; team_id: number | null }, scope: "all" | readonly number[]): boolean {
+  return scope === "all" || m.is_default || m.team_id === null || scope.includes(m.team_id);
+}
+
+/**
+ * What a ticket's "Answer from" offers this agent, and what the desk lists
+ * for them (GET /api/helpdesk/mailboxes): the mailboxes in their scope,
+ * short. `total` is how many are listed in all (the address is shown on a
+ * ticket while there is more than one, whoever reads it).
+ */
+export async function mailboxOptionsFor(user: DeskUser): Promise<{ options: HdMailboxOption[]; total: number }> {
+  const [boxes, scope] = await Promise.all([listMailboxes(), mailboxScope(user)]);
+  return {
+    options: boxes.filter((m) => mailboxInScope(m, scope)).map((m) => ({ id: m.id, address: m.address, name: m.name, is_default: m.is_default, send_from: m.send_from })),
+    total: boxes.length,
+  };
+}
+
+/** The mailboxes an agent may read and answer from, short (mailboxOptionsFor). */
+export async function mailboxOptions(user: DeskUser): Promise<HdMailboxOption[]> {
+  return (await mailboxOptionsFor(user)).options;
 }
 
 /** Team id -> the address of the first mailbox mapped to it (the Teams list's chip). */
@@ -145,14 +192,14 @@ export async function isOwnAddress(address: string): Promise<boolean> {
   const boxes: { address: string }[] = await listMailboxes();
   if (isOwnMailboxAddress(boxes, a)) return true;
   // No mailbox yet (or the old setting names another address): the old setting counts too.
-  const legacy = cleanMailboxAddress((await getHelpdeskSettings()).inbound_address);
+  const legacy = legacyMailboxAddress((await getHelpdeskSettings()).inbound_address);
   return legacy ? isOwnMailboxAddress([{ address: legacy }], a) : false;
 }
 
 /** A matcher for many addresses at once (one read): lib/helpdesk/ccs asks it for every Cc of a mail. */
 export async function ownAddressMatcher(): Promise<(address: string) => boolean> {
   const boxes: { address: string }[] = [...(await listMailboxes())];
-  const legacy = cleanMailboxAddress((await getHelpdeskSettings()).inbound_address);
+  const legacy = legacyMailboxAddress((await getHelpdeskSettings()).inbound_address);
   if (legacy) boxes.push({ address: legacy });
   return (address: string) => isOwnMailboxAddress(boxes, address);
 }
@@ -248,11 +295,38 @@ export async function clearSendFromFailure(mailboxId: number): Promise<void> {
 
 // --- The 1.20.1 settings, kept in step ------------------------------------------------
 
-/** Write the default mailbox's address and name into the old settings (so a rollback, and every old reader, sees them). */
-async function mirrorDefaultToSettings(): Promise<void> {
-  const boxes = await hq<HdMailbox>(`SELECT ${COLS} FROM hd_mailboxes ${ORDER}`);
+/**
+ * Write the default mailbox's address and name into the old settings (so a
+ * rollback, and every old reader, sees them). Runs on the caller's
+ * transaction, after its mailbox writes: the removal of the last address
+ * and the cleared setting commit together (a crash in between would seed
+ * the address back on the next start). The settings row is locked and only
+ * these two keys are replaced in what is stored, so a settings save that
+ * commits meanwhile (a rotated inbound secret, the hours) is never written
+ * over with an older copy. Callers hold the mailbox rows FOR UPDATE, which
+ * puts two changes of the default in order.
+ */
+async function mirrorDefaultToSettings(client: HdQueryable): Promise<void> {
+  const boxes = await hq<{ address: string; name: string; is_default: boolean }>(`SELECT address, name, is_default FROM hd_mailboxes ${ORDER}`, [], client);
   const def = boxes.find((m) => m.is_default) ?? boxes[0];
-  await saveHelpdeskSettings(def ? { inbound_address: def.address, email_from_name: def.name || "Helpdesk" } : { inbound_address: "" }, { syncMailboxes: false });
+  const read = async () => (await client.query<{ value: string }>("SELECT value FROM settings WHERE key = $1 FOR UPDATE", [HD_SETTINGS_KEY])).rows[0];
+  let row = await read();
+  if (!row) {
+    if (!def) return;
+    await client.query("INSERT INTO settings (key, value) VALUES ($1, '{}') ON CONFLICT (key) DO NOTHING", [HD_SETTINGS_KEY]);
+    row = await read();
+  }
+  let stored: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(row?.value || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) stored = parsed as Record<string, unknown>;
+  } catch {
+    stored = {};
+  }
+  const next: Record<string, unknown> = { ...stored, inbound_address: def ? def.address : "" };
+  if (def) next.email_from_name = def.name || "Helpdesk";
+  if (next.inbound_address === stored.inbound_address && next.email_from_name === stored.email_from_name) return;
+  await client.query("UPDATE settings SET value = $2 WHERE key = $1", [HD_SETTINGS_KEY, JSON.stringify(next)]);
 }
 
 /**
@@ -260,8 +334,11 @@ async function mirrorDefaultToSettings(): Promise<void> {
  * email_from_name, or a test): move the default mailbox to match. An
  * address that is already listed becomes the default; otherwise the
  * default's address changes (its tickets stay on it), or the first mailbox
- * is made. Clearing the address removes the mailbox only while it is the
- * only one. No audit of its own: the settings write is audited.
+ * is made. Clearing the address (empty once trimmed) removes the mailbox
+ * only while it is the only one. A value that is not empty and not an
+ * address changes nothing here: it never counts as "cleared" (the settings
+ * API refuses it with 400 before it is stored). No audit of its own: the
+ * settings write is audited.
  */
 export async function syncDefaultMailboxFromSettings(next: { inbound_address: string; email_from_name: string }, changed: readonly string[]): Promise<void> {
   if (!changed.includes("inbound_address") && !changed.includes("email_from_name")) return;
@@ -270,14 +347,19 @@ export async function syncDefaultMailboxFromSettings(next: { inbound_address: st
     const boxes = await hq<HdMailbox>(`SELECT ${COLS} FROM hd_mailboxes ${ORDER} FOR UPDATE`, [], client);
     const def = boxes.find((m) => m.is_default);
     const name = cleanMailboxName(next.email_from_name) || "Helpdesk";
-    if (changed.includes("inbound_address")) {
-      const address = cleanMailboxAddress(next.inbound_address);
-      if (!address) {
-        if (def && boxes.length === 1) await client.query("DELETE FROM hd_mailboxes WHERE id = $1", [def.id]);
+    const typed = (next.inbound_address ?? "").trim();
+    if (changed.includes("inbound_address") && !typed) {
+      // Cleared: the only address goes with it; with several listed nothing is removed.
+      if (def && boxes.length === 1) {
+        await client.query("DELETE FROM hd_mailboxes WHERE id = $1", [def.id]);
         return;
       }
-      const listed = matchMailbox(boxes, address);
-      if (listed && !listed.is_default) {
+    } else if (changed.includes("inbound_address")) {
+      const address = legacyMailboxAddress(typed);
+      const listed = address ? matchMailbox(boxes, address) : undefined;
+      if (!address) {
+        // Not an address: no mailbox moves, and none is removed.
+      } else if (listed && !listed.is_default) {
         await client.query("UPDATE hd_mailboxes SET is_default = false WHERE is_default");
         await client.query("UPDATE hd_mailboxes SET is_default = true, updated_at = now() WHERE id = $1", [listed.id]);
       } else if (!listed && def) {
@@ -373,7 +455,7 @@ export async function createMailbox(raw: MailboxInput, by: MailboxActor): Promis
       const makeDefault = input.is_default === true || !boxes.some((b) => b.is_default);
       if (makeDefault) await client.query("UPDATE hd_mailboxes SET is_default = false WHERE is_default");
       const position = boxes.reduce((n, b) => Math.max(n, b.position), -1) + 1;
-      return (
+      const made = (
         await hq<HdMailbox>(
           `INSERT INTO hd_mailboxes (address, name, team_id, send_from, is_default, position)
            VALUES ($1, $2, $3, $4, $5, $6) RETURNING ${COLS}`,
@@ -381,12 +463,13 @@ export async function createMailbox(raw: MailboxInput, by: MailboxActor): Promis
           client
         )
       )[0];
+      await mirrorDefaultToSettings(client);
+      return made;
     });
   } catch (e) {
     if (clash(e)) throw new HdMailboxError("That address is already listed.", 409);
     throw e;
   }
-  await mirrorDefaultToSettings();
   await audit({
     actor: by.actor,
     action: "helpdesk.mailbox.created",
@@ -450,7 +533,9 @@ export async function updateMailbox(id: number, raw: MailboxInput, by: MailboxAc
       // A changed address or sending choice starts with a clean slate.
       if (changes.address || changes.send_from) sets.push("send_from_error = ''", "send_from_error_at = NULL");
       sets.push("updated_at = now()");
-      return (await hq<HdMailbox>(`UPDATE hd_mailboxes SET ${sets.join(", ")} WHERE id = $1 RETURNING ${COLS}`, params, client))[0];
+      const saved = (await hq<HdMailbox>(`UPDATE hd_mailboxes SET ${sets.join(", ")} WHERE id = $1 RETURNING ${COLS}`, params, client))[0];
+      await mirrorDefaultToSettings(client);
+      return saved;
     });
   } catch (e) {
     if (clash(e)) throw new HdMailboxError("That address is already listed.", 409);
@@ -458,7 +543,6 @@ export async function updateMailbox(id: number, raw: MailboxInput, by: MailboxAc
   }
   if (!row) return undefined;
   if (Object.keys(changes).length) {
-    await mirrorDefaultToSettings();
     await audit({
       actor: by.actor,
       action: "helpdesk.mailbox.updated",
@@ -499,10 +583,10 @@ export async function deleteMailbox(id: number, by: MailboxActor): Promise<{ mai
     }
     const moved = (await client.query("UPDATE hd_tickets SET mailbox_id = $2 WHERE mailbox_id = $1", [id, heir?.id ?? null])).rowCount ?? 0;
     await client.query("DELETE FROM hd_mailboxes WHERE id = $1", [id]);
+    await mirrorDefaultToSettings(client);
     return { mailbox: gone, moved, moved_to: heir };
   });
   if (!out) return undefined;
-  await mirrorDefaultToSettings();
   await audit({
     actor: by.actor,
     action: "helpdesk.mailbox.deleted",
@@ -539,20 +623,20 @@ export async function setTicketMailbox(ticketId: number, mailboxId: number | nul
   return { from: short(was), to: short(now) };
 }
 
+type AnswerFromUser = { id: number; name?: string; username?: string; role: import("../types").Role };
+type AnswerFromTicket = { id: number; number: number; subject: string; team_id: number | null; merged_into?: number | null };
+type AnswerFromRefusal = { error: string; status: number };
+
 /**
- * The ticket PATCH's `mailbox_id` (the side panel's "Answer from"): the
- * agent needs tickets.reply_public in the ticket's team (who may answer the
- * requester may choose the address it is from); a merged ticket is
- * read-only. Leaves an agents-only timeline line and an audit row
- * (helpdesk.ticket.mailbox_changed). Answers { error, status } for a
- * refusal, else whether anything changed.
+ * The ticket PATCH's `mailbox_id` (the side panel's "Answer from"), checked
+ * and nothing written: the agent needs tickets.reply_public in the ticket's
+ * team (who may answer the requester may choose the address it is from); a
+ * merged ticket is read-only; and the address must be one they may answer
+ * from (mailboxScope: the default, one with no team, or one of their
+ * teams', any with tickets.view_all). Answers { error, status } for a
+ * refusal, else the mailbox id to store (null = work it out again).
  */
-export async function changeAnswerFrom(
-  user: { id: number; name?: string; username?: string; role: import("../types").Role },
-  ticket: { id: number; number: number; subject: string; team_id: number | null; merged_into?: number | null },
-  raw: unknown,
-  opts: { ip?: string | null } = {}
-): Promise<{ error: string; status: number } | { changed: boolean }> {
+export async function checkAnswerFrom(user: AnswerFromUser, ticket: AnswerFromTicket, raw: unknown): Promise<AnswerFromRefusal | { id: number | null }> {
   let id: number | null = null;
   if (raw !== null) {
     const n = Number(raw);
@@ -562,6 +646,29 @@ export async function changeAnswerFrom(
   const { hdCan, HD_FORBIDDEN } = await import("./roles");
   if (!(await hdCan(user, "tickets.reply_public", { teamId: ticket.team_id }))) return { error: HD_FORBIDDEN, status: 403 };
   if (ticket.merged_into) return { error: `#${ticket.number} was merged into another ticket. Change the address on that one.`, status: 409 };
+  if (id !== null) {
+    const box = (await listMailboxes()).find((m) => m.id === id);
+    if (!box) return { error: "That address is no longer listed.", status: 400 };
+    if (!mailboxInScope(box, await mailboxScope(user))) {
+      return { error: "That address belongs to another team. Answer from one of your own teams' addresses, or the default.", status: 403 };
+    }
+  }
+  return { id };
+}
+
+/**
+ * Store what checkAnswerFrom allowed. Leaves an agents-only timeline line
+ * and an audit row (helpdesk.ticket.mailbox_changed). The ticket PATCH
+ * calls it last, once every other check has passed and the other fields
+ * are saved, so a refused request changes nothing. Answers whether anything
+ * changed ({ error, status } only when the address was removed meanwhile).
+ */
+export async function applyAnswerFrom(
+  user: AnswerFromUser,
+  ticket: AnswerFromTicket,
+  id: number | null,
+  opts: { ip?: string | null } = {}
+): Promise<AnswerFromRefusal | { changed: boolean }> {
   let change: Awaited<ReturnType<typeof setTicketMailbox>>;
   try {
     change = await setTicketMailbox(ticket.id, id);
@@ -588,4 +695,16 @@ export async function changeAnswerFrom(
     ip: opts.ip ?? null,
   });
   return { changed: true };
+}
+
+/** checkAnswerFrom, then applyAnswerFrom: a change of the address alone. */
+export async function changeAnswerFrom(
+  user: AnswerFromUser,
+  ticket: AnswerFromTicket,
+  raw: unknown,
+  opts: { ip?: string | null } = {}
+): Promise<AnswerFromRefusal | { changed: boolean }> {
+  const checked = await checkAnswerFrom(user, ticket, raw);
+  if ("error" in checked) return checked;
+  return applyAnswerFrom(user, ticket, checked.id, opts);
 }

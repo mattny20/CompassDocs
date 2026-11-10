@@ -264,12 +264,19 @@ async function directorySyncCredentials(): Promise<IntuneCredentials | null> {
  * was already connected through the Microsoft 365 directory sync's app
  * (Intune on) keeps using that app, unchanged, until an admin enters
  * Intune's own; "legacy_gone" when that app is no longer there to use.
- * "credentials": nothing entered and nothing to fall back on (not set up).
+ * "credentials": nothing entered and nothing to fall back on (not set up),
+ * or its own app registration is incomplete (its saved secret can't be read).
  */
 export async function intuneCredentials(settings?: AssetSettings): Promise<IntuneCreds> {
   if (testIntuneCreds !== undefined) return testIntuneCreds ? { mode: "own", ...testIntuneCreds } : "credentials";
   const it = (settings ?? (await getAssetSettings())).intune;
-  if (it?.tenant && it.client_id && it.secret) return { tenant: it.tenant, clientId: it.client_id, secret: it.secret, mode: "own" };
+  // Its own app registration was entered (a tenant or a client ID is stored): own mode, whatever
+  // has become of the secret. One that no longer opens (a changed master key reads as '') is
+  // "enter the credentials", never a quiet fall back to the directory sync app, which may sign
+  // in to another tenant and would replace the device list (intuneSourceCheck).
+  if (it?.tenant || it?.client_id) {
+    return it.tenant && it.client_id && it.secret ? { tenant: it.tenant, clientId: it.client_id, secret: it.secret, mode: "own" } : "credentials";
+  }
   if (!it?.on) return "credentials";
   return (await directorySyncCredentials()) ?? "legacy_gone";
 }
@@ -496,7 +503,7 @@ export async function saveAssetSettings(patch: AssetSettingsPatch): Promise<{ ch
         e.code = "tenant_change";
         throw e;
       }
-      const wasMode = cur.intune?.secret ? "own" : cur.intune?.on ? "directory" : null;
+      const wasMode = cur.intune?.tenant || cur.intune?.client_id || cur.intune?.secret ? "own" : cur.intune?.on ? "directory" : null;
       const r = await adoptIntuneSource(t.tenant, t.tag, true, { tenant: c.value.tenant, client_id: c.value.clientId, secret: c.value.secret });
       credsCache = null;
       changed.push("intune_credentials");

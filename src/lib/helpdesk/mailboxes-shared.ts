@@ -78,7 +78,38 @@ export function cleanMailboxName(raw: unknown): string {
   return typeof raw === "string" ? raw.replace(/["\r\n<>]/g, " ").replace(/\s{2,}/g, " ").trim().slice(0, MAILBOX_LIMITS.name) : "";
 }
 
-const FIND_ADDRESS = /[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+/g;
+const DOMAIN_AT = /[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+/y;
+const LOCAL_CHAR = /[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]/;
+
+/**
+ * The email addresses in a piece of text, in order, at most `max`. One pass:
+ * each "@" is looked at once, the local part is the run of address
+ * characters before it and the domain is matched from it (anchored, labels
+ * of at most 63 characters). A sender controls this text (header values), so
+ * it must never be searched with an unanchored pattern: `[…]+@…` rescans
+ * from every start position, seconds of CPU for a 100 KB value with no "@".
+ */
+export function scanAddresses(raw: string, max = 1): string[] {
+  const out: string[] = [];
+  let floor = 0;
+  let at = raw.indexOf("@");
+  while (at !== -1 && out.length < max) {
+    let start = at;
+    while (start > floor && LOCAL_CHAR.test(raw[start - 1])) start--;
+    if (start < at) {
+      DOMAIN_AT.lastIndex = at + 1;
+      const m = DOMAIN_AT.exec(raw);
+      if (m) {
+        out.push(raw.slice(start, at + 1) + m[0]);
+        floor = at + 1 + m[0].length;
+        at = raw.indexOf("@", floor);
+        continue;
+      }
+    }
+    at = raw.indexOf("@", at + 1);
+  }
+  return out;
+}
 
 /** "local@domain" without the plus tag, lower-cased; '' when the value is no address. */
 export function mailboxKey(address: string): string {
@@ -115,8 +146,9 @@ export interface MailboxRecipientSource {
 
 /**
  * Headers a receiving or forwarding server writes the envelope recipient
- * into. Read after To, Cc and the provider's own envelope fields: they are
- * what is left when the address was on Bcc or the mail was forwarded.
+ * into. Anyone who sends the mail can write them too, so they are read only
+ * when the provider reports no envelope recipient at all (the address was on
+ * Bcc, or the mail was forwarded, and nothing better is known).
  */
 const RECIPIENT_HEADERS = [
   "delivered-to",
@@ -131,38 +163,101 @@ const RECIPIENT_HEADERS = [
 ] as const;
 
 /**
- * Every address the email was sent to, most telling first: To (in order),
- * Cc, the provider's envelope recipients, then the recipient headers. The
- * order is the same for each copy of one message, so a mail to two listed
- * addresses lands on the same mailbox whichever copy arrives first.
+ * How much of a mail's recipients is read. The sender writes them: a value
+ * is cut at `value` characters before it is searched, at most `values`
+ * entries of each list (To, Cc, the envelope, one header's lines) are
+ * looked at, and at most `addresses` come out of each group.
  */
-export function recipientCandidates(email: MailboxRecipientSource): string[] {
+export const RECIPIENT_LIMITS = { value: 2000, values: 50, addresses: 50 } as const;
+
+/** The distinct addresses (lower-cased, in order) in a list of raw values, within RECIPIENT_LIMITS. */
+function addressesOf(values: readonly unknown[]): string[] {
   const out: string[] = [];
-  const add = (raw: unknown) => {
-    for (const m of String(raw ?? "").match(FIND_ADDRESS) ?? []) {
+  const seen = new Set<string>();
+  for (const raw of values.slice(0, RECIPIENT_LIMITS.values)) {
+    if (out.length >= RECIPIENT_LIMITS.addresses) break;
+    const text = (typeof raw === "string" ? raw : String(raw ?? "")).slice(0, RECIPIENT_LIMITS.value);
+    for (const m of scanAddresses(text, RECIPIENT_LIMITS.addresses - out.length)) {
       const a = m.toLowerCase();
-      if (!out.includes(a)) out.push(a);
+      if (seen.has(a)) continue;
+      seen.add(a);
+      out.push(a);
     }
-  };
-  for (const a of email.to ?? []) add(a.email);
-  for (const a of email.cc ?? []) add(a.email);
-  for (const a of email.recipients ?? []) add(a);
-  for (const name of RECIPIENT_HEADERS) {
-    if (email.headerList?.length) {
-      for (const [k, v] of email.headerList) if (k === name) add(v);
-    } else if (email.headers?.[name]) add(email.headers[name]);
   }
   return out;
 }
 
-/** The listed mailbox an email was sent to (the first candidate that is one), or undefined. */
+/** The addresses the recipient headers name (RECIPIENT_HEADERS, in that order), within RECIPIENT_LIMITS. */
+function headerRecipients(email: MailboxRecipientSource): string[] {
+  const out: string[] = [];
+  for (const name of RECIPIENT_HEADERS) {
+    const values: string[] = [];
+    if (email.headerList?.length) {
+      for (const [k, v] of email.headerList) {
+        if (k === name) values.push(v);
+        if (values.length >= RECIPIENT_LIMITS.values) break;
+      }
+    } else if (email.headers?.[name]) values.push(email.headers[name]);
+    for (const a of addressesOf(values)) {
+      if (out.length >= RECIPIENT_LIMITS.addresses) return out;
+      if (!out.includes(a)) out.push(a);
+    }
+  }
+  return out;
+}
+
+/** A mail's recipients by how far each can be trusted (all lower-cased, capped by RECIPIENT_LIMITS). */
+export function recipientGroups(email: MailboxRecipientSource): { envelope: string[]; visible: string[]; headers: string[] } {
+  const envelope = addressesOf(email.recipients ?? []);
+  const visible = addressesOf([...(email.to ?? []).slice(0, RECIPIENT_LIMITS.values), ...(email.cc ?? []).slice(0, RECIPIENT_LIMITS.values)].map((a) => a?.email));
+  // Sender-settable: only when the provider says nothing about the envelope.
+  return { envelope, visible, headers: envelope.length ? [] : headerRecipients(email) };
+}
+
+/**
+ * Every address the search reads, in the order it trusts them: the
+ * provider's envelope recipients (what the mail was really delivered to),
+ * then To (in order) and Cc, then, only when there is no envelope, the
+ * recipient headers.
+ */
+export function recipientCandidates(email: MailboxRecipientSource): string[] {
+  const g = recipientGroups(email);
+  const out: string[] = [];
+  for (const a of [...g.envelope, ...g.visible, ...g.headers]) if (!out.includes(a)) out.push(a);
+  return out;
+}
+
+/**
+ * The listed mailbox an email was sent to, or undefined.
+ *
+ *   - The provider's envelope recipients come first: a mail delivered to
+ *     help@ lands on help@ whatever its To line claims. When the envelope
+ *     names several listed addresses, To then Cc pick among those (the
+ *     first one written), else the first the envelope names.
+ *   - An envelope that names none of ours (the provider's own inbound
+ *     address, which every listed address forwards to) says nothing about
+ *     which one: To then Cc decide, as they do when there is no envelope.
+ *   - The recipient headers (Delivered-To, X-Original-To, …) are read last
+ *     and only when the provider gives no envelope recipient at all.
+ */
 export function mailboxForRecipients<T extends { address: string }>(mailboxes: readonly T[], email: MailboxRecipientSource): T | undefined {
   if (!mailboxes.length) return undefined;
-  for (const a of recipientCandidates(email)) {
+  const g = recipientGroups(email);
+  const first = (addresses: readonly string[], among: readonly T[]): T | undefined => {
+    for (const a of addresses) {
+      const hit = matchMailbox(among, a);
+      if (hit) return hit;
+    }
+    return undefined;
+  };
+  const named: T[] = [];
+  for (const a of g.envelope) {
     const hit = matchMailbox(mailboxes, a);
-    if (hit) return hit;
+    if (hit && !named.includes(hit)) named.push(hit);
   }
-  return undefined;
+  if (named.length === 1) return named[0];
+  if (named.length > 1) return first(g.visible, named) ?? named[0];
+  return first(g.visible, mailboxes) ?? first(g.headers, mailboxes);
 }
 
 /**

@@ -119,7 +119,7 @@ const C = `press@${DOMAIN}`;
 const TRANSPORT_FROM_RE = /<([^>]+)>$/;
 const LOCK = 728351;
 type Person = { id: number; email: string; session: string; name: string };
-const U: Record<"req" | "agent" | "newbie" | "manager", Person> = {} as never;
+const U: Record<"req" | "agent" | "newbie" | "manager" | "solo", Person> = {} as never;
 let teamA = 0;
 let teamB = 0;
 let teamAlias = 0;
@@ -128,12 +128,29 @@ const ticketIds: number[] = [];
 const mail: HelpdeskOutgoingMail[] = [];
 /** The transport refuses a From on these addresses (a provider that does not allow sending as them). */
 const refuseFrom = new Set<string>();
+/** Thrown by the transport's next send, once (a timeout, a "try again", a refused recipient). */
+let failNext: Error | null = null;
+/** Every send the transport was asked for, refused ones included. */
+let attempts = 0;
 let lockClient: PoolClient | null = null;
 let savedBoxes: Record<string, unknown>[] = [];
 let savedTickets: { id: number; mailbox_id: number }[] = [];
 let savedSettings = { inbound_address: "", email_from_name: "", inbound_secret: "" };
 
 const settle = () => new Promise((r) => setTimeout(r, 300));
+// This process's connections carry the stamp as their application_name (node-postgres reads
+// PGAPPNAME when the pool is built, on its first use), so a test can find its own waiting query.
+process.env.PGAPPNAME = STAMP;
+const MIRROR_LOCK_SQL = "SELECT value FROM settings WHERE key = $1 FOR UPDATE";
+/** Whether one of this test's connections is waiting for a lock on the statement (polled for 5 s). */
+async function waitingForSettings(sql = MIRROR_LOCK_SQL): Promise<boolean> {
+  for (let i = 0; i < 100; i++) {
+    const r = await pool().query("SELECT 1 FROM pg_stat_activity WHERE application_name = $1 AND wait_event_type = 'Lock' AND query = $2", [STAMP, sql]);
+    if (r.rowCount) return true;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+  return false;
+}
 const bare = (from: string) => (from.match(TRANSPORT_FROM_RE)?.[1] ?? from).toLowerCase();
 
 function req(url: string, who: Person | null, body?: unknown, method = "POST"): Request {
@@ -223,7 +240,8 @@ before(async () => {
   await pool().query("DELETE FROM hd_mailboxes");
   await settingsLib.saveHelpdeskSettings({ inbound_address: "", email_from_name: "Helpdesk", inbound_secret: s.inbound_secret || settingsLib.newInboundSecret() }, { syncMailboxes: false });
 
-  const names = { req: "Daniel Okafor", agent: "Ana Kowalski", newbie: "Noor Haddad", manager: "Mina Park" };
+  // solo: an agent of team A only (the others below are in every team).
+  const names = { req: "Daniel Okafor", agent: "Ana Kowalski", newbie: "Noor Haddad", manager: "Mina Park", solo: "Ilse Brandt" };
   const expires = new Date(Date.now() + 3_600_000).toISOString();
   for (const [k, name] of Object.entries(names) as [keyof typeof U, string][]) {
     const addr = `${STAMP}-${k}@example.test`;
@@ -236,7 +254,7 @@ before(async () => {
     await createSession(session, r.rows[0].id, expires);
     U[k] = { id: r.rows[0].id, email: addr, session, name: `${name} ${STAMP.slice(-4)}` };
   }
-  for (const [k, role] of [["agent", "agent"], ["newbie", "newbie"], ["manager", "manager"]] as const) {
+  for (const [k, role] of [["agent", "agent"], ["newbie", "newbie"], ["manager", "manager"], ["solo", "agent"]] as const) {
     await fixtureQuery(
       `INSERT INTO role_assignments (role_id, user_id, scope_type, space_id) SELECT r.id, $1, 'global', NULL FROM roles r WHERE r.key = $2`,
       [U[k].id, role === "manager" ? "helpdesk-manager" : "helpdesk-agent"]
@@ -249,7 +267,14 @@ before(async () => {
   for (const t of [teamA, teamB, teamAlias]) {
     await pool().query("INSERT INTO hd_team_members (team_id, user_id, role) VALUES ($1, $2, 'agent'), ($1, $3, 'agent')", [t, U.agent.id, U.newbie.id]);
   }
+  await pool().query("INSERT INTO hd_team_members (team_id, user_id, role) VALUES ($1, $2, 'agent')", [teamA, U.solo.id]);
   email.setHelpdeskTransportForTests(async (m) => {
+    attempts++;
+    if (failNext) {
+      const e = failNext;
+      failNext = null;
+      throw e;
+    }
     if (refuseFrom.has(bare(m.from))) {
       const e = new Error("Mail command failed: 553 5.7.1 Sender address rejected: not owned by user smtp@example.test") as Error & { response?: string };
       e.response = "553 5.7.1 Sender address rejected: not owned by user smtp@example.test";
@@ -377,14 +402,88 @@ describe("mailboxes-shared", () => {
     assert.equal(shared.mailboxForRecipients(boxes, g({ to: "x@customer.test", recipients: ["billing@acme.test"] }))?.id, 2);
     assert.equal(shared.mailboxForRecipients(boxes, g({ to: "x@customer.test", envelope_to: "help@acme.test" }))?.id, 1);
     assert.equal(shared.mailboxForRecipients(boxes, g({ to: "x@customer.test", headers: { "Delivered-To": "billing@acme.test" } }))?.id, 2);
-    // To two of ours: the first one in To wins, whichever copy (envelope recipient) arrives.
+    // To two of ours: each copy lands on the address it was delivered to (the envelope).
     const both = { to: "billing@acme.test, help@acme.test" };
-    assert.equal(shared.mailboxForRecipients(boxes, g({ ...both, recipients: ["help@acme.test"] }))?.id, 2);
+    assert.equal(shared.mailboxForRecipients(boxes, g({ ...both, recipients: ["help@acme.test"] }))?.id, 1);
     assert.equal(shared.mailboxForRecipients(boxes, g({ ...both, recipients: ["billing@acme.test"] }))?.id, 2);
-    // To beats Cc, Cc beats the envelope.
-    assert.equal(shared.mailboxForRecipients(boxes, g({ to: "press@acme.test", cc: "billing@acme.test", recipients: ["help@acme.test"] }))?.id, 3);
-    assert.deepEqual(shared.recipientCandidates(g({ to: "A@x.test", cc: "b@x.test, a@x.test", recipients: ["c@x.test"] })), ["a@x.test", "b@x.test", "c@x.test"]);
+    // One delivery for both (the envelope names two of ours): To, then Cc, pick among those two only.
+    assert.equal(shared.mailboxForRecipients(boxes, g({ ...both, recipients: ["help@acme.test", "billing@acme.test"] }))?.id, 2);
+    assert.equal(shared.mailboxForRecipients(boxes, g({ to: "press@acme.test", cc: "billing@acme.test", recipients: ["help@acme.test", "billing@acme.test"] }))?.id, 2);
+    assert.equal(shared.mailboxForRecipients(boxes, g({ to: "x@customer.test", recipients: ["help@acme.test", "billing@acme.test"] }))?.id, 1, "nothing visible picks: the first the envelope names");
+    // With no envelope: To beats Cc, Cc beats the recipient headers.
+    assert.equal(shared.mailboxForRecipients(boxes, g({ to: "press@acme.test", cc: "billing@acme.test", headers: { "Delivered-To": "help@acme.test" } }))?.id, 3);
+    assert.equal(shared.mailboxForRecipients(boxes, g({ to: "x@customer.test", cc: "billing@acme.test", headers: { "Delivered-To": "help@acme.test" } }))?.id, 2);
+    assert.deepEqual(shared.recipientCandidates(g({ to: "A@x.test", cc: "b@x.test, a@x.test", recipients: ["c@x.test"] })), ["c@x.test", "a@x.test", "b@x.test"]);
     assert.equal(shared.mailboxForRecipients([], g({ to: "help@acme.test" })), undefined);
+  });
+
+  test("the sender can't choose the mailbox: the envelope beats To and Cc, and the recipient headers count only without one", () => {
+    const g = (b: Record<string, unknown>) => parse.parseGeneric({ from: "mallory@customer.test", subject: "Hi", text: "Hello", ...b });
+    // Delivered to the public help@, with another listed address written into To, Cc or a header.
+    assert.equal(shared.mailboxForRecipients(boxes, g({ to: "billing@acme.test", recipients: ["help@acme.test"] }))?.id, 1);
+    assert.equal(shared.mailboxForRecipients(boxes, g({ to: "x@customer.test", cc: "press@acme.test", envelope_to: "help@acme.test" }))?.id, 1);
+    assert.equal(shared.mailboxForRecipients(boxes, g({ to: "x@customer.test", recipients: ["help@acme.test"], headers: { "X-Original-To": "billing@acme.test", "Delivered-To": "billing@acme.test" } }))?.id, 1);
+    // The envelope is the provider's own inbound address (every listed address forwards to it): it
+    // says nothing, To and Cc decide as before; a recipient header still never does.
+    assert.equal(shared.mailboxForRecipients(boxes, g({ to: "billing@acme.test", recipients: ["abc123@inbound.provider.test"] }))?.id, 2);
+    assert.equal(shared.mailboxForRecipients(boxes, g({ to: "x@customer.test", recipients: ["abc123@inbound.provider.test"], headers: { "X-Original-To": "billing@acme.test" } })), undefined);
+    assert.deepEqual(shared.recipientGroups(g({ to: "x@customer.test", recipients: ["help@acme.test"], headers: { "X-Original-To": "billing@acme.test" } })), {
+      envelope: ["help@acme.test"],
+      visible: ["x@customer.test"],
+      headers: [],
+    });
+    // No envelope at all (Bcc through a provider that reports none): the headers are what is left.
+    assert.equal(shared.mailboxForRecipients(boxes, g({ to: "x@customer.test", headers: { "X-Original-To": "billing@acme.test" } }))?.id, 2);
+  });
+
+  test("addresses are found in one pass, the same ones as before", () => {
+    assert.deepEqual(shared.scanAddresses('"Acme, Billing" <Billing@Acme.test>, help@acme.test; rfc822;press@acme.test', 10), ["Billing@Acme.test", "help@acme.test", "press@acme.test"]);
+    assert.deepEqual(shared.scanAddresses("a@b, a@b@c.test, @x.test, x@.test, y@z.test.", 10), ["b@c.test", "y@z.test"]);
+    assert.deepEqual(shared.scanAddresses("one@x.test two@x.test"), ["one@x.test"], "at most `max`, one by default");
+    assert.deepEqual(shared.scanAddresses("no address here", 10), []);
+    assert.equal(parse.normalizeEmail("Priya Shah <Priya.Shah+x@Example.com>"), "priya.shah+x@example.com");
+    assert.equal(parse.normalizeEmail("undisclosed-recipients:;"), "");
+  });
+
+  test("a huge recipient header costs nothing: values are cut, counted and read in one pass", () => {
+    const KB300 = 300 * 1024;
+    const shapes = {
+      "no @ at all": "a".repeat(KB300),
+      "an @ after every letter": "a@".repeat(KB300 / 2),
+      "one endless domain": `x@${"a.".repeat(KB300 / 2)}`,
+      "one endless local part": `${"a".repeat(KB300)}@`,
+      "thousands of addresses": "someone@customer.test, ".repeat(Math.floor(KB300 / 23)),
+    };
+    for (const [name, value] of Object.entries(shapes)) {
+      assert.ok(value.length >= KB300 - 30, name);
+      const mails = [
+        { to: [], cc: [], recipients: [], headers: { "x-original-to": value } },
+        { to: [], cc: [], recipients: [], headerList: Array.from({ length: 500 }, (): [string, string] => ["delivered-to", value]) },
+        { to: [{ email: value }], cc: [{ email: value }], recipients: [value] },
+        { to: Array.from({ length: 5000 }, () => ({ email: value })), cc: [], recipients: Array.from({ length: 5000 }, () => value) },
+      ];
+      for (const m of mails) {
+        const t0 = performance.now();
+        assert.equal(shared.mailboxForRecipients(boxes, m), undefined);
+        const ms = performance.now() - t0;
+        assert.ok(ms < 100, `${name}: ${ms.toFixed(1)} ms`);
+        assert.ok(shared.recipientCandidates(m).length <= 3 * shared.RECIPIENT_LIMITS.addresses);
+      }
+      // The parser's own address search (From, To, Cc, the envelope fields) reads the same way.
+      const t1 = performance.now();
+      const parsed = parse.parseGeneric({ from: value, to: value, cc: [value, value], recipients: value, subject: "Hi", text: "Hello", headers: { "X-Original-To": value } });
+      assert.equal(shared.mailboxForRecipients(boxes, parsed), undefined);
+      const ms = performance.now() - t1;
+      assert.ok(ms < 200, `parse, ${name}: ${ms.toFixed(1)} ms`);
+    }
+    // Only the first 2,000 characters of a value and the first 50 values are read.
+    const late = `${" ".repeat(shared.RECIPIENT_LIMITS.value)}billing@acme.test`;
+    assert.equal(shared.mailboxForRecipients(boxes, { to: [], cc: [], recipients: [], headers: { "delivered-to": late } }), undefined);
+    assert.equal(shared.mailboxForRecipients(boxes, { to: [], cc: [], recipients: [], headers: { "delivered-to": late.slice(20) } })?.id, 2);
+    const many = Array.from({ length: 60 }, (_, i) => `r${i}@customer.test`);
+    assert.equal(shared.mailboxForRecipients(boxes, { to: [], cc: [], recipients: [...many, "billing@acme.test"] }), undefined);
+    assert.equal(shared.mailboxForRecipients(boxes, { to: [], cc: [], recipients: [...many.slice(0, 49), "billing@acme.test"] })?.id, 2);
+    assert.equal(shared.recipientCandidates({ to: [], cc: [], recipients: [many.join(", ")] }).length, 50);
   });
 
   test("a ticket's mailbox: its own, else its team's, else the default", () => {
@@ -468,6 +567,164 @@ describe("upgrade from the single address", () => {
     assert.deepEqual((await mailboxes.listMailboxes()).map((m) => [m.address, m.name, m.is_default]), [[A, "Acme Help", true]]);
     await settingsLib.saveHelpdeskSettings({ inbound_address: "" });
     assert.deepEqual(await mailboxes.listMailboxes(), [], "the only address goes with the old setting");
+  });
+
+  test("a 1.20.1 address with a plus tag is listed without the tag, and still counts as ours", async () => {
+    await wipeMailboxes();
+    const TAGGED = `Company+Help@${DOMAIN}`;
+    const base = `company@${DOMAIN}`;
+    await settingsLib.saveHelpdeskSettings({ inbound_address: TAGGED, email_from_name: "Acme IT desk" }, { syncMailboxes: false });
+    assert.equal(mailboxes.legacyMailboxAddress(TAGGED), base);
+    assert.equal(mailboxes.legacyMailboxAddress("not an address"), null);
+    assert.equal(mailboxes.legacyMailboxAddress(""), null);
+    const seeded = await mailboxes.seedMailboxFromSettings();
+    assert.deepEqual([seeded?.address, seeded?.name, seeded?.is_default], [base, "Acme IT desk", true]);
+    mailboxes.resetMailboxesReadyForTests();
+    assert.deepEqual((await mailboxes.listMailboxes()).map((m) => m.address), [base], "the Email page shows the address");
+    const ours = await mailboxes.ownAddressMatcher();
+    for (const a of [TAGGED, TAGGED.toLowerCase(), base, `company+hd-k7q2xz9m4pqa1b2c@${DOMAIN}`]) {
+      assert.equal(await mailboxes.isOwnAddress(a), true, a);
+      assert.equal(ours(a), true, a);
+    }
+    assert.equal(await mailboxes.isOwnAddress(`someone@${DOMAIN}`), false);
+    // Mail to the tagged address lands on it, and replies come back to the same mailbox.
+    assert.equal((await mailboxes.mailboxForInbound(inboundEmail({ to: [{ email: TAGGED.toLowerCase(), name: "" }] })))?.matched, true);
+    assert.equal(email.replyToAddress(base, "k7q2xz9m4pqa1b2c"), `company+hd-k7q2xz9m4pqa1b2c@${DOMAIN}`);
+    assert.equal(email.replyToAddress(TAGGED, "k7q2xz9m4pqa1b2c"), `company+hd-k7q2xz9m4pqa1b2c@${DOMAIN}`, "the Reply-To a requester saw in 1.20.1 is the same");
+    // The old setting is left as 1.20.1 wrote it until the list changes.
+    assert.equal((await settingsLib.getHelpdeskSettings()).inbound_address, TAGGED);
+    // Without the seed (the list is empty and the setting names a tagged address): still ours.
+    await pool().query("DELETE FROM hd_mailboxes");
+    assert.equal(await mailboxes.isOwnAddress(TAGGED.toLowerCase()), true);
+    assert.equal((await mailboxes.ownAddressMatcher())(base), true);
+    await settingsLib.saveHelpdeskSettings({ inbound_address: "" }, { syncMailboxes: false });
+    mailboxes.resetMailboxesReadyForTests();
+  });
+
+  test("the old settings API: only an empty address clears; junk is refused and removes nothing", async () => {
+    await wipeMailboxes();
+    await settingsLib.saveHelpdeskSettings({ inbound_address: "" }, { syncMailboxes: false });
+    const only = await mailboxes.createMailbox({ address: A, name: "Acme Help", team_id: teamA, send_from: true }, by());
+    const t = await tickets.createTicket({ subject: `${STAMP} legacy api`, body: "x", requester: { id: U.req.id, name: U.req.name, email: U.req.email }, team_id: teamA, mailbox_id: only.id } as never, { silent: true });
+    ticketIds.push(t.id);
+    const patch = (body: unknown) => call(settingsRoute.PATCH, req("http://localhost/api/helpdesk/admin/settings", U.manager, body, "PATCH"));
+    const state = async () => ({
+      boxes: (await mailboxes.listMailboxes()).map((m) => [m.id, m.address, m.name, m.team_id, m.send_from, m.is_default]),
+      ticket: (await pool().query("SELECT mailbox_id FROM hd_tickets WHERE id = $1", [t.id])).rows[0].mailbox_id,
+      setting: (await settingsLib.getHelpdeskSettings()).inbound_address,
+      name: (await settingsLib.getHelpdeskSettings()).email_from_name,
+    });
+    const before = await state();
+    assert.deepEqual(before, { boxes: [[only.id, A, "Acme Help", teamA, true, true]], ticket: only.id, setting: A, name: "Acme Help" });
+    for (const [junk, why] of [
+      [`help+x@${DOMAIN}`, /\+ tag/],
+      ["help@", /not an email address/],
+      [`Acme Help <${A}>`, /not an email address/],
+      [`${A}, ${B}`, /not an email address/],
+      [`${"a".repeat(200)}@${DOMAIN}`, /under 200 characters/],
+      [5, /email address, or empty/],
+      [null, /email address, or empty/],
+    ] as const) {
+      const r = await patch({ inbound_address: junk, email_from_name: "Renamed by a refused request" });
+      assert.equal(r.status, 400, `${String(junk)}: ${JSON.stringify(r.body)}`);
+      assert.match(r.body.error, why, String(junk));
+      assert.deepEqual(await state(), before, `${String(junk)} changed something`);
+    }
+    // The stored value sent back as it is (a client that saves the whole form) is no change and no error.
+    assert.equal((await patch({ inbound_address: A, csat_enabled: true })).status, 200);
+    assert.deepEqual(await state(), before);
+    // The library, called with junk by something other than the API: never "cleared", and a name in the same save still lands.
+    await mailboxes.syncDefaultMailboxFromSettings({ inbound_address: "help@", email_from_name: "Acme Desk" }, ["inbound_address", "email_from_name"]);
+    assert.deepEqual((await mailboxes.listMailboxes()).map((m) => [m.id, m.address, m.name]), [[only.id, A, "Acme Desk"]]);
+    // Cleared while several are listed: nothing is removed, and the name in the same save still lands.
+    const second = await mailboxes.createMailbox({ address: B, name: "Acme Billing" }, by());
+    assert.equal((await patch({ inbound_address: "  ", email_from_name: "Acme Front Desk" })).status, 200);
+    assert.deepEqual((await mailboxes.listMailboxes()).map((m) => [m.address, m.name]), [[A, "Acme Front Desk"], [B, "Acme Billing"]]);
+    await mailboxes.deleteMailbox(second.id, by());
+    assert.equal((await settingsLib.getHelpdeskSettings()).inbound_address, A);
+    // Empty once trimmed, and it is the only one: that is "cleared".
+    const cleared = await patch({ inbound_address: "   " });
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.body));
+    assert.deepEqual(await mailboxes.listMailboxes(), []);
+    assert.equal((await pool().query("SELECT mailbox_id FROM hd_tickets WHERE id = $1", [t.id])).rows[0].mailbox_id, null);
+  });
+
+  test("the mirror into the old settings: with the mailbox change or not at all, and only its two keys", async () => {
+    await wipeMailboxes();
+    await settingsLib.saveHelpdeskSettings({ inbound_address: "" }, { syncMailboxes: false });
+    const a = await mailboxes.createMailbox({ address: A, name: "Acme Help" }, by());
+    const raw = async () => JSON.parse((await pool().query("SELECT value FROM settings WHERE key = 'helpdesk_settings'")).rows[0].value);
+    assert.deepEqual([(await raw()).inbound_address, (await raw()).email_from_name], [A, "Acme Help"]);
+    // A key this build does not know (a newer one wrote it) survives the mirror: only the two keys are replaced.
+    const stored = await raw();
+    await pool().query("UPDATE settings SET value = $1 WHERE key = 'helpdesk_settings'", [JSON.stringify({ ...stored, x_from_a_newer_build: { keep: true } })]);
+    await mailboxes.updateMailbox(a.id, { name: "Acme Support" }, by());
+    assert.deepEqual([(await raw()).email_from_name, (await raw()).x_from_a_newer_build, (await raw()).inbound_secret], ["Acme Support", { keep: true }, stored.inbound_secret]);
+    await pool().query("UPDATE settings SET value = $1 WHERE key = 'helpdesk_settings'", [JSON.stringify(await raw().then(({ x_from_a_newer_build: _gone, ...rest }) => rest))]);
+
+    // A settings save in flight (it holds the row, as saveHelpdeskSettings does): the mailbox change
+    // waits for it, then writes its two keys into what that save stored. Nothing of that save is lost.
+    const other = await pool().connect();
+    let update: Promise<unknown> = Promise.resolve();
+    try {
+      await other.query("BEGIN");
+      const cur = JSON.parse((await other.query("SELECT value FROM settings WHERE key = 'helpdesk_settings' FOR UPDATE")).rows[0].value);
+      update = mailboxes.updateMailbox(a.id, { name: "Acme Front Desk" }, by());
+      let done = false;
+      void update.then(() => (done = true), () => (done = true));
+      assert.equal(await waitingForSettings(), true, "the mirror waits for the settings row");
+      assert.equal(done, false);
+      assert.equal((await pool().query("SELECT name FROM hd_mailboxes WHERE id = $1", [a.id])).rows[0].name, "Acme Support", "and the mailbox change is not committed without it");
+      await other.query("UPDATE settings SET value = $1 WHERE key = 'helpdesk_settings'", [JSON.stringify({ ...cur, x_saved_meanwhile: "kept" })]);
+      await other.query("COMMIT");
+    } catch (e) {
+      await other.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      other.release();
+    }
+    await update;
+    const after = await raw();
+    assert.deepEqual([after.inbound_address, after.email_from_name, after.x_saved_meanwhile, after.inbound_secret], [A, "Acme Front Desk", "kept", stored.inbound_secret]);
+    // saveHelpdeskSettings takes the same lock, so it can't put an older address back either.
+    const held = await pool().connect();
+    try {
+      await held.query("BEGIN");
+      await held.query("SELECT 1 FROM settings WHERE key = 'helpdesk_settings' FOR UPDATE");
+      let saved = false;
+      const save = settingsLib.saveHelpdeskSettings({ email_from_name: "Acme Front Desk" }, { syncMailboxes: false }).then(() => (saved = true));
+      assert.equal(await waitingForSettings("SELECT 1 FROM settings WHERE key = $1 FOR UPDATE"), true, "a settings save waits for the row too");
+      assert.equal(saved, false);
+      await held.query("COMMIT");
+      await save;
+    } finally {
+      await held.query("ROLLBACK").catch(() => {});
+      held.release();
+    }
+    await pool().query("UPDATE settings SET value = $1 WHERE key = 'helpdesk_settings'", [JSON.stringify(await raw().then(({ x_saved_meanwhile: _gone, ...rest }) => rest))]);
+
+    // The mirror fails (its wait for the settings row is cancelled): the mailbox change is rolled back with it.
+    const blocker = await pool().connect();
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT 1 FROM settings WHERE key = 'helpdesk_settings' FOR UPDATE");
+      const gone = mailboxes.deleteMailbox(a.id, by()).then(() => "deleted", (e: Error) => e.message);
+      assert.equal(await waitingForSettings(), true);
+      // Only this test's own connections (application_name) are cancelled.
+      await pool().query(`SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE application_name = $1 AND wait_event_type = 'Lock' AND query = $2`, [STAMP, MIRROR_LOCK_SQL]);
+      assert.match(await gone, /cancel/i);
+      await blocker.query("ROLLBACK");
+    } finally {
+      await blocker.query("ROLLBACK").catch(() => {});
+      blocker.release();
+    }
+    assert.deepEqual((await mailboxes.listMailboxes()).map((m) => m.address), [A], "the address is still listed");
+    assert.equal((await raw()).inbound_address, A, "and the old setting still names it");
+    // And when it goes through, both go together: nothing to seed back on the next start.
+    await mailboxes.deleteMailbox(a.id, by());
+    assert.equal((await raw()).inbound_address, "");
+    mailboxes.resetMailboxesReadyForTests();
+    assert.deepEqual(await mailboxes.listMailboxes(), []);
   });
 });
 
@@ -598,6 +855,11 @@ describe("inbound: one webhook, any listed address", () => {
     assert.deepEqual([env.row.mailbox_id, env.row.team_id], [box.b.id, teamB]);
     const hdr = await mailIn({ to: [{ email: "bob@customer.example.test", name: "" }], headers: { "delivered-to": B } });
     assert.equal(hdr.row.mailbox_id, box.b.id);
+    // Delivered to the public address with another one written into To and a header: the envelope decides.
+    const forged = await mailIn({ to: [{ email: B, name: "" }], recipients: [A], headers: { "x-original-to": B } });
+    assert.deepEqual([forged.row.mailbox_id, forged.row.team_id], [box.a.id, teamA]);
+    const forgedHeader = await mailIn({ to: [{ email: "bob@customer.example.test", name: "" }], recipients: ["abc@inbound.provider.test"], headers: { "x-original-to": B } });
+    assert.equal(forgedHeader.row.mailbox_id, box.a.id, "a header never picks while the provider reports an envelope: the default");
   });
 
   test("a recipient that is not listed counts as the default address", async () => {
@@ -643,14 +905,50 @@ describe("inbound: one webhook, any listed address", () => {
     assert.equal(bySubject.row.mailbox_id, box.b.id);
   });
 
-  test("loops: our own addresses are never a requester", async () => {
-    for (const from of [A, B.toUpperCase(), `press+anything@${DOMAIN}`, `whatever+hd-k7q2xz9m4pqa1b2c@elsewhere.example.test`]) {
-      const before = (await pool().query("SELECT count(*)::int AS n FROM hd_tickets WHERE lower(requester_email) = lower($1)", [from])).rows[0].n;
-      const r = await mailIn({ from: { email: from.toLowerCase(), name: "Acme" }, to: [{ email: B, name: "" }] });
-      assert.equal(r.res.body.outcome, "ignored_loop", `${from}: ${JSON.stringify(r.res.body)}`);
-      assert.equal((await pool().query("SELECT count(*)::int AS n FROM hd_tickets WHERE lower(requester_email) = lower($1)", [from])).rows[0].n, before);
+  test("loops: mail From one of our addresses is dropped only with a second sign that it is ours, and the drop is audited", async () => {
+    const OURS = [A, B.toUpperCase(), `press+anything@${DOMAIN}`, `whatever+hd-k7q2xz9m4pqa1b2c@elsewhere.example.test`];
+    const tickets_of = async (from: string) => (await pool().query("SELECT count(*)::int AS n FROM hd_tickets WHERE lower(requester_email) = lower($1)", [from])).rows[0].n;
+    const drops = async (from: string) =>
+      (await pool().query("SELECT details FROM audit_log WHERE action = 'helpdesk.inbound.rejected' AND target_label = $1 ORDER BY id", [from.toLowerCase()])).rows.map((r) => r.details);
+    const signs: [string, Partial<InboundEmail>][] = [
+      ["message_id", { messageId: "hd.k7q2xz9m4pqa1b2c.0a1b2c3d4e5f@mail.example.test" }],
+      ["message_id", { messageId: "hd-note-k7q2xz9m4pqa1b2c-0a1b2c3d4e5f@mail.example.test" }],
+      ["thread", { inReplyTo: "hd.k7q2xz9m4pqa1b2c.root@mail.example.test" }],
+      ["thread", { references: ["someone@else.example.test", "<hd.k7q2xz9m4pqa1b2c.0a1b2c3d4e5f@mail.example.test>"] }],
+      ["auto_submitted", { headers: { "auto-submitted": "auto-replied" } }],
+    ];
+    for (const from of OURS) {
+      const before = await tickets_of(from);
+      for (const [signal, over] of signs) {
+        const r = await mailIn({ from: { email: from.toLowerCase(), name: "Acme" }, to: [{ email: B, name: "" }], ...over });
+        assert.equal(r.res.body.outcome, "ignored_loop", `${from} ${signal}: ${JSON.stringify(r.res.body)}`);
+      }
+      assert.equal(await tickets_of(from), before);
+      const rows = await drops(from);
+      assert.deepEqual(rows.map((d) => d.signal), signs.map(([sig]) => sig), "every dropped mail leaves an audit row");
+      assert.deepEqual(
+        { reason: rows[0].reason, from: rows[0].from, provider: rows[0].provider, subject: rows[0].subject },
+        { reason: "own_address_loop", from: from.toLowerCase(), provider: "generic", subject: `${STAMP} A question` }
+      );
     }
+    // The address alone is no loop: a colleague writing as the shared mailbox, or a group that
+    // rewrites From, is real mail. It becomes a ticket like any other, and nothing is audited as dropped.
+    for (const from of [A, `press+anything@${DOMAIN}`]) {
+      const audited = (await drops(from)).length;
+      const r = await mailIn({ from: { email: from, name: "Sam from Sales" }, to: [{ email: B, name: "" }], subject: `${STAMP} sent as the shared mailbox`, headers: { "auto-submitted": "no" } });
+      assert.equal(r.res.body.outcome, "created", `${from}: ${JSON.stringify(r.res.body)}`);
+      assert.deepEqual([r.row.requester_email, r.row.mailbox_id], [from, box.b.id]);
+      assert.equal((await drops(from)).length, audited);
+    }
+    // A mail of somebody else with the same signs is not this guard's business (auto mail is ignored as before).
+    const stranger = await mailIn({ inReplyTo: "hd.k7q2xz9m4pqa1b2c.root@mail.example.test" });
+    assert.notEqual(stranger.res.body.outcome, "ignored_loop");
+    // Our own header is still enough by itself, whoever it is From.
+    const own = await mailIn({ headers: { "x-compassdocs-helpdesk": "1" } });
+    assert.equal(own.res.body.outcome, "ignored_loop");
+    assert.equal(inbound.ownMailSignal(inboundEmail()), null);
     assert.equal(await mailboxes.isOwnAddress(`someone@${DOMAIN}`), false);
+    await pool().query("DELETE FROM audit_log WHERE action = 'helpdesk.inbound.rejected' AND target_label = ANY($1)", [OURS.map((x) => x.toLowerCase())]);
   });
 
   test("loops: our own addresses are never a CC, from a mail's Cc or added by hand", async () => {
@@ -798,6 +1096,60 @@ describe("outbound: every mail to the requester uses the ticket's mailbox", () =
     await mailboxes.clearSendFromFailure(box.b.id);
   });
 
+  test("only a permanent refusal of the address falls back: a timeout, a 4xx or a refused recipient fails as it always did, sent once", async () => {
+    const smtp = (message: string, extra: Record<string, unknown>) => Object.assign(new Error(message), extra);
+    const cases: [string, Error, boolean][] = [
+      ["a timeout", smtp("Connection timeout", { code: "ETIMEDOUT", command: "CONN" }), false],
+      ["the socket closed after DATA", smtp("Connection closed unexpectedly", { code: "ECONNECTION", command: "DATA" }), false],
+      ["try again later", smtp("Mail command failed: 451 4.7.1 Greylisted, try again later", { code: "EENVELOPE", command: "MAIL FROM", responseCode: 451, response: "451 4.7.1 Greylisted, try again later" }), false],
+      ["an unknown recipient", smtp("Can't send mail - all recipients were rejected: 550 5.1.1 User unknown", { code: "EENVELOPE", command: "RCPT TO", responseCode: 550, response: "550 5.1.1 <x@customer.example.test>: Recipient address rejected: User unknown" }), false],
+      ["a login failure", smtp("Invalid login: 535 5.7.8 Authentication failed", { code: "EAUTH", command: "AUTH PLAIN", responseCode: 535, response: "535 5.7.8 Authentication failed" }), false],
+      ["5xx at MAIL FROM", smtp("Mail command failed: 550 5.1.0 Address rejected", { code: "EENVELOPE", command: "MAIL FROM", responseCode: 550, response: "550 5.1.0 Address rejected" }), true],
+      ["5xx at DATA", smtp("Message failed: 554 Message rejected: Email address is not verified.", { code: "EMESSAGE", command: "DATA", responseCode: 554, response: "554 Message rejected: Email address is not verified." }), true],
+      ["Postfix names the sender at RCPT TO", smtp("Can't send mail - all recipients were rejected: 553 5.7.1 Sender address rejected", { code: "EENVELOPE", command: "RCPT TO", responseCode: 553, response: `553 5.7.1 <${B}>: Sender address rejected: not owned by user smtp@example.test` }), true],
+      ["Exchange: send as denied", smtp("Message failed: 554 5.2.252 SendAsDenied; smtp@example.test not allowed to send as billing", { responseCode: 554, response: "554 5.2.252 SendAsDenied; smtp@example.test not allowed to send as billing" }), true],
+      ["only the text to go by", smtp("Mail command failed: 550 The from address does not match a verified Sender Identity", {}), true],
+    ];
+    for (const [name, e, sender] of cases) assert.equal(email.isSenderRejection(e), sender, name);
+    assert.equal(email.isSenderRejection(new Error("something else")), false);
+    assert.equal(email.isSenderRejection(null), false);
+
+    const t = await ticket(box.b.id, teamB);
+    await mailboxes.clearSendFromFailure(box.b.id);
+    const audits = async () => (await pool().query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'helpdesk.mailbox.send_from_failed' AND target_id = $1", [String(box.b.id)])).rows[0].n;
+    const auditsBefore = await audits();
+    for (const [name, e, sender] of cases) {
+      attempts = 0;
+      failNext = e;
+      const r = await send(t);
+      if (sender) {
+        assert.equal(r.ok, true, name);
+        assert.equal(attempts, 2, `${name}: refused once, then sent from the workspace address`);
+        assert.equal(r.m.from, `"Acme Billing" <${transportFrom}>`, name);
+        assert.notEqual((await mailboxes.getMailbox(box.b.id))!.send_from_error, "", name);
+        await mailboxes.clearSendFromFailure(box.b.id);
+      } else {
+        assert.equal(r.ok, false, `${name}: the send fails`);
+        assert.equal(attempts, 1, `${name}: no second send (the first may have gone through)`);
+        assert.equal(r.all.length, 0, name);
+        assert.deepEqual([(await mailboxes.getMailbox(box.b.id))!.send_from_error, (await mailboxes.getMailbox(box.b.id))!.send_from_error_at], ["", null], `${name}: nothing is held against the address`);
+      }
+    }
+    assert.equal((await audits()) - auditsBefore, cases.filter((c) => c[2]).length, "an audit row for each refusal of the address, none for the rest");
+    // Send test: the provider's words come back either way; only a refusal of the address is kept on
+    // the mailbox. (One call through the route: it allows five a minute per person.)
+    failNext = cases[3][1];
+    const bad = await call(testRoute.POST, req(`${BASE}/${box.b.id}/test`, U.manager), { id: String(box.b.id) });
+    assert.deepEqual(bad.body, { ok: false, to: U.manager.email, from: B, error: "550 5.1.1 <x@customer.example.test>: Recipient address rejected: User unknown" });
+    assert.equal((await mailboxes.getMailbox(box.b.id))!.send_from_error, "", "a refused recipient says nothing about the address");
+    await pool().query("DELETE FROM audit_log WHERE action = 'helpdesk.mailbox.tested' AND target_id = $1", [String(box.b.id)]);
+    failNext = cases[0][1];
+    assert.deepEqual(await email.sendMailboxTestMail(box.b, U.manager.email), { ok: false, from: B, error: "Connection timeout", senderRejected: false });
+    failNext = cases[6][1];
+    assert.deepEqual(await email.sendMailboxTestMail(box.b, U.manager.email), { ok: false, from: B, error: "554 Message rejected: Email address is not verified.", senderRejected: true });
+    failNext = null;
+  });
+
   test("Send test: to the admin's own address, as a reply would leave, and the provider's refusal comes back plainly", async () => {
     const post = (id: number, who = U.manager) => call(testRoute.POST, req(`${BASE}/${id}/test`, who), { id: String(id) });
     mail.length = 0;
@@ -851,12 +1203,76 @@ describe("the ticket", () => {
     assert.equal((await get(U.newbie)).body.can_change_mailbox, false, "a reply-after-review role doesn't choose the address");
   });
 
+  test("Answer from is the agent's own teams': the choices, the short list and the change are scoped alike", async () => {
+    const list = async (who: Person) => (await call(agentRoute.GET, req("http://localhost/api/helpdesk/mailboxes", who, undefined, "GET"))).body.mailboxes.map((m: { address: string }) => m.address);
+    // A is the default (team A), B is team B's, C has no team. solo is in team A only.
+    assert.deepEqual(await mailboxes.mailboxScope({ id: U.solo.id, role: "viewer" }), [teamA]);
+    assert.equal(await mailboxes.mailboxScope({ id: U.manager.id, role: "viewer" }), "all", "tickets.view_all reads and answers from any");
+    assert.deepEqual(await list(U.solo), [A, C], "another team's address is not listed");
+    assert.deepEqual(await list(U.agent), [A, B, C], "an agent of every team sees them all");
+    assert.deepEqual(await list(U.manager), [A, B, C]);
+    assert.equal(mailboxes.mailboxInScope({ is_default: true, team_id: teamB }, [teamA]), true, "the default is everyone's, whatever its team");
+    assert.equal(mailboxes.mailboxInScope({ is_default: false, team_id: null }, []), true);
+    assert.equal(mailboxes.mailboxInScope({ is_default: false, team_id: teamB }, [teamA]), false);
+
+    // A team A ticket that came in on team B's address (it was moved to team A).
+    const own = await tickets.createTicket(
+      { subject: `${STAMP} scoped`, body: "x", requester: { id: null, name: "Cara Customer", email: `${STAMP}-cara3@customer.example.test` }, team_id: teamA, mailbox_id: box.b.id, via: "email", source: "email" } as never,
+      { silent: true }
+    );
+    ticketIds.push(own.id);
+    const at = (who: Person, body?: unknown) =>
+      body === undefined
+        ? call(ticketRoute.GET, req(url(own.number), who, undefined, "GET"), { number: String(own.number) })
+        : call(ticketRoute.PATCH, req(url(own.number), who, body, "PATCH"), { number: String(own.number) });
+    const stored = async () => (await pool().query("SELECT mailbox_id FROM hd_tickets WHERE id = $1", [own.id])).rows[0].mailbox_id;
+    const trail = async () => [
+      (await pool().query("SELECT count(*)::int AS n FROM hd_messages WHERE ticket_id = $1 AND body LIKE '%answered from%'", [own.id])).rows[0].n,
+      (await pool().query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'helpdesk.ticket.mailbox_changed' AND target_id = $1", [String(own.id)])).rows[0].n,
+    ];
+    let d = (await at(U.solo)).body;
+    assert.deepEqual(d.mailbox, { id: box.b.id, address: B, name: "Acme Billing", own: true }, "the address in use is always named");
+    assert.deepEqual(d.mailboxes.map((m: { address: string }) => m.address), [A, C], "the choices are the agent's own");
+    assert.equal(d.can_change_mailbox, true, "they may move it to one of theirs");
+    // The other team's address is refused, by id as well as left out of the list; nothing is written.
+    await pool().query("UPDATE hd_tickets SET mailbox_id = NULL WHERE id = $1", [own.id]);
+    const refused = await at(U.solo, { mailbox_id: box.b.id });
+    assert.equal(refused.status, 403, JSON.stringify(refused.body));
+    assert.match(refused.body.error, /belongs to another team/);
+    assert.equal(await stored(), null);
+    assert.deepEqual(await trail(), [0, 0]);
+    assert.deepEqual(await mailboxes.changeAnswerFrom({ id: U.solo.id, name: U.solo.name, role: "viewer" }, own, box.b.id), { error: "That address belongs to another team. Answer from one of your own teams' addresses, or the default.", status: 403 });
+    // Their own team's (the default here) and one with no team are theirs to choose.
+    assert.deepEqual((await at(U.solo, { mailbox_id: box.c.id })).body.changed, ["mailbox_id"]);
+    assert.equal(await stored(), box.c.id);
+    assert.deepEqual((await at(U.solo, { mailbox_id: box.a.id })).body.changed, ["mailbox_id"]);
+    assert.deepEqual((await at(U.solo, { mailbox_id: null })).body.changed, [], "back to working it out: the same address, nothing to tell");
+    // Someone who sees every team's tickets may answer from any address; so may an agent of that team.
+    assert.deepEqual((await at(U.manager, { mailbox_id: box.b.id })).body.changed, ["mailbox_id"]);
+    assert.equal(await stored(), box.b.id);
+    assert.deepEqual((await at(U.agent, { mailbox_id: box.c.id })).body.changed, ["mailbox_id"]);
+    assert.deepEqual((await at(U.agent, { mailbox_id: box.b.id })).body.changed, ["mailbox_id"]);
+    // Nothing else to choose: the address is a plain label. (C becomes team B's: solo is left with A only.)
+    await pool().query("UPDATE hd_mailboxes SET team_id = $2 WHERE id = $1", [box.c.id, teamB]);
+    try {
+      d = (await at(U.solo)).body;
+      assert.deepEqual([d.mailbox.address, d.mailboxes.map((m: { address: string }) => m.address), d.can_change_mailbox], [B, [A], true], "on another team's address: named, and A is the one move open");
+      await pool().query("UPDATE hd_tickets SET mailbox_id = $2 WHERE id = $1", [own.id, box.a.id]);
+      d = (await at(U.solo)).body;
+      assert.deepEqual([d.mailbox.address, d.mailboxes.map((m: { address: string }) => m.address), d.can_change_mailbox], [A, [A], false], "read-only: there is no other address to choose");
+      assert.equal((await at(U.solo, { mailbox_id: box.c.id })).status, 403);
+      assert.deepEqual(await list(U.solo), [A]);
+    } finally {
+      await pool().query("UPDATE hd_mailboxes SET team_id = NULL WHERE id = $1", [box.c.id]);
+    }
+  });
+
   test("an agent changes Answer from: stored, a timeline line for agents, audited; refusals change nothing", async () => {
     assert.equal((await patch(U.newbie, { mailbox_id: box.c.id })).status, 403);
-    assert.equal((await patch(U.agent, { mailbox_id: 999999999 })).status, 400);
-    assert.equal((await patch(U.agent, { mailbox_id: "x" })).status, 400);
+    assert.equal((await patch(U.manager, { mailbox_id: 999999999 })).status, 400);
+    assert.equal((await patch(U.manager, { mailbox_id: "x" })).status, 400);
     assert.equal((await pool().query("SELECT mailbox_id FROM hd_tickets WHERE id = $1", [t.id])).rows[0].mailbox_id, null);
-    const r = await patch(U.agent, { mailbox_id: box.c.id });
+    const r = await patch(U.manager, { mailbox_id: box.c.id });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.deepEqual(r.body.changed, ["mailbox_id"]);
     assert.equal(r.body.ticket.mailbox_address, C);
@@ -873,12 +1289,46 @@ describe("the ticket", () => {
     assert.match(mail[0].from, /^"Acme Press" </);
     assert.match(mail[0].replyTo!, /^press\+hd-/);
     // The same choice again, and with another field: one line, one audit row.
-    assert.deepEqual((await patch(U.agent, { mailbox_id: box.c.id })).body.changed, []);
-    const both = await patch(U.agent, { mailbox_id: box.a.id, priority: "high" });
+    assert.deepEqual((await patch(U.manager, { mailbox_id: box.c.id })).body.changed, []);
+    const both = await patch(U.manager, { mailbox_id: box.a.id, priority: "high" });
     assert.deepEqual(both.body.changed.sort(), ["mailbox_id", "priority"]);
     // Back to "work it out": the team's again.
-    assert.deepEqual((await patch(U.agent, { mailbox_id: null })).body.changed, ["mailbox_id"]);
+    assert.deepEqual((await patch(U.manager, { mailbox_id: null })).body.changed, ["mailbox_id"]);
     assert.deepEqual((await get(U.agent)).body.mailbox, { id: box.b.id, address: B, name: "Acme Billing", own: false });
+  });
+
+  test("a refused PATCH changes nothing: the address is stored last, after every other check and the other fields", async () => {
+    const before = (await pool().query("SELECT mailbox_id, priority, team_id, status FROM hd_tickets WHERE id = $1", [t.id])).rows[0];
+    const target = before.mailbox_id === box.c.id ? box.a.id : box.c.id;
+    const trail = async () => [
+      (await pool().query("SELECT count(*)::int AS n FROM hd_messages WHERE ticket_id = $1", [t.id])).rows[0].n,
+      (await pool().query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'helpdesk.ticket.mailbox_changed' AND target_id = $1", [String(t.id)])).rows[0].n,
+    ];
+    const trailBefore = await trail();
+    const same = async (why: string) => {
+      assert.deepEqual((await pool().query("SELECT mailbox_id, priority, team_id, status FROM hd_tickets WHERE id = $1", [t.id])).rows[0], before, why);
+      assert.deepEqual(await trail(), trailBefore, `${why}: no timeline line, no audit row`);
+    };
+    // (As a manager: moving and assigning are theirs to do, so these get as far as the update.)
+    // The team does not exist: refused inside the update itself.
+    const noTeam = await patch(U.manager, { mailbox_id: target, team_id: 999999999 });
+    assert.equal(noTeam.status, 400, JSON.stringify(noTeam.body));
+    assert.match(noTeam.body.error, /team does not exist/);
+    await same("an unknown team");
+    // Not an agent of that team: refused inside the update too.
+    const noAgent = await patch(U.manager, { mailbox_id: target, assignee_id: U.req.id });
+    assert.equal(noAgent.status, 400, JSON.stringify(noAgent.body));
+    await same("an assignee who is not an agent");
+    // A bad address in a request that is otherwise fine: the other field is not saved either.
+    const badBox = await patch(U.manager, { mailbox_id: 999999999, priority: before.priority === "urgent" ? "low" : "urgent" });
+    assert.equal(badBox.status, 400);
+    await same("an address that is not listed");
+    // And when all of it passes, both land, the address after the rest.
+    const ok = await patch(U.manager, { mailbox_id: target, priority: before.priority === "urgent" ? "low" : "urgent" });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    assert.deepEqual(ok.body.changed, ["priority", "mailbox_id"]);
+    assert.equal(ok.body.ticket.mailbox_id, target, "the reply carries the ticket as it is now");
+    assert.equal((await trail())[1], trailBefore[1] + 1);
   });
 
   test("the queue row and the reads carry the address; a merge keeps the kept ticket's", async () => {

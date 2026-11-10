@@ -156,11 +156,14 @@ export async function ticketDetail(user: { id: number; role: Role }, t: HdTicket
 
 async function mailboxFields(user: { id: number; role: Role }, t: HdTicket, canWork: boolean): Promise<Pick<HdTicketDetail, "mailbox" | "mailboxes" | "can_change_mailbox">> {
   try {
-    const { mailboxOptions, ticketMailbox } = await import("./mailboxes");
-    const [mailbox, options] = await Promise.all([ticketMailbox(t), mailboxOptions()]);
-    if (options.length < 2) return { mailbox };
+    const { mailboxOptionsFor, ticketMailbox } = await import("./mailboxes");
+    const [mailbox, { options, total }] = await Promise.all([ticketMailbox(t), mailboxOptionsFor(user)]);
+    if (total < 2) return { mailbox };
+    // The choices are the agent's own (the default, addresses with no team, their teams'). The
+    // address in use is always named, as a plain label when there is nothing else to choose.
+    const choice = options.some((o) => o.id !== mailbox?.id);
     const { hdCan } = await import("./roles");
-    return { mailbox, mailboxes: options, can_change_mailbox: canWork && (await hdCan(user, "tickets.reply_public", { teamId: t.team_id })) };
+    return { mailbox, mailboxes: options, can_change_mailbox: canWork && choice && (await hdCan(user, "tickets.reply_public", { teamId: t.team_id })) };
   } catch (e) {
     console.error("[helpdesk] ticket mailbox:", e);
     return { mailbox: null };
