@@ -568,6 +568,10 @@ describe("merged tickets in reports and on the desk", () => {
       const solved = await ticket({ team: T3 });
       const keep = await ticket({ team: T3 });
       const dup = await ticket({ team: T3, requester: P.req2 });
+      // Only the duplicate carries a resolution target: a default reply-target policy would
+      // otherwise give the others a business-hours due date that falls inside or outside the
+      // report range depending on the day of the week the test runs.
+      await pool().query("UPDATE hd_tickets SET resolve_due = NULL, first_reply_due = NULL WHERE id = ANY($1::int[])", [[solved.id, keep.id]]);
       const p = await call(ticketRoute.PATCH, patchReq(`/tickets/${solved.number}`, P.agent.session, { status: "solved" }), { number: String(solved.number) });
       assert.equal(p.status, 200, JSON.stringify(p.body));
       // A resolution target on the duplicate: the merge must neither meet nor miss it.
