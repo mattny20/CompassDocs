@@ -297,13 +297,19 @@ export interface SetupStepState {
 export async function setupChecklist(): Promise<{ steps: SetupStepState[]; done: number; total: number; setup_complete: boolean }> {
   const { getHelpdeskSettings } = await import("./settings");
   const { hqOne } = await import("./db-core");
-  const s = await getHelpdeskSettings();
-  const c = (await hqOne<{ teams: number; agents: number; sla: number; types: number }>(
-    `SELECT (SELECT count(*)::int FROM hd_teams) AS teams,
-            (SELECT count(DISTINCT user_id)::int FROM hd_team_members) AS agents,
-            (SELECT count(*)::int FROM hd_sla_policies) AS sla,
-            (SELECT count(*)::int FROM hd_request_types WHERE active = 1) AS types`
-  ))!;
+  // Agents are counted the one way the licence's allowance counts them
+  // (everyone on Settings → Agents), not by team membership.
+  const { countDeskAgents } = await import("./roles-agents");
+  const [s, counts, agents] = await Promise.all([
+    getHelpdeskSettings(),
+    hqOne<{ teams: number; sla: number; types: number }>(
+      `SELECT (SELECT count(*)::int FROM hd_teams) AS teams,
+              (SELECT count(*)::int FROM hd_sla_policies) AS sla,
+              (SELECT count(*)::int FROM hd_request_types WHERE active = 1) AS types`
+    ),
+    countDeskAgents(),
+  ]);
+  const c = { ...counts!, agents };
   const ticked = new Set(s.setup_steps_done);
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
   const steps: SetupStepState[] = [

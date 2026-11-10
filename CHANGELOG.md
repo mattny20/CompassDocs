@@ -4,6 +4,43 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.20.1] - 2026-11-10
+
+Helpdesk agent allowances. Enterprise licences sold from today include 3
+helpdesk agents, and more can be bought at $125 a year each. The desk now
+shows how many agents are in use against the licence and explains the limit
+when someone new is added. Licences issued before this change keep unlimited
+agents.
+
+### Added
+- **Agents in use on Settings → Agents:** "5 of 6 agents" with a bar and a
+  link explaining how to buy more, a notice when the desk has more agents
+  than the licence includes, and a plain "unlimited on your licence" line
+  for licences without a limit. Only people who can manage agents see it.
+- **Add agent at the limit:** the dialog explains that every agent on the
+  licence is in use and links to buying more. Changing an existing agent's
+  role or teams is never blocked.
+- **License page:** a Helpdesk agents row next to Seats, and the Helpdesk
+  now listed with the other Enterprise features.
+- **Diagnostics:** a Helpdesk agents check with agents in use against the
+  licence, including while a licence is in its grace period.
+
+### Changed
+- **The setup checklist counts agents** the same way as the Agents page.
+
+### Upgrading
+- **No schema change.** Nothing changes for existing customers: licences
+  issued before this release have no agent limit.
+- **Who counts:** every active person on the Agents page, workspace
+  Administrators and newbies included. API tokens, deactivated people and
+  Reports-only people don't count.
+- **Nobody loses access:** only adding someone new to the desk is refused at
+  the limit. Directory sync, SSO, SCIM, group and role changes are never
+  blocked; the Agents and License pages show how far over the licence the
+  desk is instead. Nothing is refused while a licence is in its grace
+  period.
+- **Older versions** ignore the allowance in new licence keys.
+
 ## [1.20.0] - 2026-11-07
 
 Claude in the desk. A Claude chat docked beside the ticket you're working

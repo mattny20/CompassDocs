@@ -2,14 +2,23 @@ import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
 import { setSetting, getDatabaseStats } from "@/lib/db";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
-import { licenseState, licenseSource, parseLicense, effectiveFeatures } from "@/lib/license";
+import {
+  licenseState,
+  licenseSource,
+  parseLicense,
+  effectiveFeatures,
+  agentsClaim,
+  agentAllowanceFor,
+  BUY_AGENTS_URL,
+} from "@/lib/license";
 import type { EntitlementFeature } from "@/lib/license";
-import { ee, eePresent } from "@/lib/ee";
+import { ee, eePresent, featureEnabled } from "@/lib/ee";
 
 export const dynamic = "force-dynamic";
 
 // All entitlements the product knows about, with friendly labels for the UI.
 const ALL_FEATURES: { key: EntitlementFeature; label: string }[] = [
+  { key: "helpdesk", label: "Helpdesk" },
   { key: "sso", label: "Single sign-on (SSO)" },
   { key: "scim", label: "SCIM provisioning" },
   { key: "audit_export", label: "Audit-log export" },
@@ -19,13 +28,23 @@ const ALL_FEATURES: { key: EntitlementFeature; label: string }[] = [
   { key: "training", label: "Training & onboarding" },
 ];
 
+// How many people count against the helpdesk agent allowance (everyone on
+// Settings → Agents); null when the helpdesk isn't on (not in this build,
+// or not licensed), so there are no agents to count. Loaded lazily.
+async function deskAgentsUsed(): Promise<number | null> {
+  if (!(await featureEnabled("helpdesk"))) return null;
+  const { countDeskAgents } = await import("@/lib/helpdesk/roles-agents");
+  return countDeskAgents();
+}
+
 // Build a client-safe view. The raw license token is never echoed back; its
 // (non-secret) decoded claims are fine to display.
 async function state() {
-  const [s, source, stats] = await Promise.all([
+  const [s, source, stats, agentsUsed] = await Promise.all([
     licenseState(),
     licenseSource(),
     getDatabaseStats(),
+    deskAgentsUsed(),
   ]);
   const bundled = ee().features;
   const licensed =
@@ -37,6 +56,9 @@ async function state() {
           customer: s.license.customer,
           plan: s.license.plan,
           seats: s.license.seats,
+          // The key's agent allowance whatever the licence's state (null =
+          // unlimited); agentsAllowed below is the one in force.
+          agents: agentsClaim(s.license),
           issued: s.license.issued,
           expires: s.license.expires,
         }
@@ -50,6 +72,12 @@ async function state() {
     daysLeft: s.status === "active" || s.status === "grace" ? s.daysLeft : undefined,
     license,
     seatsUsed: stats.users,
+    // The helpdesk agent allowance in force (null = unlimited: no limit on
+    // the key, or the licence is in grace) and how many count against it
+    // (null when the helpdesk isn't licensed in this build).
+    agentsAllowed: agentAllowanceFor(s),
+    agentsUsed,
+    buyAgentsUrl: BUY_AGENTS_URL,
     features: ALL_FEATURES.map((f) => ({
       key: f.key,
       label: f.label,

@@ -16,10 +16,12 @@
 // 'agent' otherwise) so the leads A and B read stay right. Server-only.
 
 import "server-only";
+import { actorFrom, audit } from "../audit";
 import { legacyAuthzEnforcement } from "../authz";
 import { forgetPushDevices } from "../db";
+import { agentAllowance, agentLimit } from "../license";
 import type { Role } from "../types";
-import { hq, withTx } from "./db-core";
+import { hq, withTx, type HdQueryable } from "./db-core";
 import { hdCapsFor, roleFacts, teamRoleFor } from "./roles";
 import { withDeskRoles } from "./teams";
 import type { HdTeamRole } from "./types";
@@ -47,6 +49,28 @@ export class DeskRoleError extends Error {
   }
 }
 
+/**
+ * Adding someone to the desk would take it past the licence's agent
+ * allowance (setDeskAgent only). The routes answer 402 with
+ * { error, code: "agent_limit", allowed, used }.
+ */
+export class AgentLimitError extends DeskRoleError {
+  readonly code = "agent_limit";
+  constructor(
+    public allowed: number,
+    public used: number
+  ) {
+    super(
+      `Your licence includes ${allowed} helpdesk agent${allowed === 1 ? "" : "s"} and all are in use. Buy more agents to add someone.`,
+      402
+    );
+  }
+
+  body() {
+    return { error: this.message, code: this.code, allowed: this.allowed, used: this.used };
+  }
+}
+
 const DESK_PERMS = ["helpdesk.admin", "helpdesk.agent_all", "helpdesk.agent", "helpdesk.reports"] as const;
 
 interface Row {
@@ -66,9 +90,12 @@ interface Row {
 /**
  * Everyone on the desk: an assigned role, a team membership, or a workspace
  * desk permission (helpdesk.agent / agent_all / admin). People with only
- * helpdesk.reports have no desk role and are not listed.
+ * helpdesk.reports have no desk role and are not listed. Only active
+ * accounts: deactivated people and API-token service accounts (status
+ * 'service') are never listed. This list is also what the licence's agent
+ * allowance counts (countDeskAgents). `client` runs it inside a transaction.
  */
-export async function listDeskAgents(opts: { userIds?: number[] } = {}): Promise<HdDeskAgent[]> {
+export async function listDeskAgents(opts: { userIds?: number[]; client?: HdQueryable } = {}): Promise<HdDeskAgent[]> {
   const legacy = legacyAuthzEnforcement();
   const rows = await hq<Row>(
     `WITH perms AS (
@@ -99,7 +126,8 @@ export async function listDeskAgents(opts: { userIds?: number[] } = {}): Promise
        LEFT JOIN hd_agent_prefs ap ON ap.user_id = u.id
       WHERE ($3::int[] IS NULL OR u.id = ANY($3::int[]))
       ORDER BY lower(COALESCE(NULLIF(u.name, ''), u.username)), u.id`,
-    [DESK_PERMS, legacy, opts.userIds ?? null]
+    [DESK_PERMS, legacy, opts.userIds ?? null],
+    opts.client
   );
   const out: HdDeskAgent[] = [];
   for (const r of rows) {
@@ -134,6 +162,63 @@ export async function listDeskAgents(opts: { userIds?: number[] } = {}): Promise
 export async function getDeskAgent(userId: number): Promise<HdDeskAgent | undefined> {
   return (await listDeskAgents({ userIds: [userId] }))[0];
 }
+
+// --- The licence's agent allowance ---------------------------------------------------
+//
+// One definition of who is an agent for the licence: exactly the people
+// listDeskAgents lists (active, with a desk role; workspace Administrators
+// and newbies included; service accounts, deactivated and Reports-only
+// people not). The Agents page's meter, the License page, diagnostics, the
+// setup checklist and setDeskAgent's limit all count this way.
+
+/** The user ids that count against the agent allowance. */
+export async function deskAgentIds(opts: { client?: HdQueryable } = {}): Promise<number[]> {
+  return (await listDeskAgents({ client: opts.client })).map((a) => a.user_id);
+}
+
+/** How many people count against the agent allowance. */
+export async function countDeskAgents(opts: { client?: HdQueryable } = {}): Promise<number> {
+  return (await deskAgentIds(opts)).length;
+}
+
+export interface AgentUsage {
+  /** The allowance in force; null = unlimited (no limit on the key, or in grace). */
+  allowed: number | null;
+  /** The key's own allowance whatever the licence's state (the meter shows this); null = unlimited. */
+  licensed: number | null;
+  /** setDeskAgent refuses adds past `allowed` (false: no limit, or in grace). */
+  enforced: boolean;
+  used: number;
+  /** How many past the key's allowance (0 when within it or unlimited), in grace too. */
+  over: number;
+}
+
+/** The meter: the key's allowance, and the one in force, against the count. `used` saves a recount when the caller has the list. */
+export async function agentUsage(used?: number): Promise<AgentUsage> {
+  const [{ allowed, licensed }, n] = await Promise.all([agentLimit(), used ?? countDeskAgents()]);
+  return { allowed, licensed, enforced: allowed !== null, used: n, over: licensed === null ? 0 : Math.max(0, n - licensed) };
+}
+
+/** The audit row for an add the allowance refused (the agents routes write it). */
+export async function auditAgentLimit(
+  by: Parameters<typeof actorFrom>[0],
+  e: AgentLimitError,
+  attempted: { user_id: number; role: unknown },
+  ip: string | null
+): Promise<void> {
+  const target = Number.isInteger(attempted.user_id) && attempted.user_id > 0 ? attempted.user_id : null;
+  await audit({
+    actor: actorFrom(by),
+    action: "helpdesk.agent_role.refused_limit",
+    targetType: target ? "user" : null,
+    targetId: target,
+    details: { role: isHdRole(attempted.role) ? attempted.role : null, allowed: e.allowed, used: e.used },
+    ip,
+  });
+}
+
+/** Serialises setDeskAgent's limit checks (pg_advisory_xact_lock). */
+const AGENT_ALLOWANCE_LOCK = "hd_agent_allowance";
 
 // --- Who may change whom -------------------------------------------------------------
 
@@ -221,8 +306,20 @@ export async function setDeskAgent(
     if (!target.current && (!teamIds || !teamIds.length)) throw new DeskRoleError("Choose at least one of your teams.", 400);
   }
   const effectiveRole = role ?? (target.current?.source === "assigned" ? target.current.role : null);
+  // Only a role puts someone on the desk (a team membership alone doesn't),
+  // so only a role change can need room under the allowance.
+  const allowance = role !== undefined ? await agentAllowance() : null;
 
   await withTx(async (client) => {
+    if (allowance !== null) {
+      // The agent allowance: someone not yet counted needs room. Changing
+      // the role of someone already counted is never refused. The lock makes
+      // two adds at once take turns, so they can't both see the last place;
+      // the count runs after it, on this transaction's snapshot.
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [AGENT_ALLOWANCE_LOCK]);
+      const counted = await deskAgentIds({ client });
+      if (!counted.includes(userId) && counted.length >= allowance) throw new AgentLimitError(allowance, counted.length);
+    }
     if (role !== undefined) {
       await client.query(
         `INSERT INTO hd_agent_roles (user_id, role, assigned_by, assigned_at) VALUES ($1, $2, $3, now())

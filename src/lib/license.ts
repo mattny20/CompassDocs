@@ -16,6 +16,7 @@
 
 import { verify } from "node:crypto";
 import { getSetting } from "./db";
+import { INCLUDED_AGENTS } from "./agent-allowance";
 
 // Vendor Ed25519 public key (SPKI PEM). This is the production CompassDocs
 // license-signing public key; the matching private key lives only in the vendor
@@ -49,6 +50,13 @@ export interface License {
   features: EntitlementFeature[];
   /** Seat (active-user) allowance; 0 = unlimited. */
   seats: number;
+  /**
+   * Helpdesk agent allowance. Read it with agentsClaim(), never directly:
+   * absent (keys minted before agent allowances) or -1 means unlimited, a
+   * positive integer is the allowance (the 3 included plus any bought), and
+   * anything else is invalid and reads as the 3 included.
+   */
+  agents?: number;
   /** ISO date the license was issued. */
   issued: string;
   /** ISO date the license expires. */
@@ -143,4 +151,76 @@ export async function withinSeatLimit(activeUsers: number): Promise<{ ok: boolea
   const s = await licenseState();
   const limit = s.status === "active" || s.status === "grace" ? s.license.seats : 0;
   return { ok: limit === 0 || activeUsers <= limit, limit };
+}
+
+// --- Helpdesk agents ----------------------------------------------------------
+
+/** Helpdesk agents every licence with the helpdesk includes (client-safe, in lib/agent-allowance). */
+export { INCLUDED_AGENTS };
+
+/** How a customer adds helpdesk agents: the docs explain the Manage subscription link in the licence email (new purchases go through the pricing page). */
+export const BUY_AGENTS_URL = "https://docs.compassdocs.io/admin/license/#helpdesk-agents";
+
+/** The `agents` value that means unlimited, if unlimited is ever sold. */
+export const UNLIMITED_AGENTS = -1;
+
+/**
+ * The agent allowance a licence's `agents` claim grants; null = unlimited.
+ *
+ *   absent (undefined)      unlimited: keys minted before agent allowances
+ *                           (existing customers keep unlimited agents)
+ *   -1                      unlimited, explicitly
+ *   a positive integer      that many agents
+ *   anything else           INVALID: 0, other negatives, fractions, numbers
+ *                           past 2^53, strings, null, NaN. Reads as the 3
+ *                           included agents.
+ *
+ * Why invalid reads as 3 and never as unlimited: the claim is signed, so an
+ * invalid value can only come from a mint path that went wrong (an add-on
+ * line merged badly, a price without `agents` metadata writing 0). Reading
+ * it as unlimited would fail open on exactly the keys that were sold with
+ * a limit; reading it as 3 grants what every helpdesk licence includes, and
+ * nobody loses desk access over it, because the limit only refuses new
+ * additions (setDeskAgent) and never removes anyone. JSON `null` is a
+ * present-but-invalid claim, not an absent one.
+ */
+export function agentsClaim(license: Pick<License, "agents">): number | null {
+  if (!("agents" in license) || license.agents === undefined) return null;
+  const v: unknown = license.agents;
+  if (v === UNLIMITED_AGENTS) return null;
+  if (typeof v === "number" && Number.isSafeInteger(v) && v > 0) return v;
+  return INCLUDED_AGENTS;
+}
+
+/**
+ * The agent allowance in force for a licence state; null = unlimited (no
+ * limit is enforced). Only an active licence limits agents: in grace the
+ * limit is not enforced (core fails open while a renewal is sorted out),
+ * and with no, an invalid or an expired licence the helpdesk itself is off
+ * (community builds don't have it), so there is nothing to count against.
+ */
+export function agentAllowanceFor(s: LicenseState): number | null {
+  return s.status === "active" ? agentsClaim(s.license) : null;
+}
+
+/** The helpdesk agent allowance in force now; null = unlimited. */
+export async function agentAllowance(): Promise<number | null> {
+  return agentAllowanceFor(await licenseState());
+}
+
+export interface AgentLimit {
+  /** The allowance in force (agentAllowanceFor); null = nothing is enforced. */
+  allowed: number | null;
+  /** The key's own allowance (agentsClaim) whatever the state; null = unlimited, or no licence. */
+  licensed: number | null;
+}
+
+/** Both readings of a licence state: what is enforced, and what the key says (for display, e.g. in grace). */
+export function agentLimitFor(s: LicenseState): AgentLimit {
+  return { allowed: agentAllowanceFor(s), licensed: "license" in s ? agentsClaim(s.license) : null };
+}
+
+/** agentLimitFor the licence now (one licence read). */
+export async function agentLimit(): Promise<AgentLimit> {
+  return agentLimitFor(await licenseState());
 }

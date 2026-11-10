@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ExternalLink } from "lucide-react";
 import { buttonClass } from "@/components/Button";
 import { confirmDialog } from "@/components/Dialog";
 import { LoadingRow } from "@/components/Spinner";
 import { toast } from "@/components/Toasts";
 import { DangerZone, DangerAction, controlClass } from "@/components/form";
+import { allowanceBreakdown } from "@/lib/agent-allowance";
 
 interface FeatureRow {
   key: string;
@@ -20,8 +22,21 @@ interface LicenseView {
   status: "none" | "invalid" | "active" | "grace" | "expired";
   reason?: string;
   daysLeft?: number;
-  license: { customer: string; plan: string; seats: number; issued: string; expires: string } | null;
+  license: {
+    customer: string;
+    plan: string;
+    seats: number;
+    /** The key's helpdesk agent allowance; null = unlimited. */
+    agents: number | null;
+    issued: string;
+    expires: string;
+  } | null;
   seatsUsed: number;
+  /** The agent allowance in force (null in grace or unlimited). */
+  agentsAllowed: number | null;
+  /** People on the desk; null when the helpdesk isn't on. */
+  agentsUsed: number | null;
+  buyAgentsUrl: string;
   features: FeatureRow[];
 }
 
@@ -161,6 +176,19 @@ export function LicensePanel() {
                       : `${v.seatsUsed} / ${v.license.seats}`
                   }
                 />
+                {v.agentsUsed !== null && (
+                  <Row
+                    label="Helpdesk agents"
+                    value={
+                      <AgentsValue
+                        used={v.agentsUsed}
+                        licensed={v.license.agents}
+                        enforced={v.agentsAllowed !== null}
+                        buyUrl={v.buyAgentsUrl}
+                      />
+                    }
+                  />
+                )}
                 <Row label="Issued" value={v.license.issued} />
                 <Row label="Expires" value={v.license.expires} />
               </dl>
@@ -227,7 +255,7 @@ export function LicensePanel() {
             <DangerZone>
               <DangerAction
                 label="Remove license"
-                description="Enterprise features (SSO, SCIM, audit export, training) turn off immediately. The workspace keeps running on the community edition."
+                description="Enterprise features (the helpdesk, SSO, SCIM, audit export, training) turn off immediately. The workspace keeps running on the community edition."
               >
                 <button
                   onClick={remove}
@@ -245,10 +273,37 @@ export function LicensePanel() {
   );
 }
 
+/**
+ * "5 / 6 · 3 included, 3 bought  Buy more ↗"; past it the count is amber
+ * with "· over by N". In grace (the key's number, nothing enforced) the over
+ * count stays muted and says it isn't enforced.
+ */
+function AgentsValue({ used, licensed, enforced, buyUrl }: { used: number; licensed: number | null; enforced: boolean; buyUrl: string }) {
+  if (licensed === null) return <>{used} used · unlimited</>;
+  const over = used - licensed;
+  const warn = over > 0 && enforced;
+  const breakdown = allowanceBreakdown(licensed);
+  return (
+    <span className="inline-flex flex-wrap items-baseline justify-end gap-x-1 text-right">
+      <span>
+        <span className={warn ? "ink-warn" : ""}>{used}</span> / {licensed}
+      </span>
+      {over > 0 && <span className={warn ? "ink-warn" : "font-normal text-slate-500"}>· over by {over}</span>}
+      {over > 0 && !enforced && <span className="font-normal text-slate-500">· not enforced in grace</span>}
+      {breakdown && <span className="font-normal text-slate-500">· {breakdown}</span>}
+      <a className="link ml-1 inline-flex items-center gap-1 text-sm font-medium" href={buyUrl} target="_blank" rel="noopener noreferrer">
+        Buy more<span className="sr-only"> helpdesk agents</span>
+        <ExternalLink className="h-3 w-3" aria-hidden />
+        <span className="sr-only"> (opens in a new tab)</span>
+      </a>
+    </span>
+  );
+}
+
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex justify-between gap-4 border-b border-slate-100 py-1 last:border-0 sm:border-0">
-      <dt className="text-slate-500">{label}</dt>
+      <dt className="shrink-0 whitespace-nowrap text-slate-500">{label}</dt>
       <dd className="font-medium text-slate-800">{value}</dd>
     </div>
   );

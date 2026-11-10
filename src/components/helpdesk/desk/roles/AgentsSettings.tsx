@@ -7,9 +7,16 @@
 // teams; Team leads add, move between Newbie and Agent, and remove people
 // in their own teams. Rows the viewer can't change show the role as a chip.
 // Changes save at once and toast (STYLEGUIDE §Settings pages).
+//
+// The licence's helpdesk agent allowance: people who give roles
+// (agents.assign_roles) see a usage meter under the header ("5 of 6
+// agents", STYLEGUIDE §Usage meter), a warning when the desk is past it,
+// and Add agent says so before anyone tries when every place is taken.
+// The number shown is the key's own (`licensed`); `enforced` is false in
+// grace, when nothing is refused.
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import { Pencil, Plus, UserMinus, UsersRound, X } from "lucide-react";
+import { ExternalLink, Pencil, Plus, TriangleAlert, UserMinus, UsersRound, X } from "lucide-react";
 import { Button, iconButtonClass } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { Chip } from "@/components/Chip";
@@ -23,9 +30,11 @@ import { LoadingRow } from "@/components/Spinner";
 import { Table, Td, Th, TR, TABLE_HEAD_ROW } from "@/components/Table";
 import { confirmDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
+import { UsageMeter } from "@/components/UsageMeter";
 import { UserAvatar } from "@/components/UserAvatar";
+import { agentsNoun, allowanceBreakdown } from "@/lib/agent-allowance";
 import { HD_ROLES, HD_ROLE_DESCRIPTION, HD_ROLE_LABEL, type HdCapsView, type HdDeskAgent, type HdRole } from "@/lib/helpdesk/roles-shared";
-import { getJson, sendJson } from "../api";
+import { ApiError, getJson, sendJson } from "../api";
 import { personOption, usePeople } from "../people";
 import { RoleChip } from "./role-ui";
 
@@ -41,6 +50,26 @@ interface AgentsData {
   teams: TeamLite[];
   me: HdCapsView;
   counts: Record<HdRole, number>;
+  /** The allowance in force (null: nothing is refused, no limit or in grace). */
+  allowed: number | null;
+  /** The key's own allowance (null = unlimited): the number shown. */
+  licensed: number | null;
+  enforced: boolean;
+  /** Everyone listed counts. */
+  used: number;
+  /** How far past `licensed` (0 within it). */
+  over: number;
+  buy_url: string;
+}
+
+/** What Add agent needs to know about the allowance. */
+interface AgentLimitView {
+  /** Every place is taken and adds are refused. */
+  full: boolean;
+  allowed: number | null;
+  buyUrl: string;
+  /** Already counted: adding them at a role takes no place. */
+  counted: Set<number>;
 }
 
 const AVAILABILITY: Record<HdDeskAgent["availability"], { label: string; tone: "ok" | "warn" | "neutral" }> = {
@@ -87,6 +116,8 @@ export function AgentsSettings() {
 
   const me = data?.me;
   const canAdd = Boolean(me && me.assignable_roles.length);
+  // The allowance is for people who give roles; a Team lead adds within it but doesn't see it.
+  const showAllowance = canAdd && Boolean(me?.caps.includes("agents.assign_roles"));
 
   async function changeRole(a: AgentRow, role: HdRole) {
     setBusyId(a.user_id);
@@ -149,6 +180,7 @@ export function AgentsSettings() {
           ) : undefined
         }
       />
+      {data && showAllowance && <AgentAllowance d={data} />}
       {error && <p className="notice-error mb-4 rounded-lg border px-3 py-2 text-sm">{error}</p>}
       {data === null && !error && <LoadingRow className="py-10" />}
       {data && data.agents.length === 0 && (
@@ -303,6 +335,13 @@ export function AgentsSettings() {
           me={me}
           teams={data.teams}
           onDesk={new Set(data.agents.filter((a) => a.source !== "derived").map((a) => a.user_id))}
+          limit={{
+            full: data.enforced && data.allowed !== null && data.used >= data.allowed,
+            allowed: data.allowed,
+            buyUrl: data.buy_url,
+            counted: new Set(data.agents.map((a) => a.user_id)),
+          }}
+          onLimit={reload}
           onAdded={() => {
             setAdding(false);
             reload();
@@ -322,6 +361,65 @@ export function AgentsSettings() {
         />
       )}
     </PageContainer>
+  );
+}
+
+/** "Buy more agents ↗" to the licence's purchase page, in a new tab. */
+function BuyAgentsLink({ href, className = "" }: { href: string; className?: string }) {
+  return (
+    <a className={`link inline-flex items-center gap-1 font-medium ${className}`} href={href} target="_blank" rel="noopener noreferrer">
+      Buy more agents
+      <ExternalLink className="h-3 w-3" aria-hidden />
+      <span className="sr-only"> (opens in a new tab)</span>
+    </a>
+  );
+}
+
+/** The licence's agent allowance under the page header: the meter, and a warning past it. */
+function AgentAllowance({ d }: { d: AgentsData }) {
+  if (d.licensed === null) {
+    return <p className="mb-4 text-sm text-slate-500">{agentsNoun(d.used)} · unlimited on your licence</p>;
+  }
+  // In grace nothing is refused: no warning, the meter's text says so (and by how much it will be over).
+  const grace = !d.enforced;
+  const muted = [
+    "on your licence",
+    allowanceBreakdown(d.licensed),
+    grace ? "not enforced while the licence is in grace" : "",
+    grace && d.over > 0 ? `over by ${d.over} once renewed` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  // Adding someone new needs one place more than the desk is over by.
+  const need = d.over + 1;
+  return (
+    <>
+      {d.over > 0 && !grace && (
+        <div className="notice-warn mb-4 flex gap-2 rounded-lg border px-3 py-2 text-sm">
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p>
+            <b>
+              {d.used} people work the desk and your licence includes {d.licensed}.
+            </b>{" "}
+            Nobody loses access. To add someone new, buy {need} more {need === 1 ? "agent" : "agents"} or take {need} {need === 1 ? "person" : "people"} off
+            the desk.
+          </p>
+        </div>
+      )}
+      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-200 bg-surface px-4 py-3 shadow-xs">
+        <UsersRound className="h-4 w-4 text-slate-500" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
+            <span className="font-semibold text-slate-900">
+              {d.used} of {agentsNoun(d.licensed)}
+            </span>
+            <span className="text-slate-500">{muted}</span>
+          </div>
+          <UsageMeter className="mt-2" value={d.used} max={d.licensed} warnOver={!grace} label="Helpdesk agents in use" />
+        </div>
+        <BuyAgentsLink href={d.buy_url} className="text-sm" />
+      </div>
+    </>
   );
 }
 
@@ -361,6 +459,8 @@ function AddAgentModal({
   me,
   teams,
   onDesk,
+  limit,
+  onLimit,
   onAdded,
 }: {
   open: boolean;
@@ -368,6 +468,9 @@ function AddAgentModal({
   me: HdCapsView;
   teams: TeamLite[];
   onDesk: Set<number>;
+  limit: AgentLimitView;
+  /** The server refused for the allowance: refresh the page's numbers (the meter, the disabled state). */
+  onLimit: () => void;
   onAdded: () => void;
 }) {
   const titleId = useId();
@@ -377,8 +480,12 @@ function AddAgentModal({
   const [teamIds, setTeamIds] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  /** The server's 402 (someone took the last place meanwhile): shown with the purchase link. */
+  const [limitError, setLimitError] = useState("");
   const allowed = allowedTeams(me, teams);
   const lead = !me.caps.includes("agents.assign_roles");
+  // Every place taken: only someone already counted (a workspace agent given a desk role) can still be added.
+  const blocked = limit.full && !(who !== null && limit.counted.has(who));
 
   useEffect(() => {
     if (!open) return;
@@ -386,6 +493,7 @@ function AddAgentModal({
     setRole(me.assignable_roles.includes("newbie") ? "newbie" : me.assignable_roles[0] ?? "newbie");
     setTeamIds(lead && allowed.length === 1 ? [allowed[0].id] : []);
     setError("");
+    setLimitError("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -395,14 +503,20 @@ function AddAgentModal({
     e.preventDefault();
     if (!who) return setError("Choose who to add.");
     if (lead && !teamIds.length) return setError("Choose at least one of your teams.");
+    if (blocked) return;
     setBusy(true);
     setError("");
+    setLimitError("");
     try {
       await sendJson("/api/helpdesk/admin/agents", "POST", { user_id: who, role, team_ids: teamIds }, "Couldn't add them.");
       toast("ok", `${person?.name || person?.username || "They"} joined the desk as ${HD_ROLE_LABEL[role]}.`);
       onAdded();
     } catch (err) {
-      setError((err as Error).message);
+      if (err instanceof ApiError && err.status === 402 && err.code === "agent_limit") {
+        setLimitError(err.message);
+        onLimit();
+      }
+      else setError((err as Error).message);
     } finally {
       setBusy(false);
     }
@@ -420,6 +534,21 @@ function AddAgentModal({
           </button>
         </div>
         <p className="mt-1 text-sm text-slate-600">Put someone on the desk at a level, in the teams whose queues they work.</p>
+        {(limitError || (limit.full && limit.allowed !== null)) && (
+          <div className="notice-warn mt-3 flex gap-2 rounded-lg border px-3 py-2 text-sm" role={limitError ? "alert" : undefined}>
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <div>
+              {limitError ? (
+                <p>{limitError}</p>
+              ) : (
+                <p>
+                  <b>{limit.allowed === 1 ? "The 1 agent on your licence is in use." : `All ${limit.allowed} agents on your licence are in use.`}</b> Buy more agents to add someone, or take someone off the desk first.
+                </p>
+              )}
+              <BuyAgentsLink href={limit.buyUrl} className="mt-1" />
+            </div>
+          </div>
+        )}
         <div className="mt-4 space-y-4">
           <div>
             <p className="mb-1 text-xs font-medium text-slate-500">Person</p>
@@ -452,7 +581,7 @@ function AddAgentModal({
           {error && <FormError>{error}</FormError>}
         </div>
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          <Button type="submit" busy={busy} icon={<Plus />}>
+          <Button type="submit" busy={busy} disabled={blocked} icon={<Plus />}>
             Add to desk
           </Button>
           <Button type="button" variant="ghost" onClick={onClose}>
