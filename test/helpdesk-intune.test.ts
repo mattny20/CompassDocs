@@ -433,8 +433,9 @@ describe("Intune: the Graph client", () => {
     const wrong = `wrong-${CREDS.secret}`;
     const p = intune.intuneProvider({ url: "https://graph.microsoft.com", token: wrong, tenant: CREDS.tenant, clientId: CREDS.clientId, key: INTUNE });
     await assert.rejects(p.test(), (e: Error) => {
-      assert.match(e.message, /refused the directory sync app's sign-in \(invalid_client\)/);
-      assert.match(e.message, /Settings, Directory/);
+      // 1.20.2: Intune's own app registration is named, and where to fix it.
+      assert.match(e.message, /refused the Intune app registration's sign-in \(invalid_client\)/);
+      assert.match(e.message, /Desk settings, Integrations, Microsoft Intune/);
       assert.ok(!e.message.includes(wrong) && !e.message.includes(CREDS.secret));
       return true;
     });
@@ -477,19 +478,19 @@ describe("Intune: which tenant the credentials sign in to (review: tenant identi
 // --- Settings --------------------------------------------------------------------------------
 
 describe("Intune: settings", () => {
-  test("unavailable without the directory sync licence or its credentials", async () => {
+  test("not set up without an app registration of its own (1.20.2: directory sync is no part of it)", async () => {
     assets.setAssetSettingsForTests({ ...SETTINGS(false), intune: { on: false, cache_source: "" } });
     try {
-      assets.setIntuneCredentialsForTests(undefined); // the real path: directory sync isn't licensed in this stub
-      assert.equal(await assets.intuneCredentials(), "licence");
-      assert.equal((await assets.assetSettingsView()).intune.unavailable, "licence");
+      assets.setIntuneCredentialsForTests(undefined); // the real path: nothing entered, and directory sync isn't licensed in this stub
+      assert.equal(await assets.intuneCredentials(), "credentials");
+      assert.equal((await assets.assetSettingsView()).intune.unavailable, "credentials");
       let err = await assets.saveAssetSettings({ intune: true }).catch((e) => e);
       assert.equal(err.status, 409);
-      assert.match(err.message, /enterprise licence/);
+      assert.match(err.message, /Enter the Intune app registration's tenant, application \(client\) ID and client secret first/);
       assets.setIntuneCredentialsForTests(null);
       assert.equal((await assets.assetSettingsView()).intune.unavailable, "credentials");
       err = await assets.saveAssetSettings({ intune: true }).catch((e) => e);
-      assert.match(err.message, /Set up the Microsoft 365 directory sync first/);
+      assert.match(err.message, /Enter the Intune app registration's tenant/);
       assert.equal((await assets.getAssetSettings()).intune?.on, false, "nothing saved");
     } finally {
       assets.setIntuneCredentialsForTests(CREDS);
@@ -1080,7 +1081,7 @@ describe("Intune: the tenant the credentials sign in to is the source (review: t
     assert.equal(await intuneRows(), n);
     assert.equal((await assets.getAssetSettings()).intune?.cache_source, TID);
     assert.equal(await assets.providerFor(INTUNE), null);
-    assert.match((await assets.assetSettingsView()).intune.check_error, /refused the directory sync app's sign-in/);
+    assert.match((await assets.assetSettingsView()).intune.check_error, /refused the Intune app registration's sign-in/);
     assets.setIntuneCredentialsForTests(CREDS);
     assert.equal(await assets.intuneSourceCheck(), null, "the original credentials were never replaced");
     assert.equal(await intuneRows(), n);

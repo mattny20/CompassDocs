@@ -101,7 +101,7 @@ export function ApiWebhooksSettings() {
   if (error && !data) {
     return (
       <PageContainer>
-        <PageHeader icon={<Webhook />} title="API and webhooks" subtitle={API_SUBTITLE} />
+        <PageHeader back={{ href: "/desk/settings/integrations", label: "Integrations" }} icon={<Webhook />} title="API and webhooks" subtitle={API_SUBTITLE} />
         <p className="notice-error rounded-lg border px-3 py-2 text-sm">{error}</p>
       </PageContainer>
     );
@@ -192,9 +192,11 @@ export function ApiWebhooksSettings() {
 
   return (
     <PageContainer>
-      <PageHeader icon={<Webhook />} title="API and webhooks" subtitle={API_SUBTITLE} />
+      <PageHeader back={{ href: "/desk/settings/integrations", label: "Integrations" }} icon={<Webhook />} title="API and webhooks" subtitle={API_SUBTITLE} />
       <div className="flex flex-col gap-4">
         <Card
+          id="api-tokens"
+          className="scroll-mt-6"
           title="API tokens"
           padding="none"
           actions={
@@ -250,6 +252,8 @@ export function ApiWebhooksSettings() {
         </Card>
 
         <Card
+          id="webhooks"
+          className="scroll-mt-6"
           title="Webhooks"
           padding="none"
           actions={

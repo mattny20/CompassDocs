@@ -211,7 +211,7 @@ export function SamlPanel({ initial }: { initial: SamlState }) {
         )}
       </div>
 
-      <SaveRow dirty={dirty} busy={saving} onSave={saveAll} label="Save" className="mt-4 border-t border-slate-200 pt-3">
+      <SaveRow dirty={dirty} busy={saving} onSave={saveAll} label="Save" className="border-t border-slate-200 pt-3">
         <Toggle
           label="Enabled on the login page"
           checked={s.saml_enabled}

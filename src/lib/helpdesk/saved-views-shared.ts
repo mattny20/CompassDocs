@@ -78,6 +78,8 @@ export function filterSummary(f: HdViewFilters, teams: { team_id?: number; id?: 
   else if (f.assignee === "none") parts.push("Unassigned");
   else if (f.assignee) parts.push("One owner");
   if (f.tag) parts.push(`Tagged ${f.tag}`);
+  // 1.20.2: the help address the tickets came in on.
+  if (f.mailbox) parts.push(`Address ${f.mailbox}`);
   if (f.breached) parts.push(f.breached === "now" ? "Past a target now" : "Missed a target");
   if (f.origin) parts.push(ORIGIN_LABEL[f.origin] ?? f.origin);
   if (f.vip) parts.push(f.vip === "yes" ? "VIP requesters" : "Not VIP requesters");

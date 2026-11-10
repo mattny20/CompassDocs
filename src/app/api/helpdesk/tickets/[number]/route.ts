@@ -1,5 +1,5 @@
 // GET    /api/helpdesk/tickets/[number]   HdTicketDetail (agents who work it)
-// PATCH  /api/helpdesk/tickets/[number]   { status?, priority?, team_id?, assignee_id?, category?, tags?, subject? }
+// PATCH  /api/helpdesk/tickets/[number]   { status?, priority?, team_id?, assignee_id?, category?, tags?, subject?, mailbox_id? }
 //          → { ticket, changed }. Each change leaves a timeline line; solving
 //          runs the workflow's and the survey's hooks after commit.
 // DELETE /api/helpdesk/tickets/[number]   desk capability tickets.delete: moves it to the recycle bin
@@ -7,6 +7,11 @@
 //          open major incident's own ticket. A binned ticket: GET answers 410 { binned: true } to an
 //          agent who works it (the desk then reads GET /api/helpdesk/recycle-bin/[number]); 404 otherwise.
 // Each PATCH field needs its desk capability (lib/helpdesk/patch-caps patchRefusal).
+// 1.20.2: `mailbox_id` (an address's id, or null = the team's or the default) is "Answer from":
+// tickets.reply_public in the ticket's team, and an address the agent may answer from (the
+// default, one with no team, one of their teams'; any with tickets.view_all), else 403; an
+// agents-only timeline line; audited (helpdesk.ticket.mailbox_changed). Stored only once the
+// whole request has passed its checks and the other fields are saved.
 // 1.20.0: `via: "claude_desk"` in the body marks a change applied from a Claude in the desk
 // card; it is audited (helpdesk.ticket.updated, via "claude_desk") and changes no rule.
 // Helpdesk 1.19.0 (helpdesk.agent). 404 for a ticket outside the caller's queues.
@@ -15,7 +20,7 @@ import { NextResponse } from "next/server";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { helpdeskGate, readJson } from "@/lib/helpdesk/access";
 import { ticketDetail } from "@/lib/helpdesk/detail";
-import { HdTicketError, parseTicketNumber, updateTicket, validateTicketPatch } from "@/lib/helpdesk/tickets";
+import { HdTicketError, getTicketById, parseTicketNumber, updateTicket, validateTicketPatch } from "@/lib/helpdesk/tickets";
 import { badRequest, loadTicketFor, notFound, originOf } from "@/lib/helpdesk/routes";
 import { hdCan, HD_FORBIDDEN } from "@/lib/helpdesk/roles";
 import { patchRefusal } from "@/lib/helpdesk/patch-caps";
@@ -57,6 +62,16 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
   const refused = await patchRefusal(gate, found.ticket, patch);
   if (refused) return NextResponse.json({ error: refused }, { status: 403 });
+  // 1.20.2 (lib/helpdesk/mailboxes): "Answer from". Checked here (its own capability, the
+  // agent's teams' addresses), stored last: after every other check and once the other fields
+  // are saved, so a request that is refused changes nothing.
+  let answerFrom: { id: number | null } | null = null;
+  if (b.mailbox_id !== undefined) {
+    const { checkAnswerFrom } = await import("@/lib/helpdesk/mailboxes");
+    const m = await checkAnswerFrom(gate, found.ticket, b.mailbox_id);
+    if ("error" in m) return NextResponse.json({ error: m.error }, { status: m.status });
+    answerFrom = m;
+  }
   // 1.19.1: a merged ticket's status is locked (closed into the kept ticket; lib/helpdesk/merge mergedLock).
   if (patch.status !== undefined && patch.status !== found.ticket.status) {
     const locked = await mergedLock(found.ticket);
@@ -102,6 +117,17 @@ export async function PATCH(req: Request, { params }: Ctx) {
         teamId: r.ticket.team_id,
         actorId: gate.id,
       });
+    }
+    if (answerFrom) {
+      const { applyAnswerFrom } = await import("@/lib/helpdesk/mailboxes");
+      const m = await applyAnswerFrom(gate, found.ticket, answerFrom.id, { ip: ipFrom(req) });
+      // Only when the address was removed since the check above.
+      if ("error" in m) return NextResponse.json({ error: m.error }, { status: m.status });
+      if (m.changed) {
+        // The row as it is now (its address), for the reply.
+        const fresh = await getTicketById(r.ticket.id);
+        return NextResponse.json({ ticket: fresh ?? r.ticket, changed: [...r.changed, "mailbox_id"] });
+      }
     }
     return NextResponse.json({ ticket: r.ticket, changed: r.changed });
   } catch (e) {

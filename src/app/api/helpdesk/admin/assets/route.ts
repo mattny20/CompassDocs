@@ -1,5 +1,6 @@
 // GET /api/helpdesk/admin/assets → HdAssetSettingsView (the API key is never in it: key_set only).
-// PUT /api/helpdesk/admin/assets   { url?, api_key?, on_solve?, agents_search_all?, disconnect?, intune? }
+// PUT /api/helpdesk/admin/assets   { url?, api_key?, on_solve?, agents_search_all?, disconnect?, intune?,
+//                                    intune_credentials?: { tenant, client_id, secret? } | null, confirm_tenant_change? }
 //     → the view. A new address needs the key again, and is a new source: the old cached
 //     assets are retired (linked ones kept as gone for the tickets' history, the rest deleted). Audited (helpdesk.assets.settings_changed /
 //     helpdesk.assets.disconnected) with the names of what changed, never the key.
@@ -7,6 +8,12 @@
 //     app registration (409 with the reason otherwise, e.g. the missing
 //     DeviceManagementManagedDevices.Read.All permission); false turns it off (a disconnect: the
 //     cache stays as history). Audited apart (helpdesk.assets.intune_on / intune_off).
+//     1.20.2: intune_credentials is Intune's own app registration. They are signed in with before
+//     anything is saved (409 with the reason otherwise), stored with the secret sealed (never
+//     returned, logged or audited), and Intune is on afterwards; the same tenant keeps its devices
+//     and links, another tenant answers 409 { code: "tenant_change" } until confirm_tenant_change
+//     is sent (the old devices are then retired). null forgets them and turns Intune off. Audited
+//     (helpdesk.assets.intune_credentials: what changed, the tenant and client ID, never the secret).
 // Helpdesk 1.19.3 (lib/helpdesk/assets; mock-up i3): Desk settings → Assets. Desk capability settings.manage.
 
 import { NextResponse } from "next/server";
@@ -33,7 +40,18 @@ export async function PUT(req: Request) {
     const view = all.length ? await assetSettingsView() : null;
     // Intune's switch is its own audit entry (the directory sync's credentials are never in it).
     const intune = all.filter((c) => c.startsWith("intune_"));
-    if (view && intune.length) {
+    if (view && intune.some((c) => c.startsWith("intune_credentials") || c === "intune_own_app")) {
+      await audit({
+        actor: actorFrom(gate),
+        action: "helpdesk.assets.intune_credentials",
+        targetType: "helpdesk_settings",
+        targetId: "assets",
+        targetLabel: "Assets: Microsoft Intune",
+        // The tenant and client ID as typed; the secret is never here.
+        details: { changed: intune, tenant: view.intune.tenant || null, client_id: view.intune.client_id || null, ...(intune.includes("intune_source_changed") ? { linked_assets_retired: retired } : {}) },
+        ip: ipFrom(req),
+      });
+    } else if (view && intune.length) {
       await audit({
         actor: actorFrom(gate),
         action: intune.includes("intune_on") ? "helpdesk.assets.intune_on" : "helpdesk.assets.intune_off",
@@ -58,7 +76,7 @@ export async function PUT(req: Request) {
     }
     return NextResponse.json(view ?? (await assetSettingsView()));
   } catch (e) {
-    if (e instanceof AssetError) return NextResponse.json({ error: e.message }, { status: e.status });
+    if (e instanceof AssetError) return NextResponse.json({ error: e.message, ...(e.code ? { code: e.code } : {}) }, { status: e.status });
     throw e;
   }
 }

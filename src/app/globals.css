@@ -711,9 +711,11 @@ table {
  * hover or keyboard focus — replacing native title=, which browsers show
  * inconsistently (slow, unstyled, never on focus). Attribute-driven so no
  * wrapper element or class is needed; data-tt-pos="bottom" flips placement
- * when the element sits near the top of the viewport. Note: tooltips clip
- * inside overflow-hidden/auto containers — prefer data-tt-pos or native
- * title there. */
+ * when the element sits near the top of the viewport. 1.20.2: placement is
+ * automatic (components/TooltipPlacer): a bubble with no room above, in the
+ * viewport or in a pane that clips it, opens below (data-tt-auto="bottom"),
+ * and one that would cross a side edge slides back inside (--tt-shift).
+ * data-tt-pos stays as the explicit override. */
 [data-tt] {
   position: relative;
 }
@@ -727,7 +729,7 @@ table {
   /* Tier 60: above the saturated z-50 layer (toasts, lightbox, sidebar
    * drawer) and below the command palette at z-[70]. */
   z-index: 60;
-  transform: translateX(-50%) translateY(0.125rem);
+  transform: translateX(calc(-50% + var(--tt-shift, 0px))) translateY(0.125rem);
   padding: 0.25rem 0.5625rem;
   border-radius: 0.4375rem;
   background: rgb(15 23 42 / 0.94);
@@ -746,17 +748,23 @@ table {
 [data-tt]:focus-visible::after {
   opacity: 1;
   visibility: visible;
-  transform: translateX(-50%) translateY(0);
+  transform: translateX(calc(-50% + var(--tt-shift, 0px))) translateY(0);
   transition-delay: 0.35s;
 }
-[data-tt][data-tt-pos="bottom"]::after {
+/* Below the control: asked for (data-tt-pos="bottom"), or chosen by
+ * TooltipPlacer because there is no room above (data-tt-auto, which an
+ * explicit data-tt-pos overrides). */
+[data-tt][data-tt-pos="bottom"]::after,
+[data-tt][data-tt-auto="bottom"]:not([data-tt-pos])::after {
   bottom: auto;
   top: calc(100% + 0.4375rem);
-  transform: translateX(-50%) translateY(-0.125rem);
+  transform: translateX(calc(-50% + var(--tt-shift, 0px))) translateY(-0.125rem);
 }
 [data-tt][data-tt-pos="bottom"]:hover::after,
-[data-tt][data-tt-pos="bottom"]:focus-visible::after {
-  transform: translateX(-50%) translateY(0);
+[data-tt][data-tt-pos="bottom"]:focus-visible::after,
+[data-tt][data-tt-auto="bottom"]:not([data-tt-pos]):hover::after,
+[data-tt][data-tt-auto="bottom"]:not([data-tt-pos]):focus-visible::after {
+  transform: translateX(calc(-50% + var(--tt-shift, 0px))) translateY(0);
 }
 /* A control that has just opened its popup (the bell, a menu button) keeps
  * the pointer: its tooltip would sit on top of the panel's header. The open
@@ -769,14 +777,15 @@ table {
  * the element's left edge instead. Combines with data-tt-pos="bottom". */
 [data-tt][data-tt-align="start"]::after {
   left: 0;
-  transform: translateX(0) translateY(0.125rem);
+  transform: translateX(var(--tt-shift, 0px)) translateY(0.125rem);
 }
-[data-tt][data-tt-align="start"][data-tt-pos="bottom"]::after {
-  transform: translateX(0) translateY(-0.125rem);
+[data-tt][data-tt-align="start"][data-tt-pos="bottom"]::after,
+[data-tt][data-tt-align="start"][data-tt-auto="bottom"]:not([data-tt-pos])::after {
+  transform: translateX(var(--tt-shift, 0px)) translateY(-0.125rem);
 }
 [data-tt][data-tt-align="start"]:hover::after,
 [data-tt][data-tt-align="start"]:focus-visible::after {
-  transform: translateX(0) translateY(0);
+  transform: translateX(var(--tt-shift, 0px)) translateY(0);
 }
 /* The collapsed sidebar rail: the tooltip is the only label, and the rail is
  * a scroll container that clips an absolute bubble. position: fixed escapes

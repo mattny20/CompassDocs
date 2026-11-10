@@ -27,7 +27,15 @@
 //      added as an internal note. A closed ticket gets a follow-up ticket
 //      instead.
 //   4. Otherwise a new ticket (source email): the team whose email alias
-//      the mail was sent to, else the first team. Someone with no account
+//      the mail was sent to, else the team of the listed address it was
+//      sent to (1.20.2, lib/helpdesk/mailboxes: any listed address is
+//      accepted on this one webhook, the ticket remembers which, and mail
+//      to none of them counts as the default address), else the first
+//      team. Rules, request types and automations run after, as before.
+//      Mail From one of our own addresses that also carries a Message-ID
+//      of ours (its own, In-Reply-To or References) or Auto-Submitted is
+//      dropped as a loop and audited; From alone is not enough, that mail
+//      is handled like any other. Someone with no account
 //      is refused unless Outside senders is on (Desk → Settings → Email);
 //      the refusal is logged and audited (helpdesk.inbound.rejected) and no
 //      mail is sent back, since the From of unsolicited mail is easily
@@ -296,8 +304,13 @@ async function findSender(email: string): Promise<Sender | undefined> {
   );
 }
 
-/** The team the mail was addressed to by its email alias (a full address or just the local part), else the first team. */
-export async function teamForRecipients(addresses: string[]): Promise<number | null> {
+/**
+ * The team the mail was addressed to by its email alias (a full address or
+ * just the local part), else `mailboxTeamId` (1.20.2: the team of the listed
+ * address the mail was sent to, when that team still exists), else the
+ * first team.
+ */
+export async function teamForRecipients(addresses: string[], mailboxTeamId: number | null = null): Promise<number | null> {
   const teams = await hq<{ id: number; email_alias: string }>("SELECT id, email_alias FROM hd_teams ORDER BY position, id");
   const lower = addresses.map((a) => a.toLowerCase());
   for (const t of teams) {
@@ -308,6 +321,7 @@ export async function teamForRecipients(addresses: string[]): Promise<number | n
       : lower.some((a) => a.split("@")[0].split("+")[0] === alias);
     if (hit) return t.id;
   }
+  if (mailboxTeamId && teams.some((t) => t.id === mailboxTeamId)) return mailboxTeamId;
   return teams[0]?.id ?? null;
 }
 
@@ -350,6 +364,22 @@ async function mergeRaced(e: unknown): Promise<boolean> {
   return e instanceof HdTicketError && e.status === 409 && e.messageUnsent === true;
 }
 
+const OUR_MESSAGE_ID = /^<?hd(?:\.[a-z0-9]{16}\.|-note-[a-z0-9]{16}-)/i;
+
+/**
+ * What marks a mail as one of the desk's own besides its From address: a
+ * Message-ID of ours (<hd.TOKEN.…@…>, <hd-note-TOKEN-…@…>) as its own or in
+ * In-Reply-To / References, or an Auto-Submitted header. Null when nothing
+ * does.
+ */
+export function ownMailSignal(email: Pick<InboundEmail, "messageId" | "inReplyTo" | "references" | "headers">): "message_id" | "thread" | "auto_submitted" | null {
+  if (OUR_MESSAGE_ID.test((email.messageId ?? "").trim())) return "message_id";
+  if ([email.inReplyTo ?? "", ...(email.references ?? [])].some((id) => OUR_MESSAGE_ID.test(id.trim()))) return "thread";
+  const auto = (email.headers?.["auto-submitted"] ?? "").trim().toLowerCase();
+  if (auto && auto !== "no") return "auto_submitted";
+  return null;
+}
+
 /** Everything after parsing (tests call it with an InboundEmail of their own). */
 export async function processInboundEmail(
   email: InboundEmail,
@@ -364,6 +394,27 @@ export async function processInboundEmail(
 ): Promise<InboundResult> {
   const outsideSenders = opts.outsideSenders ?? (await getHelpdeskSettings()).outside_senders;
   if (email.headers["x-compassdocs-helpdesk"]) return reply(200, { ok: true, outcome: "ignored_loop" });
+  // 1.20.2: mail From one of our own addresses (a listed mailbox or a ticket
+  // reply address) is our own mail coming back, or a forward loop between
+  // two of them, only when something else says so too: a Message-ID of ours
+  // on it or in its thread headers, or Auto-Submitted. (Our own header was
+  // answered one line up.) The address alone proves nothing: a colleague
+  // writing as the shared mailbox, or a group that rewrites From, is real
+  // mail and goes on as any other. A dropped one is audited.
+  const mailboxes = await import("./mailboxes");
+  const loop = ownMailSignal(email);
+  if (loop && (await mailboxes.isOwnAddress(email.from.email))) {
+    logEvent("info", "helpdesk.inbound_ignored", { reason: "own_address", signal: loop, from: email.from.email, provider: email.provider });
+    await audit({
+      actor: { name: "inbound email" },
+      action: "helpdesk.inbound.rejected",
+      targetType: "helpdesk_inbound",
+      targetLabel: email.from.email,
+      details: { reason: "own_address_loop", signal: loop, from: email.from.email, subject: email.subject.slice(0, 200), provider: email.provider },
+      ip: opts.ip ?? null,
+    }).catch(() => {});
+    return reply(200, { ok: true, outcome: "ignored_loop" });
+  }
   // A monitoring tool's mail from an address an email integration lists is
   // an alert, auto-generated or not (SPF/DKIM must pass when reported).
   const { intakeFromEmail } = await import("./intake/email");
@@ -409,6 +460,8 @@ export async function processInboundEmail(
   let portalFollowUp: { contactId: number; teamId: number | null } | null = null;
   // 1.19.4 (C7): a reply to a ticket in the recycle bin opens a new ticket, never naming the binned one.
   let binnedReply = false;
+  // 1.20.2: the closed (or binned) ticket a follow-up continues: its address stands in when the mail names none.
+  let followUpMailboxId: number | null = null;
   if (token && !verified) {
     // Never into an existing ticket on an unverified From: the token is in
     // every copy of the thread, so anyone on it could write as anyone.
@@ -423,6 +476,7 @@ export async function processInboundEmail(
     // 1.19.4 (C7): a reply to a ticket in the recycle bin opens a new ticket below (as an
     // unthreaded mail does); it never restores the binned one or adds to it.
     const binned = !!(replied?.deleted_at || t?.deleted_at);
+    followUpMailboxId = t?.mailbox_id ?? replied?.mailbox_id ?? null;
     if (binned) {
       binnedReply = true;
       logEvent("info", "helpdesk.inbound_binned_reply", { ticket: t?.number ?? replied?.number, from: email.from.email });
@@ -520,11 +574,17 @@ export async function processInboundEmail(
     logEvent("warn", "helpdesk.inbound_rejected", { reason: "portal_contact_blocked", from: email.from.email, provider: email.provider });
     return reply(200, { ok: true, outcome: "rejected_outside_sender" });
   }
+  // 1.20.2: the listed address the mail was sent to (else the thread's, else
+  // the default) is the ticket's mailbox, and its team the fallback before
+  // the first team.
+  const recipients = [...email.to.map((a) => a.email), ...email.cc.map((a) => a.email), ...email.recipients];
+  const box = await mailboxes.mailboxForInbound(email);
+  const threadBox = box && !box.matched && followUpMailboxId ? await mailboxes.getMailbox(followUpMailboxId) : undefined;
+  const mailbox = threadBox ?? box?.mailbox ?? null;
   if (portalFollowUp) {
     const { createPortalFollowUp } = await import("./portal-hooks");
     const body = followUpOf !== null ? `_Follow-up to #${followUpOf}, which was closed._\n\n${inboundBody(email, { reply: true })}` : inboundBody(email, { reply: true });
-    const teamId =
-      (await teamForRecipients([...email.to.map((a) => a.email), ...email.cc.map((a) => a.email), ...email.recipients])) ?? portalFollowUp.teamId;
+    const teamId = (await teamForRecipients(recipients, mailbox?.team_id ?? null)) ?? portalFollowUp.teamId;
     const ticket = await createPortalFollowUp(
       portalFollowUp.contactId,
       {
@@ -535,6 +595,7 @@ export async function processInboundEmail(
         teamId,
         emailMessageId: messageId,
         closedNumber: followUpOf,
+        mailboxId: mailbox?.id ?? null,
       },
       { origin: opts.origin }
     );
@@ -574,7 +635,7 @@ export async function processInboundEmail(
     return reply(200, { ok: true, outcome: "rejected_not_permitted" });
   }
 
-  const teamId = await teamForRecipients([...email.to.map((a) => a.email), ...email.cc.map((a) => a.email), ...email.recipients]);
+  const teamId = await teamForRecipients(recipients, mailbox?.team_id ?? null);
   // A reply's quoted thread stays out (1.19.4: so a binned conversation never comes back in a new ticket).
   let body = inboundBody(email, { reply: followUpOf !== null || binnedReply });
   if (followUpOf !== null) body = `_Follow-up to #${followUpOf}, which was closed._\n\n${body}`;
@@ -588,6 +649,7 @@ export async function processInboundEmail(
       via: "email",
       source: "email",
       team_id: teamId,
+      mailbox_id: mailbox?.id ?? null,
       email_message_id: messageId,
     },
     { origin: opts.origin, actorId: author.id, actorName: author.name }

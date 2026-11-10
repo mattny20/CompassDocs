@@ -166,7 +166,7 @@ export function IntegrationDetail({ id }: { id: number }) {
     try {
       await sendJson(`/api/helpdesk/intake/integrations/${id}`, "DELETE", undefined, "Couldn't delete the integration.");
       toast("ok", `${v.name} deleted.`);
-      router.push("/desk/settings/integrations");
+      router.push("/desk/settings/integrations/alerts");
     } catch (e) {
       toast("error", (e as Error).message);
     }
@@ -178,7 +178,7 @@ export function IntegrationDetail({ id }: { id: number }) {
         icon={<Icon />}
         title={v.name}
         subtitle={HD_INTEGRATION_KIND_LABEL[v.kind]}
-        back={{ href: "/desk/settings/integrations", label: "Integrations" }}
+        back={{ href: "/desk/settings/integrations/alerts", label: "Alert sources" }}
         actions={
           <>
             <span className={chipClass(v.enabled ? "ok" : "neutral")}>{v.enabled ? "On" : "Off"}</span>

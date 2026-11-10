@@ -258,6 +258,8 @@ function ticketSummary(t: HdTicket | HdTicketListRow, origin: string, requesterE
     status: t.status,
     priority: t.priority,
     team: t.team_id ? { id: t.team_id, name: t.team_name ?? "" } : null,
+    // 1.20.2 (additive): the help address the ticket came in on or is answered from; null = it has none of its own.
+    mailbox: t.mailbox_id && t.mailbox_address ? { id: t.mailbox_id, address: t.mailbox_address, name: t.mailbox_name ?? "" } : null,
     assignee: t.assignee_id ? { id: t.assignee_id, name: t.assignee_name ?? "" } : null,
     requester: { name: t.requester_name, ...(requesterEmail !== undefined ? { email: requesterEmail } : {}) },
     tags: t.tags ?? [],

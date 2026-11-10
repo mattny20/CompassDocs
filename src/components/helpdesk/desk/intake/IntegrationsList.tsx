@@ -39,8 +39,9 @@ export function IntegrationsList() {
   return (
     <PageContainer>
       <PageHeader
+        back={{ href: "/desk/settings/integrations", label: "Integrations" }}
         icon={<Plug />}
-        title="Integrations"
+        title="Alert sources"
         subtitle={INTEGRATIONS_SUBTITLE}
         actions={
           rows && rows.length > 0 ? (

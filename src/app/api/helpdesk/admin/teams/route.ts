@@ -1,4 +1,6 @@
-// GET  /api/helpdesk/admin/teams   every team with its members → { teams }
+// GET  /api/helpdesk/admin/teams   every team with its members → { teams }. 1.20.2 (additive, for the Teams
+//        list): each team also carries open_tickets (live, not solved or closed) and mailbox_address
+//        (the first help address mapped to it, lib/helpdesk/mailboxes; null when none).
 // POST /api/helpdesk/admin/teams   { name, description?, icon?, email_alias?, position?, members?: [{user_id, role}] }
 //        → 201 { team }   audited (helpdesk.team.created)
 // Helpdesk 1.19.0 (desk capability teams.manage). Members' team roles follow
@@ -7,6 +9,7 @@
 import { NextResponse } from "next/server";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { readJson } from "@/lib/helpdesk/access";
+import { hq } from "@/lib/helpdesk/db-core";
 import { hdCapGate } from "@/lib/helpdesk/roles";
 import { createTeam, listTeamsWithMembers, setTeamMembers, validateTeamInput } from "@/lib/helpdesk/teams";
 import type { TeamInput } from "@/lib/helpdesk/teams";
@@ -20,7 +23,15 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const gate = await hdCapGate("teams.manage");
   if (gate instanceof NextResponse) return gate;
-  return NextResponse.json({ teams: await listTeamsWithMembers() });
+  const [teams, open, boxes] = await Promise.all([
+    listTeamsWithMembers(),
+    hq<{ team_id: number; n: number }>(
+      "SELECT team_id, count(*)::int AS n FROM hd_tickets WHERE team_id IS NOT NULL AND deleted_at IS NULL AND status NOT IN ('solved', 'closed') GROUP BY team_id"
+    ),
+    import("@/lib/helpdesk/mailboxes").then((m) => m.mailboxAddressByTeam()).catch(() => new Map<number, string>()),
+  ]);
+  const openBy = new Map(open.map((r) => [r.team_id, r.n]));
+  return NextResponse.json({ teams: teams.map((t) => ({ ...t, open_tickets: openBy.get(t.id) ?? 0, mailbox_address: boxes.get(t.id) ?? null })) });
 }
 
 export async function POST(req: Request) {

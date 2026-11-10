@@ -106,6 +106,7 @@ export function SidePanel({
   const canPriority = can && can$("tickets.change_priority");
   const canTeam = can && can$("tickets.transfer_team");
   const canOwner = can && (can$("tickets.assign_any") || can$("tickets.assign_team") || can$("tickets.assign_self"));
+  const canMailbox = can && d.can_change_mailbox === true;
 
   async function editCategory() {
     const v = await promptDialog({ title: "Category", label: "Category", initial: t.category, required: false, confirmLabel: "Save category" });
@@ -213,6 +214,36 @@ export function SidePanel({
             {can && <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />}
           </button>
         </div>
+        {/* The address replies go out under (1.20.2, lib/helpdesk/mailboxes): shown while more than one is listed. */}
+        {d.mailboxes && d.mailbox && (
+          <div className={ROW}>
+            <span className="shrink-0 text-sm text-slate-500">Answer from</span>
+            {/* An address is longer than the other values: the menu's wrapper may shrink, and the value truncates. */}
+            <div className="flex min-w-0 flex-1 justify-end [&>div]:min-w-0">
+              <PickMenu
+                label="Answer from"
+                value={d.mailbox.id}
+                width="w-72"
+                options={d.mailboxes.map((m) => ({ value: m.id, label: m.address, hint: m.is_default ? `${m.name} · Default` : m.name }))}
+                onPick={(id) => onPatch({ mailbox_id: id } as HdTicketPatch, "Answer-from address changed.")}
+                trigger={(p) => (
+                  <button
+                    {...p}
+                    type="button"
+                    disabled={!canMailbox}
+                    aria-label={`Answer from: ${d.mailbox!.address}`}
+                    data-tt={d.mailbox!.address}
+                    className={VALUE_BTN.replace("max-w-44", "max-w-full")}
+                    data-testid="answer-from"
+                  >
+                    <span className="truncate">{d.mailbox!.address}</span>
+                    {canMailbox && <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />}
+                  </button>
+                )}
+              />
+            </div>
+          </div>
+        )}
         {/* The ticket's language (1.19.2, agent W2). */}
         <TicketLanguageRow ticket={t} can={can} onChanged={onReload} />
         <div className={`${ROW} items-start py-2.5`}>
@@ -368,6 +399,7 @@ export function SidePanel({
 
       <p className="px-1 text-xs text-slate-500">
         Opened through {HD_SOURCE_LABEL[t.source] ?? t.source}
+        {d.mailboxes && t.mailbox_address ? ` to ${t.mailbox_address}` : ""}
         {t.request_type_title ? ` · ${t.request_type_title}` : ""}
       </p>
     </div>

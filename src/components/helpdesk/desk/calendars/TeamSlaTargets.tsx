@@ -201,7 +201,7 @@ export function TeamSlaTargets({
       </ul>
       <FormError className={framed ? "mx-4 mb-2" : "mb-2"}>{tried && bad ? `Give ${HD_PRIORITY_LABEL[bad.priority]} a first reply and a resolution time above zero (90 days at most).` : undefined}</FormError>
       <div className={`border-t border-slate-100 py-3 ${framed ? "px-4" : ""}`}>
-        <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save team targets" sticky={false} shortcut={false}>
+        <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save team targets" sticky={false} shortcut={false} flush>
           {!framed && resetButton}
         </SaveRow>
       </div>

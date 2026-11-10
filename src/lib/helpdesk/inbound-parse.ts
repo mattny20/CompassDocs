@@ -27,6 +27,7 @@
 
 import { unified } from "unified";
 import rehypeParse from "rehype-parse";
+import { scanAddresses } from "./mailboxes-shared";
 
 export const INBOUND_PROVIDERS = ["generic", "postmark", "sendgrid", "mailgun"] as const;
 export type InboundProvider = (typeof INBOUND_PROVIDERS)[number];
@@ -97,12 +98,15 @@ export const INBOUND_MAX_TEXT = 60_000;
 
 // --- Addresses -------------------------------------------------------------------
 
-const EMAIL_RE = /[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+/;
-
-/** A lower-cased bare address, or '' when the value holds none. */
+/**
+ * A lower-cased bare address (the first one in the value), or '' when the
+ * value holds none. The value is a sender's (From, To, Cc, the envelope
+ * fields) and may be very long: scanAddresses reads it in one pass (1.20.2;
+ * the unanchored pattern used before took seconds on a 100 KB value).
+ */
 export function normalizeEmail(raw: unknown): string {
-  const m = String(raw ?? "").match(EMAIL_RE);
-  return m ? m[0].toLowerCase() : "";
+  const m = scanAddresses(String(raw ?? ""), 1)[0];
+  return m ? m.toLowerCase() : "";
 }
 
 /** "Priya Shah <priya@example.com>" -> { email, name }. */

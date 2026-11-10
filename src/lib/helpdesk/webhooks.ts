@@ -120,6 +120,10 @@ interface TicketFacts {
   merged_into: number | null;
   /** The recycle bin's column read through to_jsonb, so this works before and after C7 adds it. */
   deleted_at: string | null;
+  /** 1.20.2 (lib/helpdesk/mailboxes): the ticket's own help address. */
+  mailbox_id: number | null;
+  mailbox_address: string | null;
+  mailbox_name: string | null;
 }
 
 async function ticketFacts(ticketId: number): Promise<TicketFacts | undefined> {
@@ -128,8 +132,10 @@ async function ticketFacts(ticketId: number): Promise<TicketFacts | undefined> {
             t.assignee_id, NULLIF(COALESCE(NULLIF(a.name, ''), a.username), '') AS assignee_name,
             t.requester_name, t.requester_email, t.tags, t.category, t.source, rt.title AS request_type,
             t.created_at, t.updated_at, t.solved_at, (to_jsonb(t) ->> 'merged_into')::int AS merged_into,
-            (to_jsonb(t) ->> 'deleted_at') AS deleted_at
+            (to_jsonb(t) ->> 'deleted_at') AS deleted_at,
+            mb.id AS mailbox_id, mb.address AS mailbox_address, mb.name AS mailbox_name
        FROM hd_tickets t
+       LEFT JOIN hd_mailboxes mb ON mb.id = t.mailbox_id
        LEFT JOIN hd_teams tm ON tm.id = t.team_id
        LEFT JOIN users a ON a.id = t.assignee_id
        LEFT JOIN hd_request_types rt ON rt.id = t.request_type_id
@@ -146,6 +152,8 @@ function ticketOut(t: TicketFacts, origin: string) {
     status: t.status,
     priority: t.priority,
     team: t.team_id ? { id: t.team_id, name: t.team_name ?? "" } : null,
+    // 1.20.2 (additive): the help address the ticket came in on or is answered from; null = none of its own.
+    mailbox: t.mailbox_id && t.mailbox_address ? { id: t.mailbox_id, address: t.mailbox_address, name: t.mailbox_name ?? "" } : null,
     assignee: t.assignee_id ? { id: t.assignee_id, name: t.assignee_name ?? "" } : null,
     requester: { name: t.requester_name, email: t.requester_email },
     tags: t.tags ?? [],
@@ -679,7 +687,7 @@ async function tellAdmins(hook: HookSecretRow): Promise<void> {
       event: "hd_webhook_disabled",
       title: `Webhook turned off: ${hookLabel(hook)}`,
       body: "It failed for 24 hours. Check the endpoint, then turn it back on in Desk settings, API and webhooks.",
-      link: "/desk/settings/api",
+      link: "/desk/settings/integrations/api#webhooks",
     });
   } catch (e) {
     logEvent("warn", "helpdesk.webhook.notice_failed", { hook: hook.id, error: e instanceof Error ? e.message : String(e) });

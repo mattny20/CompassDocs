@@ -242,7 +242,7 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
         />
       </div>
 
-      <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save" className="mt-4">
+      <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save">
         <button onClick={() => syncNow()} disabled={syncing || !g.tenant || !g.client_id || !(g.has_secret || secret)} className={buttonClass("secondary")} data-tt={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""} aria-label={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""}>
           {syncing ? "Syncing…" : "Sync now"}
         </button>

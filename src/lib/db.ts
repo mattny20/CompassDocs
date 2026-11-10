@@ -33,6 +33,7 @@ import { HD_CHAT_SCHEMA } from "./helpdesk/chat-schema";
 import { HD_APPEARANCE_SCHEMA } from "./helpdesk/appearance-schema";
 import { HD_SHARE_SCHEMA } from "./helpdesk/share-schema";
 import { HD_CLAUDE_SCHEMA } from "./helpdesk/claude-schema";
+import { HD_MAILBOXES_SCHEMA } from "./helpdesk/mailboxes-schema";
 import { createHash, randomBytes } from "node:crypto";
 import { SEED_SPACES, SEED_DOCS } from "./seed-data";
 import { hashPassword } from "./password";
@@ -2351,6 +2352,8 @@ const SCHEMA_SQL = `
   ${HD_SHARE_SCHEMA}
   -- Claude in the desk: chats, cards and usage (1.20.0, lib/helpdesk/claude-schema; after hd_tickets).
   ${HD_CLAUDE_SCHEMA}
+  -- Several help addresses: hd_mailboxes, hd_tickets.mailbox_id (1.20.2, lib/helpdesk/mailboxes-schema; after hd_teams, hd_tickets).
+  ${HD_MAILBOXES_SCHEMA}
   --- end Helpdesk 1.19.0 ---------------------------------------------------
   ${EMAIL_PARTS_SCHEMA}
   ${NOTIFY_POLICY_SCHEMA}

@@ -335,7 +335,7 @@ function TypeEditor({
           </p>
         )}
       </Card>
-      <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save request type" />
+      <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save request type" flush />
     </div>
   );
 }

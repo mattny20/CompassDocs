@@ -71,7 +71,7 @@ export function NewIntegration({ initialKind = null }: { initialKind?: HdIntegra
     }
   }
 
-  const done = () => router.push(created ? `/desk/settings/integrations/${created.integration.id}` : "/desk/settings/integrations");
+  const done = () => router.push(created ? `/desk/settings/integrations/${created.integration.id}` : "/desk/settings/integrations/alerts");
 
   return (
     <PageContainer>
@@ -79,7 +79,7 @@ export function NewIntegration({ initialKind = null }: { initialKind?: HdIntegra
         icon={<Plug />}
         title="New integration"
         subtitle="Connect a monitoring tool, a bot or automated mail."
-        back={{ href: "/desk/settings/integrations", label: "Integrations" }}
+        back={{ href: "/desk/settings/integrations/alerts", label: "Alert sources" }}
       />
       <p className="mb-3 text-xs font-medium text-slate-500" aria-live="polite">
         Step {step} of 3 · {step === 1 ? "Choose the tool" : step === 2 ? "Where its tickets go" : kind === "email" ? "Set it up" : "Your key"}

@@ -82,22 +82,28 @@ test.describe("assets (licensed)", () => {
     test.setTimeout(300_000);
     await page.setViewportSize({ width: 1440, height: 900 });
 
-    // Desk settings → Assets.
+    // 1.20.2: Assets is three pages off the Integrations hub; the old address lands on the hub.
     await page.goto("/desk/settings/assets");
-    await slow(page.getByRole("heading", { level: 1, name: "Assets" })).toBeVisible({ timeout: 60_000 });
-    // Microsoft Intune (1.19.4) signs in with the Microsoft 365 directory sync's app registration.
-    // This rig has none saved, so the switch is off and disabled, and the line says why.
+    await page.waitForURL(/\/desk\/settings\/integrations$/, { timeout: 120_000 });
+    // Microsoft Intune has its own page and its own app registration: nothing entered on this rig,
+    // so it is not connected and says what to enter (no word of directory sync).
+    await page.goto("/desk/settings/integrations/intune");
+    await slow(page.getByRole("heading", { level: 1, name: "Microsoft Intune" })).toBeVisible({ timeout: 60_000 });
     const intune = page.getByTestId("assets-intune");
-    await expect(intune.getByRole("switch", { name: /^Microsoft Intune/ })).toBeDisabled();
-    await expect(intune.getByRole("switch", { name: /^Microsoft Intune/ })).toHaveAttribute("aria-checked", "false");
-    await expect(intune.getByTestId("assets-intune-line")).toHaveText(/^Uses your Microsoft 365 directory sync(, which needs an enterprise licence\.|\. Set that up first, then switch Intune on here\.)$/);
+    await expect(intune.getByTestId("assets-intune-line")).toHaveText("Enter the app registration Intune signs in with to start.");
+    await expect(intune.getByRole("button", { name: "Connect", exact: true })).toBeDisabled();
+    await expect(intune).not.toContainText(/directory sync/i);
+    await expect(page.getByRole("link", { name: "Integrations", exact: true }).first()).toHaveAttribute("href", "/desk/settings/integrations");
+    // Integrations → Snipe-IT.
+    await page.goto("/desk/settings/integrations/snipe-it");
+    await slow(page.getByRole("heading", { level: 1, name: "Snipe-IT" })).toBeVisible({ timeout: 60_000 });
     const card = page.getByTestId("assets-snipeit");
     await card.getByLabel("Address").fill(`https://assets-${stamp}.example.com`);
     await card.getByLabel("API key").fill(`e2e-key-${stamp}`);
     await card.getByRole("radio", { name: "Offer to log a maintenance record" }).check();
     const [savedRes] = await Promise.all([
       page.waitForResponse((r) => r.url().endsWith("/api/helpdesk/admin/assets") && r.request().method() === "PUT", { timeout: 120_000 }),
-      page.getByRole("button", { name: "Save asset settings" }).click(),
+      page.getByRole("button", { name: "Save Snipe-IT settings" }).click(),
     ]);
     expect(savedRes.status()).toBe(200);
     expect(JSON.stringify(await savedRes.json())).not.toContain(`e2e-key-${stamp}`);

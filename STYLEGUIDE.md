@@ -470,6 +470,22 @@ focus):
   beside `data-tt`. A control with `aria-expanded="true"` shows no tooltip
   (the open panel is the label), so a popup trigger keeps `data-tt` and
   sets `aria-expanded` rather than toggling the attribute.
+- **Placement is automatic** (1.20.2, `components/TooltipPlacer`, mounted
+  once in the root layout). The bubble opens above its control, centred.
+  Just before it shows, the placer measures the room inside the viewport
+  and inside every ancestor that clips (a scrolling pane, an
+  `overflow-hidden` card): with no room above and more below it opens
+  **below** (`data-tt-auto="bottom"`), and one that would cross a side
+  edge **slides back inside** (`--tt-shift` on the control). So the
+  buttons at the top of a pane (the ticket pane's Status, Follow, Solve
+  and More), a list header and a top bar need no attribute.
+  `data-tt-pos` is the explicit override and always wins: write it only
+  for a reason the placer cannot see (a sticky bar that covers the space
+  above without clipping it), never by habit. The CSS transforms carry
+  `var(--tt-shift, 0px)`: a new `[data-tt]` variant must keep it.
+  `e2e/helpdesk-tooltips.spec.ts` hovers the top controls of the ticket
+  pane, the queue, the desk's top bar, settings headers and the main
+  app's page headers and fails on a bubble outside what can be seen.
 - **A control flush with a card's right edge** (a Contents row's Remove
   `X`, 1.18.0) keeps its tooltip to one word ("Remove"): the bubble is
   centred on the control, so a long one hangs past the edge and, even
@@ -486,8 +502,11 @@ focus):
   visible text must NOT get `aria-label` (it would override the text).
 - The `<Tooltip>` wrapper (`components/Tooltip.tsx`) exists for disabled
   buttons and third-party children that can't carry the attribute.
-- Tooltips clip inside `overflow-auto/hidden` containers — inside scrolling
-  tables keep labels short or keep native `title`.
+- Inside `overflow-auto/hidden` containers the placer keeps the bubble
+  within the container's box (below the control when there is no room
+  above, slid inside its side edges). A container smaller than the bubble
+  in both directions still clips it: inside dense scrolling tables keep
+  labels short or keep native `title`.
 - Plain-text truncation previews (full title on a truncated cell) may keep
   native `title` — that's content, not a control label.
 
@@ -668,6 +687,41 @@ focus):
   which does not follow the theme). One help sentence under it is the
   group's description. `FocusPicker` in `SignInPageSettings` is the worked
   example.
+- **A settings list whose items each have a page: list, then detail**
+  (1.20.2, Desk settings → Teams). When every item of a settings page
+  carries several cards of its own (a team: its fields, people, hours and
+  targets, delete), the page is a **list** and each item a **routed page
+  under it** (`/desk/settings/teams/[id]`), never every item expanded on
+  one page. The list is a `padding="none"` `Card` holding a `ul
+  role="list"` with `divide-y divide-slate-100`; each row is one real
+  `<Link>` (`flex items-center gap-3 px-4 py-3 hover:bg-slate-50
+  outline-offset-[-2px]`, so Enter, middle-click and the focus ring are
+  the browser's): an icon tile (`h-9 w-9 rounded-lg bg-compass-50
+  text-compass-700`), the name in `text-sm font-semibold`, `chipClass(…,
+  "sm")` chips for what is worth knowing before opening it (**No members**
+  `warn`, a mapped help address `neutral`, with an `sr-only` prefix so the
+  row's name reads as a sentence), one truncated `text-xs text-slate-500`
+  facts line ("5 people · Leads: Ana, Sam"), a right-aligned count ("12
+  open") and a `ChevronRight` in `text-slate-400`. No row actions: what
+  changes an item lives on its page. A `ListFilter` sits in a
+  `border-b px-4 py-3` strip above the rows once the list passes eight,
+  and a filter that matches nothing is a `SectionEmpty` with "Clear the
+  filter". The one primary **Add …** is in the `PageHeader` `actions`; it
+  asks for the least it needs in a `formDialog` (a name, an icon),
+  creates, and opens the new item's page. No items: `EmptyState` with the
+  same Add as its `action`. The detail page is `PageHeader back={{ href,
+  label: "Teams" }}` (the list's name, §Wayfinding) with the item's own
+  icon and name as the `h1`, its cards stacked in `flex flex-col gap-4`
+  each with an `id` and `scroll-mt-6`, one `SaveRow` for the item's own
+  fields with `useUnsavedChanges` and `useLeaveGuard`, controls that
+  always saved at once (membership, a calendar choice) left saving at
+  once under a card that says so, and Delete in a `DangerZone` at the
+  bottom, which returns to the list. An item that is gone is an
+  `EmptyState` linking back, under the same header. The rail entry stays
+  lit on the detail page (`DeskSettingsNav` matches the prefix), both
+  routes sit behind the list's own capability, and an old in-page anchor
+  (`#team-12`) is forwarded to the item's page by the list.
+  `TeamsSettings` and `TeamDetail` are the worked example.
 - **A preview of a whole page is the real page in an iframe at a real
   device size** (1.16.0, the sign-in page's Preview card;
   `components/auth/PreviewFrame`), never a component scaled down in place:
@@ -814,6 +868,20 @@ One field recipe, one input recipe, one width scale. Everything lives in
   (Domain "Save & apply") passes `allowPristine`. Secondary controls
   (Test sign-in, Sync now) go in as children. Never a bare primary button
   that never changes state.
+- **The Save row brings its own gap** (1.20.2). `SaveRow` carries `mt-4`,
+  the gap between a page's cards, in both its resting and its
+  pinned-while-dirty state, so it never sits flush against the last card
+  or option. Never add a margin at the call site (`className="mt-4"` on a
+  `SaveRow` is the retired recipe). In a block stack (`space-y-*`) the
+  margins collapse into the stack's own gap; a row its container already
+  spaces passes **`flush`**: a card footer's padded strip (`MarkersCard`,
+  `TeamSlaTargets`), a `flex`/`grid` parent with `gap-*`
+  (`CalendarsPanel`), an inline form row (`BackupsClient`). A page that
+  wants a wider gap passes `flush className="mt-6"`. The pinned row is
+  `sticky bottom-3` and in flow: at the end of the scroll it rests in its
+  own place under the last card, never over it, so the page container
+  keeps its bottom padding (`PageContainer`'s `py-8`; at least `pb-3`
+  anywhere else).
 
 ## Wayfinding: back links and breadcrumbs
 
@@ -4728,3 +4796,102 @@ the image work in `appearance-upload`).
   close the popover. The row shows while the workspace lets agents
   choose, or while they still have an upload (then the panel says the
   admin has set the background and offers only **Remove it**).
+
+## Helpdesk: help addresses
+
+1.20.2 (`lib/helpdesk/mailboxes`, Desk settings → Email).
+
+- **The Addresses card is a list that acts at once.** A `padding="none"`
+  `Card` with a secondary **Add address** in its header `actions` and a
+  `ul role="list"` of rows (`flex flex-wrap items-start gap-x-4 gap-y-2
+  px-4 py-3`): the address in `text-sm font-medium` (`break-all`, an
+  address has no spaces to wrap at), chips beside it (**Default** `info`,
+  **Sends from this address** `accent`, both `sm`), a `text-xs
+  text-slate-500` facts line ("Acme Billing · Billing · 12 tickets"; the
+  team reads "No team (use routing)" when none is mapped), and the row's
+  actions on the right, which wrap under the text on a phone: a secondary
+  `sm` **Send test** with its words, then icon-only Edit and Remove
+  (`iconButtonClass("quiet", "sm")`, one-word `data-tt`, the whole
+  sentence as `aria-label`: "Remove billing@acme.com"). Add, Edit, Remove
+  and Send test save or act at once and toast; the page's `SaveRow`
+  belongs to the "Who can write in" switches alone.
+- **A provider's refusal is words on the row, never a tooltip.** When the
+  mail provider turned an address down as a From, the row carries one
+  `ink-warn text-xs` line with the provider's own sentence, when it
+  happened and what the desk does meanwhile ("Replies go out from … under
+  this name until a test goes through"). Send test answers with a toast:
+  `ok` naming the recipient and the From it used, `error` with the
+  provider's refusal verbatim.
+- **The Add and Edit dialog** is a `Modal` with the token dialog's frame:
+  Address, From name, Team (a `Select` whose first option is "No team
+  (use routing)"), then two `Toggle size="full"`s whose help says what on
+  and off each do in full sentences. A choice that cannot be changed here
+  (the first address is the default; the default cannot be switched off)
+  is a disabled `Toggle` whose help says how to change it, never a hidden
+  control. Client rules mirror the server's (`mailboxAddressProblem`) and
+  show after a submit was tried; a server refusal is the dialog's
+  `FormError`.
+- **Removing one in use says what moves.** The `confirmDialog({ danger:
+  true })` body counts the tickets and names where they go ("3 tickets
+  came in on it: they move to help@acme.com"), and the toast afterwards
+  repeats the count the server moved.
+- **On a ticket** the address shows only while more than one is listed:
+  " · to billing@acme.com" at the end of the pane's meta line and of the
+  side panel's "Opened through" line, after the requester in a queue row
+  (`truncate`, an `aria-hidden` middle dot and an `sr-only` ", to "), and
+  **Answer from** as a row of the Properties card: a `PickMenu` whose
+  options are the address with its From name as the hint. An address is
+  longer than the card's other values, so that row's menu wrapper may
+  shrink (`flex min-w-0 flex-1 justify-end [&>div]:min-w-0`) and the
+  value truncates with the full address in `data-tt` and `aria-label`.
+  Without the capability the value is the same control, disabled and
+  without its chevron, as the other properties are. The options are the
+  agent's own: the default, addresses with no team and their teams'
+  (every address with "See every team's tickets"). The address in use
+  is always the value, also when it is not one of them; with no other
+  address to choose the control is disabled in the same way.
+- **The queue's Filter dialog** offers Address (a `Select` of the listed
+  addresses) only while more than one is listed, or when the filter in
+  hand already names one.
+
+
+## Helpdesk: the Integrations hub
+
+1.20.2 (`components/helpdesk/desk/integrations`, `lib/helpdesk/integrations-hub`).
+
+- **A hub is a page of tiles, each opening a page of its own.** When a
+  settings area gathers things that are set up one by one and each has
+  credentials, a test and a status (asset sources, chat apps, the API),
+  they are tiles on one hub page, not rail entries: the rail keeps one
+  entry (Integrations), lit on every page under it, and each of those
+  pages carries `PageHeader back={{ href: hub, label: "Integrations" }}`.
+  A feature with policy controls of its own (Claude in the desk) keeps
+  its rail entry and gets a tile as well.
+- **Groups** are `section`s under a `SectionHeading` (`h2`): Assets,
+  Chat, Claude, Developers, Alerts and monitoring, `gap-8` apart; a group
+  with no tile the person may open is not rendered.
+- **The grid** is a `ul role="list"` with `grid-cols-1 md:grid-cols-2
+  xl:grid-cols-3 gap-4`: one column on a phone, three on a wide desk.
+- **A tile** is a `li` in `CARD_CLASS flex flex-col p-5`: the icon tile
+  (`h-9 w-9 rounded-lg bg-compass-50 text-compass-700`, a lucide glyph at
+  `h-5 w-5`), the name as an `h3` in `text-sm font-semibold`, a category
+  line in `text-xs text-slate-500` ("Asset management", "Chat app"), and
+  the status chip top right; one sentence of description in `text-sm
+  text-slate-600`; an optional fact line in `text-xs text-slate-500`
+  ("412 devices"), `ink-warn` when it is the reason for Needs attention;
+  and a footer pinned to the bottom (`mt-auto pt-4`) with one `secondary`
+  `sm` button, **Open** (or **Set up** while not set up), whose name ends
+  in an `sr-only` copy of the tile's name, and a quiet **Docs** link
+  (`ExternalLink`, new tab, `sr-only` "for X (opens in a new tab)") only
+  where a docs page exists. No tile is primary: a page of tiles has no
+  one main action.
+- **Status chips** are `sm`: **Connected** `ok`, **Not set up**
+  `neutral`, **Needs attention** `warn`. They are computed on the server
+  from the same data each page reads, behind that page's own capability:
+  a tile the person cannot open is absent from the answer, so the hub
+  never tells anyone the state of a page they could not see before. A
+  tile for settings with no on or off (Asset settings) has no chip.
+- **A page that moved keeps its old address**: the old route stays as a
+  server page that, after sign-in and the page's own capability check,
+  `redirect()`s to the new place (`MOVED_SETTINGS`); never a
+  `next.config` redirect, which would answer before authentication.

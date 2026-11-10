@@ -93,7 +93,7 @@ test.describe("Helpdesk: drafts from Claude", () => {
 
       // Desk settings → Claude connector lists the write.
       // A dev server's first compile of the page can abort the first navigation.
-      await page.goto("/desk/settings/claude").catch(() => page.goto("/desk/settings/claude"));
+      await page.goto("/desk/settings/integrations/claude-connector").catch(() => page.goto("/desk/settings/integrations/claude-connector"));
       await look(page.locator("h1")).toHaveText("Claude connector");
       await look(page.getByRole("radiogroup", { name: "Claude can" })).toBeVisible();
       await look(page.getByText(`Saved a reply draft on #${number}`).first()).toBeVisible();

@@ -250,7 +250,7 @@ export function PortalHelpCentre() {
           <p className="mt-3 text-xs text-slate-500">Counted without personal data: no names, addresses or sign-ins, and typed emails and numbers are blanked.</p>
         </Card>
       </div>
-      <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save help centre" className="mt-4" />
+      <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save help centre" />
     </>
   );
 }

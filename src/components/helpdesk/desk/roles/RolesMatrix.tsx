@@ -201,7 +201,7 @@ export function RolesMatrix() {
             yourself. A role replies directly or after review, never both. Delete tickets and Delete for good are off for every role except Admin
             until you tick them; deleting is never offered for tickets on legal hold.
           </p>
-          <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save roles" className="mt-4">
+          <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save roles">
             <Button variant="secondary" icon={<RotateCcw />} disabled={busy || (atDefaults && !dirty)} onClick={reset}>
               Reset to defaults
             </Button>

@@ -243,6 +243,8 @@ export function TicketPane({ number }: { number: number }) {
               #{t.number}
               {t.import_ref && typeof t.source_ref?.import_label === "string" && <span data-testid="import-ref"> · {t.source_ref.import_label}</span>}
               {t.team_name && ` · ${t.team_name}`} · opened <RelativeTime value={t.created_at} /> by {t.requester_name || t.requester_email}
+              {/* 1.20.2: the help address it came in on, while more than one is listed (lib/helpdesk/mailboxes). */}
+              {d.mailboxes && t.mailbox_address && <span data-testid="ticket-address"> · to {t.mailbox_address}</span>}
               {d.parent && (
                 <>
                   {" "}· task of{" "}

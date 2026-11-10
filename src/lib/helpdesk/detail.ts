@@ -149,7 +149,25 @@ export async function ticketDetail(user: { id: number; role: Role }, t: HdTicket
     sla_target_note,
     // Merged into / merged in, and "from #1051" on moved messages (1.19.1, lib/helpdesk/merge).
     merge: await import("./merge").then((m) => m.mergeInfo(t.id)).catch(() => undefined),
+    // The address it is answered from, and the choices while more than one is listed (1.20.2, lib/helpdesk/mailboxes).
+    ...(await mailboxFields(user, t, canWork)),
   };
+}
+
+async function mailboxFields(user: { id: number; role: Role }, t: HdTicket, canWork: boolean): Promise<Pick<HdTicketDetail, "mailbox" | "mailboxes" | "can_change_mailbox">> {
+  try {
+    const { mailboxOptionsFor, ticketMailbox } = await import("./mailboxes");
+    const [mailbox, { options, total }] = await Promise.all([ticketMailbox(t), mailboxOptionsFor(user)]);
+    if (total < 2) return { mailbox };
+    // The choices are the agent's own (the default, addresses with no team, their teams'). The
+    // address in use is always named, as a plain label when there is nothing else to choose.
+    const choice = options.some((o) => o.id !== mailbox?.id);
+    const { hdCan } = await import("./roles");
+    return { mailbox, mailboxes: options, can_change_mailbox: canWork && choice && (await hdCan(user, "tickets.reply_public", { teamId: t.team_id })) };
+  } catch (e) {
+    console.error("[helpdesk] ticket mailbox:", e);
+    return { mailbox: null };
+  }
 }
 
 /**

@@ -310,12 +310,16 @@ export async function setupChecklist(): Promise<{ steps: SetupStepState[]; done:
     countDeskAgents(),
   ]);
   const c = { ...counts!, agents };
+  // 1.20.2 (lib/helpdesk/mailboxes): the default address, "and N more" when several are listed; the old single address when none is.
+  const boxes = await import("./mailboxes").then((m) => m.listMailboxes()).catch(() => []);
+  const first = boxes.find((m) => m.is_default) ?? boxes[0];
+  const emailSummary = first ? (boxes.length > 1 ? `${first.address} and ${boxes.length - 1} more` : first.address) : s.inbound_address;
   const ticked = new Set(s.setup_steps_done);
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
   const steps: SetupStepState[] = [
     { key: "teams", done: ticked.has("teams") || c.teams > 0, summary: c.teams ? `${plural(c.teams, "team")} · ${plural(c.agents, "agent")}` : "" },
     { key: "hours", done: ticked.has("hours") || c.sla > 0, summary: c.sla ? "Using your reply targets" : "" },
-    { key: "email", done: ticked.has("email") || !!s.inbound_secret, summary: s.inbound_address ? s.inbound_address : "" },
+    { key: "email", done: ticked.has("email") || !!s.inbound_secret, summary: emailSummary },
     { key: "forms", done: ticked.has("forms") || c.types > 0, summary: c.types ? plural(c.types, "request type") : "" },
     { key: "csat", done: ticked.has("csat"), summary: s.csat_enabled ? "Asking after every solved request" : "" },
   ];

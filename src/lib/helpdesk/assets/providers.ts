@@ -87,6 +87,8 @@ export interface ProviderConfig {
   clientId?: string;
   /** Intune: the tenant ID this provider is for (lib/helpdesk/assets/intune refuses another's token). */
   expectTid?: string;
+  /** Intune: still signing in as the directory sync's app registration (an install connected before 1.20.2): errors name that app. */
+  legacyApp?: boolean;
 }
 
 /**

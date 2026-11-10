@@ -3,7 +3,18 @@
 //
 //   Reply-To     help+hd-<token>@yourcompany.com, when an inbound address is
 //                set and inbound email is on (the plus tag survives every
-//                provider's routing and every mail client's reply)
+//                provider's routing and every mail client's reply). 1.20.2:
+//                the address is the ticket's mailbox (lib/helpdesk/mailboxes)
+//   From         1.20.2: mail to the requester and the people copied goes
+//                out under the ticket's mailbox: its name, and its address
+//                when "send from this address" is on (else the workspace
+//                transport's address). No envelope sender is set, so the
+//                SMTP MAIL FROM follows the From header and SPF alignment
+//                holds either way. A provider that refuses the mailbox's
+//                address gets the same mail from the workspace address
+//                under the mailbox's name; the refusal is recorded on the
+//                mailbox and audited once. Agent-only notices keep the
+//                workspace address under the default mailbox's name.
 //   Subject      "… [#1047 ref:<token>]" through the template's
 //                {{thread_ref}}, appended when an override dropped it
 //   Message-ID   <hd.<token>.<random>@domain>, References the ticket's root
@@ -229,6 +240,110 @@ function fromWithName(configured: string, name: string): string {
   return clean ? `"${clean}" <${addr}>` : configured;
 }
 
+/** The bare address of a configured From ("Name <a@b>" or "a@b"), lower-cased. */
+function bareAddress(configured: string): string {
+  return (configured.match(/<([^>]+)>/)?.[1] ?? configured).trim().toLowerCase();
+}
+
+/** What a mail provider said when it refused a mail, in one line. */
+function providerError(e: unknown): string {
+  const err = e as { response?: unknown; message?: unknown };
+  const text = typeof err?.response === "string" && err.response ? err.response : e instanceof Error ? e.message : String(e);
+  return text.replace(/\s+/g, " ").trim().slice(0, 500);
+}
+
+const SENDER_POLICY =
+  /sender (?:address |identity |domain )?(?:rejected|denied|refused|not (?:allowed|authori[sz]ed|permitted|verified|owned))|not owned by|send(?:ing)?[ -]?as\b|sendasden|on behalf of|(?:from|sender) (?:address|header|domain|identity|email)|(?:address|domain|identity|sender) (?:is )?not verified|unverified (?:sender|address|domain)|not (?:allowed|authori[sz]ed|permitted) to (?:send|use)|\b5\.7\.60\b|\b5\.2\.252\b/i;
+
+/**
+ * Whether a failed send is the mail provider permanently refusing the From
+ * address itself: a 5xx answer to MAIL FROM or to DATA, or a 5xx at any
+ * step whose text is a sender-policy refusal ("Sender address rejected: not
+ * owned by user", "not allowed to send as", "The from address does not
+ * match a verified Sender Identity", 5.7.60, SendAsDenied; Postfix reports
+ * the sender at RCPT TO). A timeout, a dropped connection, a 4xx "try
+ * again" or a refused recipient is not: nothing is known about the address
+ * then, and the mail may already have been accepted.
+ */
+export function isSenderRejection(e: unknown): boolean {
+  const err = (e ?? {}) as { responseCode?: unknown; response?: unknown; command?: unknown; message?: unknown };
+  const response = typeof err.response === "string" ? err.response : "";
+  const message = typeof err.message === "string" ? err.message : "";
+  const code =
+    typeof err.responseCode === "number"
+      ? err.responseCode
+      : Number(response.match(/^\s*(\d{3})(?=[ -]|$)/)?.[1] ?? message.match(/(?:^|:\s*)([45]\d{2})[ -]/)?.[1] ?? 0);
+  if (!(code >= 500 && code <= 599)) return false;
+  const command = typeof err.command === "string" ? err.command.trim().toUpperCase() : "";
+  if (command === "MAIL FROM" || command === "DATA") return true;
+  return SENDER_POLICY.test(`${response} ${message}`.slice(0, 2000));
+}
+
+/**
+ * Hand one mail to the transport under a mailbox's own address when it
+ * sends from it. A permanent refusal of that address (isSenderRejection)
+ * sends the same mail from the workspace address (mail.from) and records
+ * the refusal on the mailbox; a refusal of that too throws, as any failed
+ * send does. Any other failure throws as it is, with no second send: the
+ * first one may have gone through, and the address is not to blame.
+ */
+async function sendAsMailbox(
+  transport: { send: HelpdeskTransport; from: string },
+  mail: HelpdeskOutgoingMail,
+  who: { mailboxId: number | null; name: string; address: string; sendFrom: boolean; sendFromFailing?: boolean }
+): Promise<void> {
+  const own = who.sendFrom && who.mailboxId && who.address && who.address !== bareAddress(transport.from) ? fromWithName(who.address, who.name) : null;
+  if (!own) {
+    await transport.send(mail);
+    return;
+  }
+  try {
+    await transport.send({ ...mail, from: own });
+  } catch (e) {
+    if (!isSenderRejection(e)) throw e;
+    await transport.send(mail);
+    await (await import("./mailboxes")).recordSendFromFailure(who.mailboxId!, providerError(e)).catch(() => {});
+    return;
+  }
+  if (who.sendFromFailing) await (await import("./mailboxes")).clearSendFromFailure(who.mailboxId!).catch(() => {});
+}
+
+/**
+ * The Email settings page's "Send test" for one address: a short mail to
+ * `to` exactly as a reply would leave (From the address when it sends from
+ * it, else the workspace address under its name; Reply-To the address).
+ * No fallback here: the provider's refusal is the answer, in its own words.
+ * `senderRejected` says the failure was a refusal of the From address
+ * (isSenderRejection), the only kind that is kept on the mailbox.
+ */
+export async function sendMailboxTestMail(
+  box: { id: number; address: string; name: string; send_from: boolean },
+  to: string
+): Promise<{ ok: boolean; from: string; error?: string; senderRejected?: boolean }> {
+  const transport = await smtpTransport().catch(() => null);
+  if (!transport) return { ok: false, from: "", error: "Outgoing mail isn't set up yet. Add your mail server in Settings, Notifications, Email first." };
+  const from = box.send_from ? fromWithName(box.address, box.name) : fromWithName(transport.from, box.name);
+  const shown = box.send_from ? box.address : bareAddress(transport.from);
+  const line = box.send_from
+    ? `This test was sent from ${box.address}. Replies about tickets on this address go out the same way.`
+    : `This test was sent from ${shown} under the name "${box.name}". Replies about tickets on ${box.address} go out the same way, and answers come back to ${box.address}.`;
+  const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  try {
+    await transport.send({
+      to,
+      from,
+      replyTo: box.address,
+      subject: `Test from ${box.address}`,
+      text: `${line}\n\nIf it reached you, the address is set up. Nothing was added to the desk.`,
+      html: `<p>${esc(line)}</p><p>If it reached you, the address is set up. Nothing was added to the desk.</p>`,
+      headers: { "Auto-Submitted": "auto-generated", "X-CompassDocs-Helpdesk": "1" },
+    });
+    return { ok: true, from: shown };
+  } catch (e) {
+    return { ok: false, from: shown, error: providerError(e), senderRejected: isSenderRejection(e) };
+  }
+}
+
 // --- Sending ---------------------------------------------------------------------
 
 export interface HelpdeskThread {
@@ -250,7 +365,7 @@ export async function sendHelpdeskTemplate(
   vars: Record<string, string>,
   thread?: HelpdeskThread | null,
   origin?: string,
-  opts: { cc?: string[] } = {}
+  opts: { cc?: string[]; /** "agent": an agent's own notice, which keeps the workspace address and the default mailbox's name (1.20.2). */ audience?: "requester" | "agent" } = {}
 ): Promise<boolean> {
   const address = to.trim();
   if (!address || !/^[^\s@<>]+@[^\s@<>]+$/.test(address)) return false;
@@ -270,6 +385,9 @@ export async function sendHelpdeskTemplate(
     }
     if (note) v.thread_ref = "";
     v.thread_ref ??= "";
+    // 1.20.2: whose name and address the mail carries. The ticket's mailbox
+    // for the requester and the people copied; the default for the rest.
+    const who = await (await import("./mailboxes")).outboundIdentity(thread && !note && opts.audience !== "agent" ? thread.ticketId : null);
     // Links in vars are paths; the mail needs them absolute.
     for (const k of Object.keys(v)) if (/_url$/.test(k) && v[k].startsWith("/")) v[k] = `${base}${v[k]}`;
     const cc = note
@@ -288,7 +406,7 @@ export async function sendHelpdeskTemplate(
     if (thread && token && !note && !subject.includes(`ref:${token}`)) subject = `${subject} ${threadRef(thread.number, token)}`;
     const mail: HelpdeskOutgoingMail = {
       to: address,
-      from: fromWithName(transport.from, settings.email_from_name),
+      from: fromWithName(transport.from, who.name),
       subject: subject.slice(0, 400),
       text: rendered.text,
       html: rendered.html,
@@ -309,12 +427,12 @@ export async function sendHelpdeskTemplate(
       mail.messageId = ids.messageId;
       mail.references = ids.root;
       mail.headers["In-Reply-To"] = ids.root;
-      if (settings.inbound_secret && settings.inbound_address) {
-        const reply = replyToAddress(settings.inbound_address, token);
+      if (settings.inbound_secret && who.address) {
+        const reply = replyToAddress(who.address, token);
         if (reply) mail.replyTo = reply;
       }
     }
-    await transport.send(mail);
+    await sendAsMailbox(transport, mail, who);
     return true;
   } catch (e) {
     logEvent("error", "helpdesk.email_failed", { template: templateKey, error: e instanceof Error ? e.message : String(e) });
@@ -382,17 +500,19 @@ export async function sendHelpdeskEmail(
   const number = Number(vars.ticket_number);
   let thread: HelpdeskThread | null = null;
   let merged = { ...vars };
+  let forRequester = false;
   if (Number.isInteger(number) && number > 0) {
     const base = await ticketTemplateVars(number, "agent");
     if (base) {
       thread = base.thread;
       // The requester of this ticket follows it in Get help; anyone else in the desk.
-      const forRequester = base.requesterId === userId && templateKey !== "hd_assigned" && templateKey !== "hd_sla_warning" && templateKey !== "hd_sla_breach";
+      forRequester = base.requesterId === userId && templateKey !== "hd_assigned" && templateKey !== "hd_sla_warning" && templateKey !== "hd_sla_breach";
       const links: Record<string, string> = forRequester ? { ticket_url: hdLinks.request(number) } : {};
       merged = { ...base.vars, ...links, ...vars };
     }
   }
-  return sendHelpdeskTemplate(user.email, templateKey, merged, thread, origin);
+  // The requester's copy goes out under the ticket's mailbox; an agent's notice is unchanged (1.20.2).
+  return sendHelpdeskTemplate(user.email, templateKey, merged, thread, origin, { audience: forRequester ? "requester" : "agent" });
 }
 
 /** Active users' addresses by id (one query). */

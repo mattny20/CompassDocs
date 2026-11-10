@@ -36,6 +36,8 @@ export const DRILL_KEYS = [
   "priority",
   "request_type",
   "channel",
+  // 1.20.2: the help address a ticket came in on (the Filter dialog's Address).
+  "mailbox",
   "status",
   "tag",
   "created_from",

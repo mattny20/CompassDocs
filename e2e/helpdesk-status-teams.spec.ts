@@ -65,8 +65,8 @@ test.describe("status services per team", () => {
     expect(members.status, JSON.stringify(members.body)).toBe(200);
     serviceId = (await db.query("INSERT INTO status_services (name, provider, source_url, status) VALUES ($1, 'manual', '', 'operational') RETURNING id", [serviceName])).rows[0].id;
 
-    // Desk settings → Teams: tick the service for the team.
-    await page.goto("/desk/settings/teams");
+    // Desk settings → Teams → the team's own page (1.20.2): tick the service for the team.
+    await page.goto(`/desk/settings/teams/${teamId}`);
     const section = page.locator("details").filter({ has: page.getByText(`Status services for ${teamName}`, { exact: true }) });
     await section.getByText(`Status services for ${teamName}`, { exact: true }).click({ timeout: 120_000 });
     await section.getByLabel(serviceName, { exact: true }).check();

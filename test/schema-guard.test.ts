@@ -45,6 +45,7 @@ import { HD_APPEARANCE_SCHEMA } from "../src/lib/helpdesk/appearance-schema";
 import { HD_API_SCHEMA } from "../src/lib/helpdesk/api-schema";
 import { HD_SHARE_SCHEMA } from "../src/lib/helpdesk/share-schema";
 import { HD_CLAUDE_SCHEMA } from "../src/lib/helpdesk/claude-schema";
+import { HD_MAILBOXES_SCHEMA } from "../src/lib/helpdesk/mailboxes-schema";
 
 /** The schema blocks db.ts interpolates into SCHEMA_SQL (1.19.0). */
 const INTERPOLATED: Record<string, string> = {
@@ -82,6 +83,7 @@ const INTERPOLATED: Record<string, string> = {
   HD_API_SCHEMA,
   HD_SHARE_SCHEMA,
   HD_CLAUDE_SCHEMA,
+  HD_MAILBOXES_SCHEMA,
 };
 
 const COLUMN_PREDICATE = (table: string, column: string) =>

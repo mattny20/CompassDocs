@@ -4,6 +4,10 @@
 // save, says "Unsaved changes" while there is, "Saved" for a moment after,
 // answers Ctrl/⌘+S, and pins to the bottom of the viewport only while
 // dirty — so Save is never three screens away and never in the way.
+// The row brings its own gap (1.20.2): mt-4, the gap between a page's cards,
+// in both states, so it never sits flush against the last card. A row its
+// container already spaces (a card footer, a gap-* stack, an inline form
+// row) passes `flush`; never add a margin at the call site.
 // Pair with useUnsavedChanges() and useLeaveGuard() from lib/use-unsaved.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -96,6 +100,7 @@ export function SaveRow({
   allowPristine = false,
   sticky = true,
   shortcut = true,
+  flush = false,
   children,
   className = "",
 }: {
@@ -112,6 +117,8 @@ export function SaveRow({
   sticky?: boolean;
   /** Answer Ctrl/⌘+S while dirty. */
   shortcut?: boolean;
+  /** No top margin: the container already spaces the row (a card footer's padding, a gap-* stack, an inline form row). */
+  flush?: boolean;
   /** Secondary controls on the same row (Cancel, Test connection). */
   children?: ReactNode;
   className?: string;
@@ -123,7 +130,8 @@ export function SaveRow({
   const pinned = sticky && dirty;
   return (
     <div
-      className={`flex flex-wrap items-center gap-3 ${
+      data-save-row=""
+      className={`flex flex-wrap items-center gap-3 ${flush ? "" : "mt-4"} ${
         pinned ? "sticky bottom-3 z-20 rounded-xl border border-slate-200 bg-surface px-4 py-3 shadow-float" : ""
       } ${className}`.trim()}
     >
