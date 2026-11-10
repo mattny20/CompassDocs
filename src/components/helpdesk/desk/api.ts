@@ -6,17 +6,20 @@
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /** The server's machine-readable `code`, when it sends one (e.g. "agent_limit"). */
+  code?: string;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
 async function parse(res: Response, fallback: string): Promise<unknown> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = (data as { error?: string })?.error;
-    throw new ApiError(msg || fallback, res.status);
+    const { error: msg, code } = (data ?? {}) as { error?: string; code?: unknown };
+    throw new ApiError(msg || fallback, res.status, typeof code === "string" ? code : undefined);
   }
   return data;
 }

@@ -11,6 +11,7 @@ import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { aiAvailable, getAiProvider } from "./ai-config";
 import { getEmbeddingsConfig, vectorAvailable } from "./embeddings";
 import { licenseState } from "./license";
+import { featureEnabled } from "./ee";
 
 export type CheckStatus = "pass" | "warn" | "fail";
 
@@ -32,6 +33,7 @@ const FIX = {
   ai: { href: "/admin/ai", label: "Connect a provider" },
   semantic: { href: "/admin/ai", label: "Semantic search settings" },
   license: { href: "/admin/license", label: "Open License" },
+  agents: { href: "/desk/settings/agents", label: "Open Agents" },
   domain: { href: "/admin/domain", label: "Open Domain & HTTPS" },
 } as const;
 
@@ -180,6 +182,40 @@ async function checkLicense(): Promise<DiagnosticCheck> {
     }
   } catch (e) {
     return { key: "license", label: "License", status: "fail", detail: e instanceof Error ? e.message : String(e), fix: FIX.license };
+  }
+}
+
+/** The helpdesk agent allowance against the people on Settings → Agents (only when the helpdesk is on). Exported for tests. */
+export async function checkHelpdeskAgents(): Promise<DiagnosticCheck | null> {
+  const base = { key: "helpdesk_agents", label: "Helpdesk agents" } as const;
+  try {
+    if (!(await featureEnabled("helpdesk"))) return null;
+    const { agentUsage } = await import("./helpdesk/roles-agents");
+    const { licensed, enforced, used, over } = await agentUsage();
+    const agents = (n: number) => `${n} agent${n === 1 ? "" : "s"}`;
+    if (licensed === null) {
+      return { ...base, status: "pass", detail: `${agents(used)} on the desk; the licence has no agent limit.` };
+    }
+    if (!enforced) {
+      // The helpdesk is on, so the licence is in grace: the key's number shows, nothing is refused.
+      return {
+        ...base,
+        status: "warn",
+        detail: `${used} of ${agents(licensed)} in use; not enforced while the licence is in grace${over > 0 ? `, over by ${over} once renewed` : ""}.`,
+        fix: FIX.license,
+      };
+    }
+    if (over > 0) {
+      return {
+        ...base,
+        status: "warn",
+        detail: `${used} of ${agents(licensed)} in use: over the licence by ${over}. Nobody loses access, but no one new can be added until agents are removed or more are bought.`,
+        fix: FIX.agents,
+      };
+    }
+    return { ...base, status: "pass", detail: `${used} of ${agents(licensed)} in use.` };
+  } catch (e) {
+    return { ...base, status: "fail", detail: e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -341,15 +377,17 @@ async function checkOutboundHttps(): Promise<DiagnosticCheck> {
 }
 
 export async function runDiagnostics(req?: Request): Promise<DiagnosticCheck[]> {
-  return Promise.all([
+  const checks = await Promise.all([
     checkDatabase(),
     checkUploads(),
     checkSmtp(),
     checkAi(),
     checkSemantic(),
     checkLicense(),
+    checkHelpdeskAgents(),
     Promise.resolve(checkMetrics()),
     checkOutboundHttps(),
     ...(req ? [checkMcpConnector(req)] : []),
   ]);
+  return checks.filter((c): c is DiagnosticCheck => c !== null);
 }

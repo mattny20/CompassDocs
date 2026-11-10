@@ -295,6 +295,8 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.agent_role.assigned": "Assigned a desk role",
   "helpdesk.agent_role.changed": "Changed a desk role",
   "helpdesk.agent_role.removed": "Removed someone from the desk",
+  // The licence's helpdesk agent allowance refused an add (roles-agents).
+  "helpdesk.agent_role.refused_limit": "Tried to add an agent past the licence's agent allowance",
   "helpdesk.roles.updated": "Changed desk role capabilities",
   "helpdesk.roles.reset": "Reset desk role capabilities",
   "helpdesk.reply.reviewed": "Reviewed a newbie's reply",

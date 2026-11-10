@@ -1,5 +1,9 @@
 // PATCH  /api/helpdesk/admin/agents/[userId]  { role?, team_ids? } → { agent }
-//   Change someone's desk role and/or teams.
+//   Change someone's desk role and/or teams. A role for someone not yet on
+//   the desk adds them: 402 { error, code: "agent_limit", allowed, used }
+//   when the licence's agent allowance is used up (audited as
+//   helpdesk.agent_role.refused_limit). A change for someone already on it
+//   is never refused for the allowance.
 // DELETE /api/helpdesk/admin/agents/[userId] → { removed_team_ids, role_removed, still_on_desk }
 //   Take them off the desk (a Team lead: out of the lead's own teams).
 // Helpdesk 1.19.0 desk roles (agent J). agents.assign_roles, or
@@ -10,13 +14,14 @@ import { NextResponse } from "next/server";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { readJson } from "@/lib/helpdesk/access";
 import { hdAnyCapGate, hdCan } from "@/lib/helpdesk/roles";
-import { DeskRoleError, removeDeskAgent, setDeskAgent } from "@/lib/helpdesk/roles-agents";
+import { AgentLimitError, auditAgentLimit, DeskRoleError, removeDeskAgent, setDeskAgent } from "@/lib/helpdesk/roles-agents";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ userId: string }> };
 
 function fail(e: unknown): NextResponse {
+  if (e instanceof AgentLimitError) return NextResponse.json(e.body(), { status: e.status });
   if (e instanceof DeskRoleError) return NextResponse.json({ error: e.message }, { status: e.status });
   throw e;
 }
@@ -49,6 +54,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     });
     return NextResponse.json({ agent: change.after });
   } catch (e) {
+    if (e instanceof AgentLimitError) await auditAgentLimit(gate, e, { user_id: userId, role: b.role }, ipFrom(req));
     return fail(e);
   }
 }

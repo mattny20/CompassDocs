@@ -1285,6 +1285,50 @@ components use them with no import. Don't add a per-instance `text-amber-*`
 inside one — child ink overrides the class and re-breaks dark mode; let it
 inherit. Toasts and per-field validation errors are unrelated (see Feedback).
 
+## Usage meter
+
+A count against an allowance the workspace pays for (the helpdesk's
+agents on the licence): `<UsageMeter value max label>` from
+`components/UsageMeter`. Not for work in flight (that is a
+`role="progressbar"`, §Loading) and not for a dashboard percentage
+(a tile's gauge, §Dashboard tiles).
+
+- **Where.** One card directly under the page header of the page where
+  the counted things are managed (Settings → Agents), before the list,
+  and only for the people who can change the allowance's use (there,
+  whoever gives roles). Settings → License repeats the count as a
+  Details row ("5 / 6 · 3 included, 3 bought"), without a bar.
+- **Structure.** `rounded-xl border border-slate-200 bg-surface px-4 py-3
+  shadow-xs`, a flex row that wraps: the thing's 16px icon in
+  `text-slate-500`; the count in `font-semibold` ("5 of 6 agents") then
+  the source in muted text ("on your licence · 3 included, 3 bought",
+  dropping a part that would read "0 bought"); the `h-1.5 max-w-md` bar
+  under them; the way to raise the allowance as a link at the end ("Buy
+  more agents", a 12px `ExternalLink`, a new tab with
+  `rel="noopener noreferrer"` and an sr-only "(opens in a new tab)").
+  No allowance (unlimited): no card and no bar, one muted line ("28
+  agents · unlimited on your licence").
+- **Over the allowance.** The bar fills to the end in `bg-amber-500`
+  (within it, `bg-compass-600`), and a `notice-warn` sits above the card
+  with a 16px `TriangleAlert`: a bold sentence with both numbers, that
+  nobody loses anything, and the two ways out, counted for adding
+  someone new (one more than the desk is over by: "To add someone new,
+  buy 2 more agents or take 2 people off the desk"). A Details row puts
+  the count in `ink-warn` with "· over by N". The meter only reports: a create action that would
+  go past the allowance says so in its own dialog (a `notice-warn` with
+  the same link, and a disabled submit), never by hiding the action.
+- **Not enforced** (a licence in grace): the number is still the key's,
+  there is no warning and no amber, and the muted text adds "· not
+  enforced while the licence is in grace" (and "· over by N once
+  renewed" when over). A Details row keeps "· over by N" muted and adds
+  "· not enforced in grace".
+- **Accessibility.** `role="meter"`, an `aria-label` naming what is
+  counted ("Helpdesk agents in use"), `aria-valuemin` 0, `aria-valuemax`
+  the allowance, `aria-valuenow` the count capped at the maximum (ARIA
+  allows no value past it) and `aria-valuetext` with the real count ("7
+  of 6, over by 1"). The visible sentence says the same, so color is
+  never the only signal.
+
 ## Status chips
 
 `<Chip tone size>` / `chipClass(tone, size, extra)` from `components/Chip`:
