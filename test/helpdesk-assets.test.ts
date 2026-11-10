@@ -118,6 +118,7 @@ const adminSyncRoute = require("../src/app/api/helpdesk/admin/assets/sync/route"
 const ticketAssetsRoute = require("../src/app/api/helpdesk/tickets/[number]/assets/route") as typeof import("../src/app/api/helpdesk/tickets/[number]/assets/route");
 const ticketAssetRoute = require("../src/app/api/helpdesk/tickets/[number]/assets/[assetId]/route") as typeof import("../src/app/api/helpdesk/tickets/[number]/assets/[assetId]/route");
 const optionsRoute = require("../src/app/api/helpdesk/tickets/[number]/assets/options/route") as typeof import("../src/app/api/helpdesk/tickets/[number]/assets/options/route");
+const requesterDevicesRoute = require("../src/app/api/helpdesk/tickets/[number]/assets/requester/route") as typeof import("../src/app/api/helpdesk/tickets/[number]/assets/requester/route");
 const solveRoute = require("../src/app/api/helpdesk/tickets/[number]/assets/solve/route") as typeof import("../src/app/api/helpdesk/tickets/[number]/assets/solve/route");
 const assetRoute = require("../src/app/api/helpdesk/assets/[id]/route") as typeof import("../src/app/api/helpdesk/assets/[id]/route");
 const searchRoute = require("../src/app/api/helpdesk/assets/route") as typeof import("../src/app/api/helpdesk/assets/route");
@@ -697,6 +698,37 @@ describe("linking assets to tickets", () => {
       assert.ok(fake.seen.some((x) => x.path === `/api/v1/hardware/bytag/${TAGP.toLowerCase()}-new`));
     } finally {
       fake.hardware.pop();
+    }
+  });
+
+  test("the requester strip's devices (1.20.3): the requester's own, from the cache only; agents who work the ticket", async () => {
+    const r = await call(requesterDevicesRoute.GET, req(`/tickets/${t.number}/assets/requester`, P.agent.session), { number: String(t.number) });
+    assert.equal(r.status, 200, r.text);
+    assert.equal(r.body.connected, true);
+    assert.deepEqual(r.body.devices.map((a: any) => [a.tag, a.name, a.provider_label]), [[`${TAGP}-REQ1`, "MacBook Pro 14 (2024)", "Snipe-IT"]]);
+    assert.equal(r.body.devices[0].id, await cacheId(REQ_ASSET), "the cache's id: the asset page's link");
+    // Someone with nothing cached: no devices, and the source is never asked (opening a ticket calls nothing).
+    const t2 = await ticket("Strip, second requester", "req2");
+    const kept = (await pool().query("SELECT * FROM hd_assets WHERE provider = $1 AND external_id = $2", [PROVIDER, String(REQ2_ASSET)])).rows[0];
+    await pool().query("UPDATE hd_assets SET assigned_email = '', assigned_upn = '' WHERE provider = $1 AND external_id = $2", [PROVIDER, String(REQ2_ASSET)]);
+    try {
+      fake.seen.length = 0;
+      const none = await call(requesterDevicesRoute.GET, req(`/tickets/${t2.number}/assets/requester`, P.agent.session), { number: String(t2.number) });
+      assert.deepEqual(none.body, { connected: true, devices: [] });
+      assert.equal(fake.seen.length, 0, "no live lookup");
+    } finally {
+      if (kept) await pool().query("UPDATE hd_assets SET assigned_email = $2, assigned_upn = $3 WHERE id = $1", [kept.id, kept.assigned_email, kept.assigned_upn]);
+    }
+    // Nobody else: another team's agent gets 404, the requester 403.
+    assert.equal((await call(requesterDevicesRoute.GET, req(`/tickets/${t.number}/assets/requester`, P.other.session), { number: String(t.number) })).status, 404);
+    assert.equal((await call(requesterDevicesRoute.GET, req(`/tickets/${t.number}/assets/requester`, P.req.session), { number: String(t.number) })).status, 403);
+    // No source connected: nothing at all (the strip shows no Devices tile).
+    assets.setAssetSettingsForTests(SETTINGS({ url: "", token: "" }));
+    try {
+      const off = await assets.requesterDevices((await ticketOf(t.id))!);
+      assert.deepEqual(off, { connected: false, devices: [] });
+    } finally {
+      assets.setAssetSettingsForTests(SETTINGS());
     }
   });
 

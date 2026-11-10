@@ -133,8 +133,8 @@ export function SidePanel({
       {/* A major incident's Get help banner and Status page (1.19.2, agent W1). */}
       {d.can_work && <IncidentSideCards number={t.number} refreshKey={t.updated_at} />}
 
-      {/* The people on the ticket, the requester's card first (agent O). */}
-      <TicketContacts ticket={t.number} onReply={onReply} refreshKey={d.messages.length} />
+      {/* Everyone else on the ticket (agent O). 1.20.3: the requester is the strip under the header (RequesterStrip). */}
+      <TicketContacts ticket={t.number} onReply={onReply} refreshKey={d.messages.length} requester={false} />
 
       {/* Linked assets from Snipe-IT and "+ Link", next to the requester (1.19.3, assets/TicketAssets). */}
       <TicketAssetsCard number={t.number} canWork={d.can_work} refreshKey={t.updated_at} />

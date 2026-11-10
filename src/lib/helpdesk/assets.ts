@@ -113,6 +113,7 @@ import {
   type HdAssetSettingsView,
   type HdAssetSyncState,
   type HdLinkedAsset,
+  type HdRequesterDevices,
   type HdSolveOffer,
   type HdTicketAssetsView,
 } from "./assets-shared";
@@ -1417,7 +1418,7 @@ const LIVE_AGAIN_MS = 10 * 60_000;
  * connected sources' cache, a device two sources share shown once; looked
  * up live when the cache has none (at most every ten minutes).
  */
-async function assetsOfEmail(email: string, providers: AssetProvider[]): Promise<{ rows: Row[]; notice: string | null }> {
+async function assetsOfEmail(email: string, providers: AssetProvider[], live = true): Promise<{ rows: Row[]; notice: string | null }> {
   const keys = providers.map((p) => p.key);
   const ik = keys.find((k) => k === intuneKey()) ?? null;
   const read = async () =>
@@ -1433,7 +1434,7 @@ async function assetsOfEmail(email: string, providers: AssetProvider[]): Promise
   let rows = await read();
   let notice: string | null = null;
   const last = liveLookups.get(email) ?? 0;
-  if (!rows.length && providers.length && Date.now() - last > LIVE_AGAIN_MS) {
+  if (live && !rows.length && providers.length && Date.now() - last > LIVE_AGAIN_MS) {
     liveLookups.set(email, Date.now());
     if (liveLookups.size > 5000) liveLookups.clear();
     for (const p of providers) {
@@ -1519,6 +1520,21 @@ export async function assetOptions(user: U & { id: number }, ticket: HdTicket, q
     connected: true,
     notice: found.notice ?? mine.notice,
   };
+}
+
+/**
+ * GET /api/helpdesk/tickets/[number]/assets/requester (the requester strip, 1.20.3): the requester's
+ * own devices as the link picker's "Assigned to" group finds them (requesterMatchEmail, one asset
+ * per device), from the cache only: opening a ticket never calls the source.
+ */
+export async function requesterDevices(ticket: HdTicket): Promise<HdRequesterDevices> {
+  const s = await getAssetSettings();
+  const providers = await activeProviders(s);
+  if (!providers.length) return { connected: false, devices: [] };
+  const email = await requesterMatchEmail(ticket);
+  if (!email) return { connected: true, devices: [] };
+  const { rows } = await assetsOfEmail(email, providers, false);
+  return { connected: true, devices: await views(rows, s) };
 }
 
 async function timeline(client: HdQueryable, ticketId: number, actor: AssetActor | null, body: string): Promise<void> {

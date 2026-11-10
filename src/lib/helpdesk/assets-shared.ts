@@ -247,6 +247,13 @@ export interface HdAssetPage {
   notice: string | null;
 }
 
+/** GET /api/helpdesk/tickets/[number]/assets/requester: the requester's own devices, for the requester strip (1.20.3). */
+export interface HdRequesterDevices {
+  /** A source is connected. When false the strip shows no devices at all. */
+  connected: boolean;
+  devices: HdAsset[];
+}
+
 /** Desk settings → Assets (GET /api/helpdesk/admin/assets). The key itself is never sent. */
 export interface HdAssetSettingsView {
   snipeit: {

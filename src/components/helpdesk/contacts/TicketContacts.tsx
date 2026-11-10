@@ -6,21 +6,26 @@
 // rows that expand to their card. One request: GET /api/helpdesk/contacts.
 //
 //   <TicketContacts ticket={1047} onReply={focusComposer} />
+//
+// 1.20.3: on the desk's ticket the requester is the strip under the header
+// (desk/ticket/RequesterStrip), so the side panel passes `requester={false}`
+// and gets only "Also on this ticket"; the strip owns the loading and error
+// states. A ticket with no requester keeps everyone in that list.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ChevronDown, ChevronUp, Contact } from "lucide-react";
 import { buttonClass, iconButtonClass } from "@/components/Button";
 import { CARD_CLASS } from "@/components/Card";
 import { Eyebrow } from "@/components/Heading";
 import { LoadingRow } from "@/components/Spinner";
-import type { HdTicketContacts } from "@/lib/helpdesk/contact-cards-shared";
 import { ContactCard } from "./ContactCard";
-import { fetchTicketContacts } from "./api";
+import { useTicketContacts } from "./api";
 
 export function TicketContacts({
   ticket,
   onReply,
   refreshKey,
+  requester = true,
   className = "",
 }: {
   /** The ticket's display number (#1047). */
@@ -29,25 +34,14 @@ export function TicketContacts({
   onReply?: () => void;
   /** Change it to read the cards again (after a new message, say). */
   refreshKey?: unknown;
+  /** false: without the requester's card (the desk shows it as the requester strip). */
+  requester?: boolean;
   className?: string;
 }) {
-  const [data, setData] = useState<HdTicketContacts | null | undefined>(undefined);
-  const [error, setError] = useState("");
+  const { data, error } = useTicketContacts(ticket, refreshKey);
   const [open, setOpen] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    const ac = new AbortController();
-    fetchTicketContacts(ticket, ac.signal)
-      .then((d) => {
-        setData(d);
-        setError("");
-      })
-      .catch((e: Error) => {
-        if (!ac.signal.aborted) setError(e.message);
-      });
-    return () => ac.abort();
-  }, [ticket, refreshKey]);
-
+  if (!requester && !data) return null;
   if (error && !data) {
     return (
       <section aria-label="Requester" className={`${CARD_CLASS} p-4 text-sm text-slate-500 ${className}`}>
@@ -63,7 +57,11 @@ export function TicketContacts({
     );
   }
   if (!data || data.contacts.length === 0) return null;
-  const [first, ...rest] = data.contacts;
+  // Without the requester: drop the first card only when it is theirs (a ticket with no requester keeps everyone).
+  const lead = requester || data.contacts[0].relation === "requester" ? data.contacts[0] : null;
+  const first = requester ? data.contacts[0] : null;
+  const rest = lead ? data.contacts.slice(1) : data.contacts;
+  if (!first && rest.length === 0) return null;
   const toggle = (k: string) =>
     setOpen((cur) => {
       const n = new Set(cur);
@@ -75,12 +73,14 @@ export function TicketContacts({
 
   return (
     <div className={`flex flex-col gap-3 ${className}`}>
-      <section aria-labelledby="hd-contact-requester" className={`${CARD_CLASS} p-4`}>
-        <Eyebrow as="h2" icon={<Contact />} className="mb-3">
-          <span id="hd-contact-requester">{first.relation_label}</span>
-        </Eyebrow>
-        <ContactCard card={first} variant="panel" onReply={first.relation === "requester" ? onReply : undefined} />
-      </section>
+      {first && (
+        <section aria-labelledby="hd-contact-requester" className={`${CARD_CLASS} p-4`}>
+          <Eyebrow as="h2" icon={<Contact />} className="mb-3">
+            <span id="hd-contact-requester">{first.relation_label}</span>
+          </Eyebrow>
+          <ContactCard card={first} variant="panel" onReply={first.relation === "requester" ? onReply : undefined} />
+        </section>
+      )}
 
       {rest.length > 0 && (
         <section aria-labelledby="hd-contact-others" className={`${CARD_CLASS} px-4 py-3`}>

@@ -1,8 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
 import { ADMIN, login, api } from "./helpers";
 
-// 1.19.0 Helpdesk, contact cards (agent O): the requester's card in the
-// desk's side panel, "Who's helping you" on the request page in Get help,
+// 1.19.0 Helpdesk, contact cards (agent O): the requester on the desk's
+// ticket (since 1.20.3 the strip under the header, e2e/helpdesk-requester-strip),
+// "Who's helping you" on the request page in Get help,
 // and Desk settings → Contact cards. Licensed builds only: the API answers
 // 402 on the community build and the specs skip.
 //
@@ -37,12 +38,12 @@ test.describe("Helpdesk contact cards", () => {
     expect((await api(page, `/api/helpdesk/contacts/999999999?ticket=${number}`)).status).toBe(404);
     expect((await api(page, `/api/helpdesk/contacts?ticket=999999999`)).status).toBe(404);
 
-    // The desk's side panel.
+    // The desk: the requester strip under the ticket's header (1.20.3; it was the side panel's Requester card).
     await page.goto(`/desk/tickets/${number}`);
-    const card = page.locator('section[aria-labelledby="hd-contact-requester"]');
-    // The desk opens a ticket with several requests at once; on a dev server the card can take a while.
-    await expect(card.getByRole("heading", { name: "Requester" })).toBeVisible({ timeout: 30_000 });
-    await expect(card.getByText(list.body.contacts[0].name).first()).toBeVisible();
+    const strip = page.getByRole("region", { name: "Requester" });
+    // The desk opens a ticket with several requests at once; on a dev server the strip can take a while.
+    await expect(strip.getByTestId("requester-name")).toHaveText(list.body.contacts[0].name, { timeout: 30_000 });
+    await expect(page.locator('section[aria-labelledby="hd-contact-requester"]')).toHaveCount(0);
 
     // Get help: the request page carries "Who's helping you".
     await page.goto(`/help/requests/${number}`);
