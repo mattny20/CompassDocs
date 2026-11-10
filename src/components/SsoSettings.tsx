@@ -286,7 +286,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
           )}
         </div>
 
-        <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save" className="mt-4">
+        <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save">
           {s.sso_enabled && configured && (
             <a href="/api/ee/sso/login" className={buttonClass("secondary")}>
               Test sign-in

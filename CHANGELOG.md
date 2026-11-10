@@ -4,6 +4,57 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.20.2] - 2026-11-10
+
+Several help addresses for the helpdesk, an Integrations hub in Desk
+settings, Teams as a list with a page per team, and Intune with its own
+sign-in. Plus two fixes on the desk's settings and ticket pages.
+
+### Added
+- **Several help addresses:** Desk settings → Email lists every address
+  people write to. Each has its own From name, a team its new tickets start
+  in, and can send replies from the address itself. One address is the
+  default.
+- **One webhook takes mail for every address.** A ticket remembers the
+  address it came in on, replies go out under that address, and agents can
+  change "Answer from" on the ticket. The queue can be filtered by address.
+- **Send test per address** goes to your own email and shows your mail
+  provider's answer, so you know an address may send before customers see
+  it.
+- **Integrations hub:** Desk settings → Integrations shows everything the
+  helpdesk connects to as cards with their status: Snipe-IT, Microsoft
+  Intune, Teams, Slack, the Claude connector, Claude in the desk, the API
+  and webhooks, and alert sources. Each opens on its own page.
+- **Intune signs in with its own app registration** (tenant, client ID and
+  secret on its own page) and no longer needs directory sync.
+- **API and webhooks:** tickets carry a `mailbox` field.
+
+### Changed
+- **Teams settings is a list;** each team opens on its own page, and Add
+  team is a short dialog. The page no longer grows with every team.
+- **Snipe-IT, Intune, Chat apps, the Claude connector and API and webhooks
+  moved under Integrations** and left the settings menu. Old addresses
+  redirect.
+
+### Fixed
+- **The Save row sat flush against the last card** on desk settings pages;
+  it now keeps the page's gap, pinned or not.
+- **Tooltips at the top of the ticket pane were cut off.** A tooltip with no
+  room above now opens below, and stays inside the screen edges.
+
+### Upgrading
+- **Additive schema, applied on start:** a table of help addresses and the
+  address on each ticket. Your current help address becomes the default
+  address with its From name; nothing else changes until you add more.
+- **Sending from an address** only works if your mail provider allows your
+  mail account to send as it. A refused send falls back to your main address
+  and is recorded in the audit log.
+- **Intune keeps using the directory sync app** until you enter its own
+  tenant, client ID and secret. Its app needs only the application
+  permission DeviceManagementManagedDevices.Read.All, with admin consent. On
+  the same tenant, devices and links are kept.
+- **Rolling back to 1.20.1 is safe:** it ignores the new table and column.
+
 ## [1.20.1] - 2026-11-10
 
 Helpdesk agent allowances. Enterprise licences sold from today include 3

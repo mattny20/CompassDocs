@@ -186,7 +186,7 @@ export async function portalContactBlocked(fromEmail: string): Promise<boolean> 
 export async function createPortalFollowUp(
   contactId: number,
   // closedNumber null (1.19.4, C7): a follow-up to a request in the recycle bin, which it never names.
-  input: { subject: string; body: string; name: string; email: string; teamId: number | null; emailMessageId: string | null; closedNumber: number | null },
+  input: { subject: string; body: string; name: string; email: string; teamId: number | null; emailMessageId: string | null; closedNumber: number | null; /** 1.20.2: the address the mail came in on. */ mailboxId?: number | null },
   ctx: { origin?: string }
 ): Promise<{ id: number; number: number }> {
   const { insertTicketTx } = await import("./tickets");
@@ -199,6 +199,7 @@ export async function createPortalFollowUp(
       source: "portal_external",
       source_ref: input.closedNumber ? { follow_up_of: input.closedNumber } : {},
       team_id: input.teamId,
+      mailbox_id: input.mailboxId ?? null,
       email_message_id: input.emailMessageId,
     });
     await client.query("UPDATE hd_tickets SET portal_contact_id = $2 WHERE id = $1", [r.id, contactId]);

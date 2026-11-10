@@ -64,7 +64,7 @@ test.describe("API and webhooks (licensed)", () => {
     test.setTimeout(240_000);
     await login(page, ADMIN);
     test.skip(!(await licensed(page)), "the helpdesk is not licensed here");
-    await page.goto("/desk/settings/api");
+    await page.goto("/desk/settings/integrations/api");
     await slow(page.getByRole("heading", { name: "API and webhooks", level: 1 })).toBeVisible();
 
     await page.getByRole("button", { name: "New token" }).click();
@@ -108,7 +108,7 @@ test.describe("API and webhooks (licensed)", () => {
       await slow(page.getByText(/changed the priority .* via API/)).toBeVisible();
 
       // Revoke: the next call is refused.
-      await page.goto("/desk/settings/api");
+      await page.goto("/desk/settings/integrations/api");
       await slow(page.getByRole("button", { name: `Revoke E2E ${stamp} Jira sync` })).toBeVisible();
       await page.getByRole("button", { name: `Revoke E2E ${stamp} Jira sync` }).click();
       await page.getByRole("dialog").getByRole("button", { name: "Revoke token" }).click();
@@ -123,7 +123,7 @@ test.describe("API and webhooks (licensed)", () => {
     test.setTimeout(240_000);
     await login(page, ADMIN);
     test.skip(!(await licensed(page)), "the helpdesk is not licensed here");
-    await page.goto("/desk/settings/api");
+    await page.goto("/desk/settings/integrations/api");
     await slow(page.getByRole("heading", { name: "API and webhooks", level: 1 })).toBeVisible();
 
     await page.getByRole("button", { name: "New webhook" }).click();

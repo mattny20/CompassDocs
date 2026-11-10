@@ -760,6 +760,8 @@ async function readTicket(user: User, a: Args, ctx: Ctx) {
     status: t.status,
     priority: t.priority,
     team: t.team_id ? { id: t.team_id, name: t.team_name } : null,
+    // 1.20.2: the help address replies about this ticket go out under (lib/helpdesk/mailboxes).
+    mailbox: d.mailbox ? { address: d.mailbox.address, name: d.mailbox.name } : null,
     assignee: t.assignee_id ? { id: t.assignee_id, name: t.assignee_name } : null,
     tags: t.tags,
     category: t.category,

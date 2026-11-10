@@ -16,6 +16,7 @@ import { Bookmark, Filter, X } from "lucide-react";
 import { Modal } from "@/components/Modal";
 import { Button, iconButtonClass } from "@/components/Button";
 import { Field, FormError, Select, TextInput } from "@/components/form";
+import { useDeskMailboxes } from "../mailboxes";
 import { RadioCards } from "@/components/PolicyFields";
 import { toast } from "@/components/Toasts";
 import { HD_PRIORITIES, HD_PRIORITY_LABEL, HD_STATUSES, HD_STATUS_LABEL } from "@/lib/helpdesk/types";
@@ -230,7 +231,7 @@ function RenameViewDialog({ sv, view, onClose }: { sv: SavedViews; view: HdSaved
 
 // --- The filter form --------------------------------------------------------------
 
-const FORM_KEYS = new Set(["view", "q", "status", "status_group", "priority", "team", "assignee", "tag", "created_within"]);
+const FORM_KEYS = new Set(["view", "q", "status", "status_group", "priority", "team", "assignee", "tag", "created_within", "mailbox"]);
 const CREATED = [
   { value: "", label: "Any time" },
   { value: "1", label: "Today" },
@@ -248,6 +249,8 @@ interface Form {
   assignee: string;
   tag: string;
   created: string;
+  /** 1.20.2: a help address (lib/helpdesk/mailboxes); '' = any. */
+  mailbox: string;
 }
 
 function formFrom(f: HdViewFilters): Form {
@@ -267,6 +270,7 @@ function formFrom(f: HdViewFilters): Form {
     assignee: f.assignee ?? "",
     tag: f.tag ?? "",
     created: f.created_within ?? "",
+    mailbox: f.mailbox ?? "",
   };
 }
 
@@ -280,6 +284,7 @@ function filtersFrom(form: Form, extra: HdViewFilters): HdViewFilters {
   if (form.assignee) out.assignee = form.assignee;
   if (form.tag.trim()) out.tag = form.tag.trim();
   if (form.created) out.created_within = form.created;
+  if (form.mailbox) out.mailbox = form.mailbox;
   return out;
 }
 
@@ -302,6 +307,8 @@ function FilterDialog({
 }) {
   const titleId = useId();
   const router = useRouter();
+  // 1.20.2: the Address choice, offered while more than one help address is listed (or one is already chosen).
+  const mailboxes = useDeskMailboxes();
   const [form, setForm] = useState<Form>(() => formFrom(initial));
   const [extra, setExtra] = useState<HdViewFilters>(() => Object.fromEntries(Object.entries(initial).filter(([k]) => !FORM_KEYS.has(k))));
   const [busy, setBusy] = useState(false);
@@ -396,6 +403,19 @@ function FilterDialog({
               {form.created && !CREATED.some((c) => c.value === form.created) && <option value={form.created}>In the last {form.created} days</option>}
             </Select>
           </Field>
+          {(mailboxes.length > 1 || form.mailbox) && (
+            <Field label="Address">
+              <Select value={form.mailbox} onChange={set("mailbox")}>
+                <option value="">Any address</option>
+                {mailboxes.map((m) => (
+                  <option key={m.id} value={m.address}>
+                    {m.address}
+                  </option>
+                ))}
+                {form.mailbox && !mailboxes.some((m) => m.address === form.mailbox) && <option value={form.mailbox}>{form.mailbox}</option>}
+              </Select>
+            </Field>
+          )}
         </div>
         {extraText && (
           <p className="mt-3 text-xs text-slate-500">

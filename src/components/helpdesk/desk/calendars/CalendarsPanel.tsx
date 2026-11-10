@@ -308,7 +308,7 @@ export function CalendarsPanel() {
                 </fieldset>
               )}
             </Card>
-            <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save calendar" />
+            <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save calendar" flush />
           </div>
         )}
       </div>

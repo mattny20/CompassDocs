@@ -155,6 +155,14 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.setup.starter": "Added the helpdesk starter set",
   "helpdesk.inbound.secret_rotated": "Changed the helpdesk email address secret",
   "helpdesk.inbound.rejected": "Rejected helpdesk email",
+  // Several help addresses (1.20.2, lib/helpdesk/mailboxes).
+  "helpdesk.assets.intune_credentials": "Changed the Intune app registration",
+  "helpdesk.mailbox.created": "Added a helpdesk email address",
+  "helpdesk.mailbox.updated": "Changed a helpdesk email address",
+  "helpdesk.mailbox.deleted": "Removed a helpdesk email address",
+  "helpdesk.mailbox.tested": "Sent a test from a helpdesk email address",
+  "helpdesk.mailbox.send_from_failed": "Could not send from a helpdesk email address",
+  "helpdesk.ticket.mailbox_changed": "Changed the address a ticket is answered from",
   // Customer portal (1.19.1, agent V6, lib/helpdesk/portal).
   "helpdesk.portal.updated": "Changed the customer portal",
   "helpdesk.portal.contact_blocked": "Blocked a customer portal contact",

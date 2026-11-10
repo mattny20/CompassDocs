@@ -149,7 +149,22 @@ export async function ticketDetail(user: { id: number; role: Role }, t: HdTicket
     sla_target_note,
     // Merged into / merged in, and "from #1051" on moved messages (1.19.1, lib/helpdesk/merge).
     merge: await import("./merge").then((m) => m.mergeInfo(t.id)).catch(() => undefined),
+    // The address it is answered from, and the choices while more than one is listed (1.20.2, lib/helpdesk/mailboxes).
+    ...(await mailboxFields(user, t, canWork)),
   };
+}
+
+async function mailboxFields(user: { id: number; role: Role }, t: HdTicket, canWork: boolean): Promise<Pick<HdTicketDetail, "mailbox" | "mailboxes" | "can_change_mailbox">> {
+  try {
+    const { mailboxOptions, ticketMailbox } = await import("./mailboxes");
+    const [mailbox, options] = await Promise.all([ticketMailbox(t), mailboxOptions()]);
+    if (options.length < 2) return { mailbox };
+    const { hdCan } = await import("./roles");
+    return { mailbox, mailboxes: options, can_change_mailbox: canWork && (await hdCan(user, "tickets.reply_public", { teamId: t.team_id })) };
+  } catch (e) {
+    console.error("[helpdesk] ticket mailbox:", e);
+    return { mailbox: null };
+  }
 }
 
 /**

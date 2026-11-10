@@ -7,6 +7,7 @@ import "@fontsource/aileron/400.css";
 import "@fontsource/aileron/600.css";
 import "@fontsource/aileron/700.css";
 import "./globals.css";
+import { TooltipPlacer } from "@/components/TooltipPlacer";
 
 export async function generateMetadata(): Promise<Metadata> {
   // The title reflects the configured company name, but metadata is also
@@ -70,7 +71,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
         {accent && <style id="workspace-accent">{accent}</style>}
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* Keeps every data-tt tooltip inside the viewport and its pane (1.20.2; STYLEGUIDE §Tooltips). */}
+        <TooltipPlacer />
+      </body>
     </html>
   );
 }

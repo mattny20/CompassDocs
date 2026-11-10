@@ -120,7 +120,7 @@ export function ChatAppsSettings() {
 
   return (
     <PageContainer>
-      <PageHeader icon={<MessageCircle />} title="Chat apps" subtitle="Let people raise and follow requests, and approve them, from Microsoft Teams or Slack." />
+      <PageHeader back={{ href: "/desk/settings/integrations", label: "Integrations" }} icon={<MessageCircle />} title="Chat apps" subtitle="Let people raise and follow requests, and approve them, from Microsoft Teams or Slack." />
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <AppCard app="teams" v={view.teams} origin={view.origin} onChanged={onAppChanged} />
@@ -246,7 +246,7 @@ function AppCard({ app, v, origin, onChanged }: { app: HdChatApp; v: HdChatAppVi
   const titleId = `chat-app-${app}`;
 
   return (
-    <section aria-labelledby={titleId} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs sm:p-5" data-testid={`chat-app-${app}`}>
+    <section id={`chat-${app}`} aria-labelledby={titleId} className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs sm:p-5" data-testid={`chat-app-${app}`}>
       <div className="flex flex-wrap items-center gap-3">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-compass-50 text-compass-700" aria-hidden>
           <MessageCircle className="h-5 w-5" />

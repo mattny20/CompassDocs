@@ -7,7 +7,8 @@
 //   view        mine|unassigned|open|overdue|workflow|waiting|solved_week|team:<id>|all
 //   team        <team id> · priority · status · status_group=open
 //   assignee    <user id>|me|none · requester <user id> · requester_email
-//   request_type <id> · channel <channel or source> · tag · category ·
+//   request_type <id> · channel <channel or source> · mailbox <a help
+//               address, 1.20.2> · tag · category ·
 //   department · office ('none' = empty) · origin people|automated ·
 //   vip yes|no · integration <id>|none · breached 1|now
 //   created_from/created_to/solved_from/solved_to  YYYY-MM-DD, inclusive
@@ -19,6 +20,7 @@
 import "server-only";
 import { channelSources, helpdeskTimezone, isPriorityValue, isStatus, parseView, TICKET_LIMITS } from "./tickets";
 import type { TicketListFilters } from "./tickets";
+import { cleanMailboxAddress } from "./mailboxes-shared";
 import type { HdTicketSort } from "./types";
 
 export const TICKET_SORTS: HdTicketSort[] = ["updated", "created", "due", "priority", "number"];
@@ -35,6 +37,7 @@ export const TICKET_FILTER_KEYS = [
   "requester_email",
   "request_type",
   "channel",
+  "mailbox",
   "tag",
   "category",
   "department",
@@ -113,6 +116,13 @@ export async function parseTicketFilters(p: URLSearchParams): Promise<ParsedTick
     const sources = channelSources(ch);
     if (!sources) return bad("Unknown channel.");
     f.sources = sources;
+  }
+  const mb = p.get("mailbox");
+  if (mb) {
+    // 1.20.2 (lib/helpdesk/mailboxes): by address, so a queue link and a saved view read as words.
+    const address = cleanMailboxAddress(mb);
+    if (!address) return bad("Unknown address.");
+    f.mailbox = address;
   }
   for (const k of ["tag", "category", "department", "office"] as const) {
     const v = p.get(k);

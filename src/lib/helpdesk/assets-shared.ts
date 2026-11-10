@@ -263,11 +263,22 @@ export interface HdAssetSettingsView {
 export interface HdIntuneSettingsView {
   on: boolean;
   /**
-   * Why it can't be switched on: "licence" (Microsoft 365 directory sync is
-   * an enterprise feature), "credentials" (no tenant, client ID or secret in
-   * Settings, Directory). Null when it can.
+   * 1.20.2: which app registration Intune signs in with. "own": the
+   * credentials on its own page; "directory": the Microsoft 365 directory
+   * sync's (an install connected before 1.20.2, until it enters its own);
+   * null: none (not set up).
    */
-  unavailable: "licence" | "credentials" | null;
+  mode: "own" | "directory" | null;
+  /** Its own credentials as the page may show them: the tenant and client ID as typed, and whether a secret is saved (never the secret). */
+  tenant: string;
+  client_id: string;
+  secret_set: boolean;
+  /**
+   * Why it can't sync: "credentials" (no app registration entered yet),
+   * "legacy_gone" (it was using the directory sync app, which is no longer
+   * set up or licensed: enter Intune's own). Null when it can.
+   */
+  unavailable: "credentials" | "legacy_gone" | null;
   sync: HdAssetSyncState;
   /** Intune devices shown as a Snipe-IT asset (same serial). */
   matched: number;

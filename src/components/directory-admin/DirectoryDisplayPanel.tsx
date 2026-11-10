@@ -97,7 +97,7 @@ export function DirectoryDisplayPanel({
           </Field>
         </div>
       </div>
-      <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save defaults" className="mt-4" />
+      <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save defaults" />
     </Card>
   );
 }

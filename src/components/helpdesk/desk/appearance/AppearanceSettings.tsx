@@ -252,7 +252,7 @@ export function AppearanceSettings() {
           </div>
         </Card>
       </div>
-      <SaveRow dirty={dirty} busy={busy === "save"} onSave={save} label="Save" className="mt-4">
+      <SaveRow dirty={dirty} busy={busy === "save"} onSave={save} label="Save">
         <Button
           variant="secondary"
           icon={previewing ? <EyeOff /> : <Eye />}

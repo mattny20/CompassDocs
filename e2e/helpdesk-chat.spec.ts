@@ -85,7 +85,7 @@ test.describe("chat apps (licensed)", () => {
 
   test("connect Teams, choose what people can do and the channels, one Save; the secret never comes back", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("/desk/settings/chat");
+    await page.goto("/desk/settings/integrations/chat");
     await slow(page.getByRole("heading", { level: 1, name: "Chat apps" })).toBeVisible({ timeout: 60_000 });
     await expect(page.getByText("Let people raise and follow requests, and approve them, from Microsoft Teams or Slack.")).toBeVisible();
     const teamsCard = page.getByTestId("chat-app-teams");
@@ -186,7 +186,7 @@ test.describe("chat apps (licensed)", () => {
 
   test("Slack: connect; the endpoint reads only requests signed with the saved secret; Teams only verified ones", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("/desk/settings/chat");
+    await page.goto("/desk/settings/integrations/chat");
     const slackCard = page.getByTestId("chat-app-slack");
     await slow(slackCard.getByRole("button", { name: "Connect" })).toBeVisible({ timeout: 60_000 });
     await slackCard.getByRole("button", { name: "Connect" }).click();

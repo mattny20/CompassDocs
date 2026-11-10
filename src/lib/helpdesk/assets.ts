@@ -85,6 +85,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { getSetting, setSetting } from "../db";
 import { openSecret, sealSecret } from "../secretbox";
+import { featureEnabled } from "../ee";
+import { getDirectoryGraphConfig } from "../directory-config";
 import { hq, hqOne, withTx, type HdQueryable } from "./db-core";
 import { agentTeamIds, canSeeTicket, isAgent } from "./access";
 import type { HdTicket } from "./types";
@@ -123,6 +125,8 @@ export * from "./assets-shared";
 type U = Parameters<typeof isAgent>[0];
 
 export class AssetError extends Error {
+  /** A machine-readable reason the page acts on ("tenant_change": ask, then send confirm_tenant_change). */
+  code?: string;
   constructor(message: string, public status = 400) {
     super(message);
   }
@@ -172,6 +176,16 @@ export interface IntuneSettings {
   on: boolean;
   cache_source?: string;
   cred_tag?: string;
+  /**
+   * 1.20.2: Intune's own app registration (tenant ID or domain, application
+   * (client) ID, client secret). The secret is stored sealed, as Snipe-IT's
+   * key is (`key` in the stored JSON), and opened only here. All three
+   * empty: an install connected before 1.20.2 keeps signing in as the
+   * directory sync's app until an admin enters these.
+   */
+  tenant?: string;
+  client_id?: string;
+  secret?: string;
 }
 
 const DEFAULTS: AssetSettings = { snipeit: { url: "", token: "", on_solve: "nothing" }, agents_search_all: true };
@@ -220,29 +234,49 @@ export interface IntuneCredentials {
   tenant: string;
   clientId: string;
   secret: string;
+  /** Whose app registration these are (1.20.2): Intune's own, or the directory sync's (connected before 1.20.2). */
+  mode?: "own" | "directory";
 }
 
-let credsCache: { at: number; v: IntuneCredentials | "licence" | "credentials" } | null = null;
+type IntuneCreds = IntuneCredentials | "credentials" | "legacy_gone";
+let credsCache: { at: number; v: IntuneCreds } | null = null;
 
-/**
- * The Microsoft 365 directory sync's app registration, which Intune signs in
- * as: "licence" when directory sync isn't licensed, "credentials" when its
- * tenant, client ID or secret is missing. Read fresh every few seconds.
- */
-export async function intuneCredentials(): Promise<IntuneCredentials | "licence" | "credentials"> {
-  if (testIntuneCreds !== undefined) return testIntuneCreds ?? "credentials";
-  if (credsCache && Date.now() - credsCache.at < 5_000) return credsCache.v;
-  const { featureEnabled } = await import("../ee");
-  let v: IntuneCredentials | "licence" | "credentials";
-  if (!(await featureEnabled("directory_sync"))) v = "licence";
-  else {
-    const { getDirectoryGraphConfig } = await import("../directory-config");
-    const c = await getDirectoryGraphConfig();
-    v = c.tenant && c.clientId && c.clientSecret ? { tenant: c.tenant, clientId: c.clientId, secret: c.clientSecret } : "credentials";
+/** The directory sync's app registration, for an install that still uses it; null when directory sync is unlicensed or not set up. */
+async function directorySyncCredentials(): Promise<IntuneCredentials | null> {
+  if (credsCache && Date.now() - credsCache.at < 5_000) return typeof credsCache.v === "string" ? null : credsCache.v;
+  let v: IntuneCredentials | null = null;
+  try {
+    if (await featureEnabled("directory_sync")) {
+      const c = await getDirectoryGraphConfig();
+      if (c.tenant && c.clientId && c.clientSecret) v = { tenant: c.tenant, clientId: c.clientId, secret: c.clientSecret, mode: "directory" };
+    }
+  } catch {
+    v = null;
   }
-  credsCache = { at: Date.now(), v };
+  credsCache = { at: Date.now(), v: v ?? "legacy_gone" };
   return v;
 }
+
+/**
+ * The app registration Intune signs in with (1.20.2). Its own (entered on
+ * its page, stored sealed) whenever there is one: Intune then has nothing
+ * to do with directory sync, licensed or not. Without one, an install that
+ * was already connected through the Microsoft 365 directory sync's app
+ * (Intune on) keeps using that app, unchanged, until an admin enters
+ * Intune's own; "legacy_gone" when that app is no longer there to use.
+ * "credentials": nothing entered and nothing to fall back on (not set up).
+ */
+export async function intuneCredentials(settings?: AssetSettings): Promise<IntuneCreds> {
+  if (testIntuneCreds !== undefined) return testIntuneCreds ? { mode: "own", ...testIntuneCreds } : "credentials";
+  const it = (settings ?? (await getAssetSettings())).intune;
+  if (it?.tenant && it.client_id && it.secret) return { tenant: it.tenant, clientId: it.client_id, secret: it.secret, mode: "own" };
+  if (!it?.on) return "credentials";
+  return (await directorySyncCredentials()) ?? "legacy_gone";
+}
+
+const NO_INTUNE_APP = "Enter the Intune app registration's tenant, application (client) ID and client secret first.";
+const LEGACY_GONE =
+  "Intune was signing in with the Microsoft 365 directory sync app, which is no longer set up. Enter the Intune app registration's tenant, application (client) ID and client secret.";
 
 /**
  * Which directory credentials these are (the tenant as typed and the client
@@ -278,10 +312,15 @@ function parseStored(raw: string | undefined): AssetSettings {
 
 function parseIntune(raw: unknown): Required<IntuneSettings> {
   const v = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const text = (x: unknown) => (typeof x === "string" ? x : "");
   return {
     on: v.on === true,
-    cache_source: typeof v.cache_source === "string" ? v.cache_source : "",
-    cred_tag: typeof v.cred_tag === "string" ? v.cred_tag : "",
+    cache_source: text(v.cache_source),
+    cred_tag: text(v.cred_tag),
+    tenant: text(v.tenant),
+    client_id: text(v.client_id),
+    // Stored sealed under `key` (the in-process test settings hold it open, as `secret`).
+    secret: typeof v.key === "string" && v.key ? openSecret(v.key) : text(v.secret),
   };
 }
 
@@ -318,7 +357,8 @@ async function writeIntune(client: HdQueryable, next: Required<IntuneSettings>):
   await client.query(
     `INSERT INTO settings (key, value) VALUES ($1, jsonb_build_object('intune', $2::jsonb)::text)
      ON CONFLICT (key) DO UPDATE SET value = jsonb_set(CASE WHEN settings.value ~ '^\\s*\\{' THEN settings.value::jsonb ELSE '{}'::jsonb END, '{intune}', $2::jsonb)::text`,
-    [ASSETS_SETTINGS_KEY, JSON.stringify(next)]
+    // The secret never reaches the settings row in the clear: sealed under `key`, as Snipe-IT's is.
+    [ASSETS_SETTINGS_KEY, JSON.stringify({ on: next.on, cache_source: next.cache_source, cred_tag: next.cred_tag, tenant: next.tenant, client_id: next.client_id, key: next.secret ? sealSecret(next.secret) : "" })]
   );
 }
 
@@ -344,6 +384,37 @@ export interface AssetSettingsPatch {
   disconnect?: unknown;
   /** Microsoft Intune on or off (1.19.4). Turning it on tests the connection first. */
   intune?: unknown;
+  /**
+   * 1.20.2: Intune's own app registration, { tenant, client_id, secret? }
+   * (the saved secret stays when `secret` is left out and the tenant and
+   * client ID are unchanged). Signed in with before anything is saved, and
+   * Intune is on afterwards. null forgets them and turns Intune off.
+   */
+  intune_credentials?: unknown;
+  /** With intune_credentials for another tenant than the cached devices': go ahead (the old devices are retired). */
+  confirm_tenant_change?: unknown;
+}
+
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DOMAIN = /^(?=.{3,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
+
+/** Check typed Intune credentials' shape; `stored` supplies the secret when it is left out for the same app registration. */
+export function checkIntuneCredentials(raw: unknown, stored?: IntuneSettings): { ok: true; value: IntuneCredentials } | { ok: false; error: string } {
+  const v = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+  const tenant = typeof v.tenant === "string" ? v.tenant.trim() : "";
+  const clientId = typeof v.client_id === "string" ? v.client_id.trim() : "";
+  let secret = typeof v.secret === "string" ? v.secret.trim() : "";
+  if (!tenant) return { ok: false, error: "Enter the tenant: its ID or a domain such as contoso.onmicrosoft.com." };
+  if (!GUID.test(tenant) && !DOMAIN.test(tenant)) return { ok: false, error: "The tenant is its ID (a GUID) or a domain such as contoso.onmicrosoft.com." };
+  if (!GUID.test(clientId)) return { ok: false, error: "The application (client) ID is a GUID, as shown on the app registration's Overview page in Entra." };
+  if (secret.length > 1000) return { ok: false, error: "That client secret is too long. Paste the secret's Value from Entra." };
+  if (!secret) {
+    // A saved secret is only ever sent for the app registration it was saved for.
+    const same = !!stored?.secret && (stored.tenant ?? "").toLowerCase() === tenant.toLowerCase() && (stored.client_id ?? "").toLowerCase() === clientId.toLowerCase();
+    if (!same) return { ok: false, error: stored?.secret ? "Paste the client secret again: a saved secret is only ever sent for the app registration it was saved for." : "Paste the client secret (its Value, not its ID)." };
+    secret = stored!.secret!;
+  }
+  return { ok: true, value: { tenant, clientId, secret, mode: "own" } };
 }
 
 /**
@@ -395,6 +466,48 @@ export async function saveAssetSettings(patch: AssetSettingsPatch): Promise<{ ch
     next.agents_search_all = patch.agents_search_all;
   }
   let intuneRetired = 0;
+  if (patch.intune_credentials !== undefined) {
+    if (patch.intune !== undefined) throw new AssetError("Send Intune's credentials or its switch, not both.");
+    if (patch.intune_credentials === null) {
+      // Forget the app registration: a disconnect (linked rows stay as history), never a fall back to another app.
+      if (cur.intune?.tenant || cur.intune?.client_id || cur.intune?.secret || cur.intune?.on) {
+        changed.push("intune_credentials_cleared");
+        if (cur.intune?.on) changed.push("intune_off");
+        await withTx(async (client) => {
+          await client.query("SELECT pg_advisory_xact_lock($1)", [INTUNE_SYNC_LOCK]);
+          const now = await lockedIntune(client);
+          await writeIntune(client, { ...now, on: false, tenant: "", client_id: "", secret: "", cred_tag: "" });
+          await dropUnlinkedTx(client, intuneKey());
+        });
+        credsCache = null;
+      }
+    } else {
+      const c = checkIntuneCredentials(patch.intune_credentials, cur.intune);
+      if (!c.ok) throw new AssetError(c.error);
+      // Saved only once they sign in and Graph lists devices: a wrong secret or a missing permission is said here.
+      const t = await testIntune(c.value);
+      if (!t.ok) throw new AssetError(t.error, 409);
+      const from = cur.intune?.cache_source ?? "";
+      if (from && from !== t.tenant && patch.confirm_tenant_change !== true) {
+        const e = new AssetError(
+          "These credentials sign in to a different Microsoft 365 tenant than the Intune devices already here. Connecting starts a new device list: devices linked to tickets stay on them, marked as no longer in Intune, and the rest are removed.",
+          409
+        );
+        e.code = "tenant_change";
+        throw e;
+      }
+      const wasMode = cur.intune?.secret ? "own" : cur.intune?.on ? "directory" : null;
+      const r = await adoptIntuneSource(t.tenant, t.tag, true, { tenant: c.value.tenant, client_id: c.value.clientId, secret: c.value.secret });
+      credsCache = null;
+      changed.push("intune_credentials");
+      if (wasMode === "directory") changed.push("intune_own_app");
+      if (!cur.intune?.on) changed.push("intune_on");
+      if (r?.changed) {
+        intuneRetired = r.retired;
+        changed.push("intune_source_changed");
+      }
+    }
+  }
   if (patch.intune !== undefined) {
     if (typeof patch.intune !== "boolean") throw new AssetError("Intune is on or off.");
     if (patch.intune && !cur.intune?.on) {
@@ -449,13 +562,17 @@ async function dropUnlinkedTx(client: HdQueryable, key: string): Promise<void> {
   await client.query("DELETE FROM settings WHERE key = $1", [SYNC_KEY_PREFIX + key]);
 }
 
-/** Test Intune with the directory sync's credentials; the tenant ID they sign in to, and which credentials they were. */
-export async function testIntune(): Promise<{ ok: true; total: number; tenant: string; tag: string } | { ok: false; error: string }> {
-  const c = await intuneCredentials();
-  if (c === "licence") return { ok: false, error: "Intune uses the Microsoft 365 directory sync, which needs an enterprise licence." };
-  if (c === "credentials") return { ok: false, error: "Set up the Microsoft 365 directory sync first (Settings, Directory): Intune signs in with its app registration." };
+/**
+ * Test Intune: with `given` (typed on its page, not saved yet), else with
+ * the credentials in use. Answers the tenant ID they sign in to and which
+ * credentials they were. Changes nothing.
+ */
+export async function testIntune(given?: IntuneCredentials): Promise<{ ok: true; total: number; tenant: string; tag: string } | { ok: false; error: string }> {
+  const c = given ?? (await intuneCredentials());
+  if (c === "credentials") return { ok: false, error: NO_INTUNE_APP };
+  if (c === "legacy_gone") return { ok: false, error: LEGACY_GONE };
   try {
-    const p = await PROVIDER_FACTORIES.intune({ url: GRAPH_URL, token: c.secret, tenant: c.tenant, clientId: c.clientId, key: intuneKey(), timeoutMs: testTimeout ?? undefined });
+    const p = await PROVIDER_FACTORIES.intune({ url: GRAPH_URL, token: c.secret, tenant: c.tenant, clientId: c.clientId, key: intuneKey(), timeoutMs: testTimeout ?? undefined, legacyApp: c.mode === "directory" });
     const r = await p.test();
     return { ok: true, total: r.total, tenant: await p.identity!(), tag: credTag(c) };
   } catch (e) {
@@ -489,7 +606,7 @@ export async function intuneSourceCheck(): Promise<{ retired: number; from: stri
   if (s.intune.cred_tag === tag && s.intune.cache_source) return null;
   let tid: string;
   try {
-    const p = await PROVIDER_FACTORIES.intune({ url: GRAPH_URL, token: c.secret, tenant: c.tenant, clientId: c.clientId, key: intuneKey(), timeoutMs: testTimeout ?? undefined });
+    const p = await PROVIDER_FACTORIES.intune({ url: GRAPH_URL, token: c.secret, tenant: c.tenant, clientId: c.clientId, key: intuneKey(), timeoutMs: testTimeout ?? undefined, legacyApp: c.mode === "directory" });
     tid = await p.identity!();
   } catch (e) {
     lastCheckError = errText(e);
@@ -521,7 +638,13 @@ export async function intuneSourceCheck(): Promise<{ retired: number; from: stri
  * same lock order: upsertRunPage). `turnOn` switches it on too; otherwise
  * nothing happens unless it is still on and its credentials still differ.
  */
-async function adoptIntuneSource(tid: string, tag: string, turnOn: boolean): Promise<{ retired: number; from: string; to: string; changed: boolean } | null> {
+async function adoptIntuneSource(
+  tid: string,
+  tag: string,
+  turnOn: boolean,
+  /** 1.20.2: Intune's own app registration, saved in the same step (the secret is sealed by writeIntune). */
+  own?: { tenant: string; client_id: string; secret: string }
+): Promise<{ retired: number; from: string; to: string; changed: boolean } | null> {
   const r = await withTx(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock($1)", [INTUNE_SYNC_LOCK]);
     const cur = await lockedIntune(client);
@@ -529,7 +652,8 @@ async function adoptIntuneSource(tid: string, tag: string, turnOn: boolean): Pro
     const from = cur.cache_source;
     const changed = !!from && from !== tid;
     const retired = changed ? await retireSourceTx(client, intuneKey()) : 0;
-    await writeIntune(client, { on: true, cache_source: tid, cred_tag: tag });
+    // The same tenant keeps its devices and their links whichever app registration signs in.
+    await writeIntune(client, { ...cur, ...(own ?? {}), on: true, cache_source: tid, cred_tag: tag });
     return { retired, from, to: tid, changed };
   });
   liveLookups.clear();
@@ -565,7 +689,7 @@ async function build(key: string, s: AssetSettings): Promise<AssetProvider | nul
   }
   if (key === intuneKey() || key === "intune") {
     if (!s.intune?.on || !s.intune.cache_source) return null;
-    const c = await intuneCredentials();
+    const c = await intuneCredentials(s);
     if (typeof c === "string") return null;
     // New credentials: not connected until intuneSourceCheck has signed in with them and seen which tenant they are.
     if (s.intune.cred_tag !== credTag(c)) return null;
@@ -575,6 +699,7 @@ async function build(key: string, s: AssetSettings): Promise<AssetProvider | nul
       tenant: c.tenant,
       clientId: c.clientId,
       key: intuneKey(),
+      legacyApp: c.mode === "directory",
       expectTid: s.intune.cache_source,
       timeoutMs: testTimeout ?? undefined,
     });
@@ -1145,11 +1270,15 @@ export async function assetSettingsView(): Promise<HdAssetSettingsView> {
     snipeit: { url: s.snipeit.url, key_set: !!s.snipeit.token, on_solve: s.snipeit.on_solve, sync: await syncState(snipeKey()) },
     intune: {
       on: !!s.intune?.on,
+      mode: typeof c === "string" ? null : (c.mode ?? "own"),
+      tenant: s.intune?.tenant ?? "",
+      client_id: s.intune?.client_id ?? "",
+      secret_set: !!s.intune?.secret,
       unavailable: typeof c === "string" ? c : null,
       sync: await syncState(intuneKey()),
       matched,
       // Still waiting to sign in with new credentials (intuneSourceCheck): say why.
-      check_error: s.intune?.on && typeof c !== "string" && s.intune.cred_tag !== credTag(c) ? lastCheckError || "Checking the directory sync's new credentials." : "",
+      check_error: s.intune?.on && typeof c !== "string" && s.intune.cred_tag !== credTag(c) ? lastCheckError || "Checking the app registration's new credentials." : "",
     },
     agents_search_all: s.agents_search_all,
   };

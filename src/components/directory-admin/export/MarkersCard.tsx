@@ -333,7 +333,7 @@ export function MarkersCard({
       <div className="border-t border-slate-100 px-4 py-3">
         {/* shortcut={false}: Ctrl/⌘+S stays the page's presets shortcut; two
             rows answering one keystroke would fire two saves. */}
-        <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save markers" sticky={false} shortcut={false} disabled={invalid}>
+        <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save markers" sticky={false} shortcut={false} flush disabled={invalid}>
           {full ? <Tooltip label={`Up to ${MARKER_LIMIT} markers.`}>{addButton}</Tooltip> : addButton}
         </SaveRow>
       </div>

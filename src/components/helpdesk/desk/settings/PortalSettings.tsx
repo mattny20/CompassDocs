@@ -359,7 +359,7 @@ export function PortalSettings() {
           Customers only ever see their own requests and the public conversation. They never see CompassDocs, your directory or internal notes.
         </p>
       </div>
-      <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save portal settings" className="mt-4" />
+      <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save portal settings" />
     </>
   );
 }

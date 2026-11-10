@@ -18,6 +18,7 @@ import { ContactHoverCard } from "@/components/helpdesk/contacts/ContactHoverCar
 import { PRIORITY_DOT, compactDue, priorityLabel, slaInk, statusChip, ticketHref } from "../ui";
 import type { RowSelection } from "../merge/selection";
 import { IncidentChip } from "../incidents/IncidentChip";
+import { useDeskMailboxes } from "../mailboxes";
 
 export function TicketList({
   rows,
@@ -37,6 +38,8 @@ export function TicketList({
   /** Row checkboxes for the bulk bar (1.19.1, merge/selection); omitted without tickets.bulk or tickets.merge. */
   selection?: RowSelection;
 }) {
+  // 1.20.2: the address a ticket came in on, beside its requester, while more than one is listed.
+  const showAddress = useDeskMailboxes().length > 1;
   if (error && !rows) {
     return (
       <div className="px-4 py-6 text-sm">
@@ -99,6 +102,13 @@ export function TicketList({
                     {t.requester_name}
                   </ContactHoverCard>
                   {t.team_name && <span className="hidden sm:inline lg:hidden"> · {t.team_name}</span>}
+                  {showAddress && t.mailbox_address && (
+                    <span className="min-w-0 truncate" data-testid="ticket-address">
+                      <span aria-hidden>· </span>
+                      <span className="sr-only">, to </span>
+                      {t.mailbox_address}
+                    </span>
+                  )}
                 </span>
                 {clock ? (
                   <span className="min-w-0 max-w-[55%] truncate text-slate-500" data-tt={clock}>

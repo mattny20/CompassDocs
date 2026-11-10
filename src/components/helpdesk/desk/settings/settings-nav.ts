@@ -27,10 +27,7 @@ import {
   Languages,
   Link,
   Shield,
-  Package,
-  MessageCircle,
   Sparkle,
-  Webhook,
   type LucideIcon,
 } from "lucide-react";
 import { CHECKLIST_MANAGE_CAPS } from "@/lib/helpdesk/checklists-caps";
@@ -104,10 +101,8 @@ const HELPDESK: SettingsNavItem[] = [
   { href: "/desk/settings/csat", label: "Satisfaction", icon: Star },
   { href: "/desk/settings/import", label: "Import", icon: Upload },
   { href: "/desk/settings/retention", label: "Retention and privacy", icon: Shield },
-  { href: "/desk/settings/claude", label: "Claude connector", icon: Bot },
-  { href: "/desk/settings/chat", label: "Chat apps", icon: MessageCircle },
-  { href: "/desk/settings/api", label: "API and webhooks", icon: Webhook },
-  { href: "/desk/settings/assets", label: "Assets", icon: Package },
+  // 1.20.2: Assets, Chat apps, Claude connector and API and webhooks are tiles of the Integrations hub
+  // (lib/helpdesk/integrations-hub-shared), not entries of their own; their old addresses redirect.
   { href: "/desk/settings/appearance", label: "Appearance", icon: Sparkle },
   { href: "/desk/settings/claude-desk", label: "Claude in the desk", icon: Sparkle },
 ];

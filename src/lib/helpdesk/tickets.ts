@@ -123,18 +123,22 @@ export function newTicketReplyToken(): string {
 // --- Reads -----------------------------------------------------------------------
 
 const TICKET_SELECT = `
-  SELECT t.*, tm.name AS team_name, a.name AS assignee_name, rt.title AS request_type_title, r.state AS workflow_state
+  SELECT t.*, tm.name AS team_name, a.name AS assignee_name, rt.title AS request_type_title, r.state AS workflow_state,
+         mb.address AS mailbox_address, mb.name AS mailbox_name
     FROM hd_tickets t
     LEFT JOIN hd_teams tm ON tm.id = t.team_id
     LEFT JOIN users a ON a.id = t.assignee_id
     LEFT JOIN hd_request_types rt ON rt.id = t.request_type_id
-    LEFT JOIN hd_workflow_runs r ON r.id = t.workflow_run_id`;
+    LEFT JOIN hd_workflow_runs r ON r.id = t.workflow_run_id
+    LEFT JOIN hd_mailboxes mb ON mb.id = t.mailbox_id`;
 
 type JoinedRow = HdTicketRow & {
   team_name: string | null;
   assignee_name: string | null;
   request_type_title: string | null;
   workflow_state: HdTicket["workflow_state"];
+  mailbox_address?: string | null;
+  mailbox_name?: string | null;
 };
 
 /** Add the derived fields. */
@@ -245,6 +249,10 @@ export function listRow(t: HdTicket): HdTicketListRow {
     updated_at: t.updated_at,
     automated: t.automated === 1 ? 1 : 0,
     source_ref: integrationRef(t),
+    // 1.20.2: the help address the ticket came in on (lib/helpdesk/mailboxes); the queue shows it while more than one is listed.
+    mailbox_id: t.mailbox_id ?? null,
+    mailbox_address: t.mailbox_address ?? null,
+    mailbox_name: t.mailbox_name ?? null,
   };
 }
 
@@ -275,6 +283,8 @@ export interface CreateTicketInput {
   workflow_run_id?: number | null;
   attachments?: HdAttachment[];
   email_message_id?: string | null;
+  /** 1.20.2 (lib/helpdesk/mailboxes): the address the ticket came in on; null/absent = its team's, else the default. */
+  mailbox_id?: number | null;
   /** For tests and imports: the creation instant. */
   created_at?: Date;
 }
@@ -318,10 +328,10 @@ export async function insertTicketTx(client: PoolClient, input: CreateTicketInpu
       const res = await client.query(
         `INSERT INTO hd_tickets (subject, requester_id, requester_name, requester_email, team_id, assignee_id, status,
             priority, category, tags, request_type_id, form_answers, source, source_ref, parent_ticket_id, workflow_run_id,
-            sla_policy_id, first_reply_due, resolve_due, reply_token, created_at, updated_at, solved_at, sla_paused_at)
+            sla_policy_id, first_reply_due, resolve_due, reply_token, created_at, updated_at, solved_at, sla_paused_at, mailbox_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $21,
                  CASE WHEN $7 IN ('solved', 'closed') THEN $21::timestamptz END,
-                 CASE WHEN $7 IN ('pending', 'on_hold') THEN $21::timestamptz END)
+                 CASE WHEN $7 IN ('pending', 'on_hold') THEN $21::timestamptz END, $22)
          RETURNING *`,
         [
           subject,
@@ -345,6 +355,7 @@ export async function insertTicketTx(client: PoolClient, input: CreateTicketInpu
           dues?.resolve_due ?? null,
           newTicketReplyToken(),
           createdAt,
+          input.mailbox_id ?? null,
         ]
       );
       await client.query("RELEASE SAVEPOINT hd_ticket_insert");
@@ -717,6 +728,8 @@ export interface TicketListFilters {
   request_type_id?: number;
   /** Raw sources (a channel group expands to several: trigger → doc, handbook, space_access, link). */
   sources?: HdSource[];
+  /** 1.20.2: tickets on this help address (lib/helpdesk/mailboxes), by the address; one that isn't listed matches nothing. */
+  mailbox?: string;
   tag?: string;
   /** '' = no category. */
   category?: string;
@@ -829,6 +842,7 @@ export async function listTickets(
   if (f.status_group === "open") where.push(OPEN_SQL);
   if (f.request_type_id) where.push(`t.request_type_id = ${bind(f.request_type_id)}`);
   if (f.sources?.length) where.push(`t.source = ANY(${bind(f.sources)}::text[])`);
+  if (f.mailbox) where.push(`t.mailbox_id = (SELECT mbf.id FROM hd_mailboxes mbf WHERE lower(mbf.address) = ${bind(f.mailbox.toLowerCase())})`);
   if (f.tag) where.push(`${bind(f.tag)} = ANY(t.tags)`);
   if (f.category !== undefined) where.push(`COALESCE(t.category, '') = ${bind(f.category)}`);
   if (f.origin) where.push(f.origin === "automated" ? "COALESCE(t.automated, 0) = 1" : "COALESCE(t.automated, 0) = 0");

@@ -274,7 +274,7 @@ export function OnCallSettings() {
                 </Field>
               </div>
             </div>
-            <SaveRow dirty={dirty} busy={busy} onSave={save} disabled={!canSave} className="mt-4" label="Save rota">
+            <SaveRow dirty={dirty} busy={busy} onSave={save} disabled={!canSave} label="Save rota">
               {view.rotation && (
                 <Button variant="ghost" size="sm" icon={<Trash2 />} onClick={clearRota}>
                   Remove rota

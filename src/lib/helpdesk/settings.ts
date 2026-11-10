@@ -118,7 +118,8 @@ export async function getBusinessHours(client?: HdQueryable): Promise<HdBusiness
  * is never in it).
  */
 export async function saveHelpdeskSettings(
-  patch: Partial<HdSettings>
+  patch: Partial<HdSettings>,
+  opts: { syncMailboxes?: boolean } = {}
 ): Promise<{ settings: HdSettings; changed: (keyof HdSettings)[] }> {
   const before = await getHelpdeskSettings();
   const next = normalizeSettings({ ...before, ...patch }, before.timezone);
@@ -126,6 +127,14 @@ export async function saveHelpdeskSettings(
     (k) => JSON.stringify(next[k]) !== JSON.stringify(before[k])
   );
   if (changed.length) await setSetting(HD_SETTINGS_KEY, JSON.stringify(next));
+  // 1.20.2 (lib/helpdesk/mailboxes): inbound_address and email_from_name are
+  // the default mailbox's address and name. A write to them here moves that
+  // mailbox, so the two never disagree; the mailbox module's own mirror
+  // passes syncMailboxes: false.
+  if (opts.syncMailboxes !== false && (changed.includes("inbound_address") || changed.includes("email_from_name"))) {
+    const { syncDefaultMailboxFromSettings } = await import("./mailboxes");
+    await syncDefaultMailboxFromSettings(next, changed);
+  }
   return { settings: next, changed };
 }
 

@@ -354,6 +354,7 @@ function drillSummary(d: Record<string, string>, teams: { team_id: number; name:
     else if (k === "status_group") parts.push("open");
     else if (k === "vip") parts.push(v === "yes" ? "VIP requesters" : "not VIP requesters");
     else if (k === "integration") parts.push(v === "none" ? "no integration" : `integration ${v}`);
+    else if (k === "mailbox") parts.push(`address ${v}`);
     else parts.push(`${DRILL_LABEL[k] ?? k} ${v.replace(/_/g, " ")}`);
   }
   return parts.join(" · ") || "all tickets";

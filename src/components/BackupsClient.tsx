@@ -152,7 +152,7 @@ export function BackupsClient({
                 className="max-w-24"
               />
             </Field>
-            <SaveRow dirty={dirty} busy={savingSchedule} onSave={saveSchedule} disabled={Boolean(keepError)} label="Save" sticky={false} />
+            <SaveRow dirty={dirty} busy={savingSchedule} onSave={saveSchedule} disabled={Boolean(keepError)} label="Save" sticky={false} flush />
           </div>
         </div>
 

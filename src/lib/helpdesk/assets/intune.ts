@@ -142,6 +142,7 @@ export interface IntuneConfig extends ProviderConfig {
   clientId: string;
   /** The tenant ID (tid) this provider is for; a token for another tenant is refused. Unset: any (identity()). */
   expectTid?: string;
+  legacyApp?: boolean;
 }
 
 /** The `tid` claim of an Entra access token (lower-cased), or "" when it can't be read. */
@@ -158,6 +159,10 @@ export function tokenTenantId(token: string): string {
 }
 
 export function intuneProvider(cfg: IntuneConfig): AssetProvider {
+  // 1.20.2: Intune signs in with its own app registration; an install that
+  // still uses the directory sync's (cfg.legacyApp) is told about that one.
+  const app = cfg.legacyApp ? "the directory sync app" : "the Intune app registration";
+  const where = cfg.legacyApp ? "Settings, Directory, Microsoft 365 sync" : "Desk settings, Integrations, Microsoft Intune";
   const cacheKey = createHash("sha256").update(`${cfg.tenant}\n${cfg.clientId}\n${cfg.token}`).digest("hex");
 
   async function token(): Promise<string> {
@@ -177,7 +182,7 @@ export function intuneProvider(cfg: IntuneConfig): AssetProvider {
       if (e instanceof AssetHttpError && e.status >= 400 && e.status < 500 && e.status !== 429) {
         const code = e.detail ? ` (${e.detail})` : "";
         throw new AssetHttpError(
-          `Microsoft 365 refused the directory sync app's sign-in${code}. Check the tenant, client ID and secret in Settings, Directory, Microsoft 365 sync, and that the secret hasn't expired.`,
+          `Microsoft 365 refused ${app}'s sign-in${code}. Check the tenant, client ID and secret in ${where}, and that the secret hasn't expired.`,
           e.status,
           "http",
           null,
@@ -188,7 +193,7 @@ export function intuneProvider(cfg: IntuneConfig): AssetProvider {
     }
     const o = obj(json);
     const value = str(o?.access_token);
-    if (!value) throw new AssetHttpError("Microsoft 365 didn't hand out a token. Check the directory sync app registration.", 200, "not_json");
+    if (!value) throw new AssetHttpError(`Microsoft 365 didn't hand out a token. Check ${app}.`, 200, "not_json");
     const secs = Number(o?.expires_in) || 3600;
     tokens.set(cacheKey, { value, expires: Date.now() + Math.max(60, secs - 300) * 1000, tid: tokenTenantId(value) });
     if (tokens.size > 20) tokens.delete(tokens.keys().next().value as string);
@@ -203,7 +208,7 @@ export function intuneProvider(cfg: IntuneConfig): AssetProvider {
     const { json } = await assetRequest({ url: `${GRAPH_BASE}/organization?$select=id`, token: value, label: LABEL, timeoutMs: cfg.timeoutMs });
     const v = obj(json)?.value;
     const id = Array.isArray(v) ? str(obj(v[0])?.id).toLowerCase() : "";
-    if (!id) throw new AssetHttpError("Microsoft Graph didn't say which tenant the directory sync app signed in to.", 200, "not_json");
+    if (!id) throw new AssetHttpError(`Microsoft Graph didn't say which tenant ${app} signed in to.`, 200, "not_json");
     if (t) t.tid = id;
     return id;
   }
@@ -212,7 +217,7 @@ export function intuneProvider(cfg: IntuneConfig): AssetProvider {
   async function bearerFor(): Promise<string> {
     const value = await token();
     if (cfg.expectTid && (await signedInTenant()) !== cfg.expectTid) {
-      throw new AssetHttpError("The directory sync app now signs in to a different Microsoft 365 tenant. Its devices are checked before they're shown.", 0, "blocked");
+      throw new AssetHttpError(`${app.charAt(0).toUpperCase()}${app.slice(1)} now signs in to a different Microsoft 365 tenant. Its devices are checked before they're shown.`, 0, "blocked");
     }
     return value;
   }
@@ -231,11 +236,11 @@ export function intuneProvider(cfg: IntuneConfig): AssetProvider {
           continue;
         }
         if (e instanceof AssetHttpError && e.status === 401) {
-          throw new AssetHttpError("Microsoft Graph refused the directory sync app's sign-in (401). Check the app registration in Settings, Directory, Microsoft 365 sync.", 401, "http", null, e.detail);
+          throw new AssetHttpError(`Microsoft Graph refused ${app}'s sign-in (401). Check the app registration in ${where}.`, 401, "http", null, e.detail);
         }
         if (e instanceof AssetHttpError && e.status === 403) {
           throw new AssetHttpError(
-            `Microsoft Graph won't list managed devices (403). In Entra, give the directory sync app the ${INTUNE_PERMISSION} application permission and grant admin consent.`,
+            `Microsoft Graph won't list managed devices (403). In Entra, give ${app} the ${INTUNE_PERMISSION} application permission and grant admin consent.`,
             403,
             "http",
             null,

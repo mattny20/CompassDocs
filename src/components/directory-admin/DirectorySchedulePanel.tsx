@@ -100,7 +100,7 @@ export function DirectorySchedulePanel({ initial, smtpConfigured }: { initial: S
         </Field>
         <Toggle label="Email even when nothing changed" checked={s.report_quiet} onChange={(v) => set({ report_quiet: v })} />
       </div>
-      <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save schedule" className="mt-4" />
+      <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save schedule" />
     </div>
   );
 }

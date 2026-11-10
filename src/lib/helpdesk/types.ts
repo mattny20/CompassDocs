@@ -111,6 +111,10 @@ export interface HdTeamMember {
 
 export interface HdTeamWithMembers extends HdTeam {
   members: HdTeamMember[];
+  /** 1.20.2 (GET /api/helpdesk/admin/teams, the Teams list): its live tickets that are not solved or closed. */
+  open_tickets?: number;
+  /** 1.20.2: the first help address mapped to the team (lib/helpdesk/mailboxes); null when none. */
+  mailbox_address?: string | null;
 }
 
 // --- Request types and forms ---------------------------------------------------
@@ -225,6 +229,8 @@ export interface HdTicketRow {
   deleted_at?: string | null;
   deleted_by?: number | null;
   deleted_by_name?: string;
+  /** The help address the ticket came in on or is answered from (1.20.2, lib/helpdesk/mailboxes); NULL = its team's, else the default. */
+  mailbox_id?: number | null;
 }
 
 /** A ticket as the desk reads it: the row plus joins and the derived SLA fields. */
@@ -239,6 +245,9 @@ export interface HdTicket extends HdTicketRow {
   sla_state: HdSlaState | null;
   /** "Reply overdue 25m", "Reply due in 1h 20m", "Resolve due tomorrow", "Paused", "Met", "" (no SLA). */
   due_label: string;
+  /** The ticket's own help address and its From name (1.20.2, lib/helpdesk/mailboxes); null when it has none of its own. */
+  mailbox_address?: string | null;
+  mailbox_name?: string | null;
 }
 
 export interface HdMessage {
@@ -720,6 +729,10 @@ export interface HdTicketListRow {
   clock_note?: string | null;
   /** 1.19.2: a major incident's own ticket, or one linked to it (lib/helpdesk/incidents incidentChips). */
   incident?: import("./incidents-shared").IncidentChip;
+  /** 1.20.2: the help address the ticket came in on (lib/helpdesk/mailboxes); null when it has none of its own. */
+  mailbox_id?: number | null;
+  mailbox_address?: string | null;
+  mailbox_name?: string | null;
 }
 
 export interface HdCounts {
@@ -796,6 +809,17 @@ export interface HdTicketDetail {
   sla_target_note?: string;
   /** Merges in and out (1.19.1, lib/helpdesk/merge mergeInfo). */
   merge?: import("./merge-shared").HdMergeInfo;
+  /**
+   * 1.20.2 (lib/helpdesk/mailboxes): the address mail about this ticket goes
+   * out under (`own`: it is the ticket's own, the one it came in on or an
+   * agent chose; otherwise its team's or the default stands in). Null when no
+   * address is listed. `mailboxes` are the "Answer from" choices, sent only
+   * while more than one is listed; `can_change_mailbox` whether this agent
+   * may choose.
+   */
+  mailbox?: (import("./mailboxes-shared").HdTicketMailbox & { own: boolean }) | null;
+  mailboxes?: import("./mailboxes-shared").HdMailboxOption[];
+  can_change_mailbox?: boolean;
 }
 
 /** A requester-safe ticket: no internal fields (tags, assignee ids, SLA internals, tokens). */

@@ -423,7 +423,7 @@ export function HandbookEditor({
             />
           </div>
 
-          <SaveRow dirty={dirty} busy={busy === "save"} onSave={save} disabled={working && busy !== "save"} className="mt-6">
+          <SaveRow dirty={dirty} busy={busy === "save"} onSave={save} disabled={working && busy !== "save"} flush className="mt-6">
             {/* order-first basis-full: its own line, above Save, in the pinned row. */}
             <FormError className="order-first flex basis-full flex-wrap items-center gap-x-4 gap-y-2 print:hidden">
               {conflict && (

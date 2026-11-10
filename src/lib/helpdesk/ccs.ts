@@ -72,7 +72,7 @@ export interface CcActor {
   outsideAllowed?: boolean;
 }
 
-export type CcSkipReason = "not_found" | "invalid_email" | "outside_not_allowed" | "blocked" | "requester" | "already" | "limit";
+export type CcSkipReason = "not_found" | "invalid_email" | "outside_not_allowed" | "blocked" | "requester" | "already" | "limit" | "own_address";
 
 export interface AddCcsResult {
   added: TicketCc[];
@@ -215,6 +215,11 @@ export async function addCcs(ticketId: number, people: CcInput[], actor: CcActor
         userId = u.id;
         name = u.name;
       } else {
+        // 1.20.2: one of the desk's own addresses is never a CC (its mail would come straight back in).
+        if (!merge && (await (await import("./mailboxes")).isOwnAddress(email))) {
+          out.skipped.push({ input: p, reason: "own_address" });
+          continue;
+        }
         if (allowOutside === null) allowOutside = await outsideSendersAllowed();
         if (!allowOutside) {
           out.skipped.push({ input: p, reason: "outside_not_allowed" });
@@ -293,16 +298,11 @@ export async function ccsFromInbound(
   opts: { outsideSenders?: boolean } = {}
 ): Promise<AddCcsResult | null> {
   if (!email.cc.length) return null;
-  const { getHelpdeskSettings } = await import("./settings");
-  const settings = await getHelpdeskSettings();
   const aliases = (await hq<{ email_alias: string }>("SELECT email_alias FROM hd_teams")).map((r) => r.email_alias.trim().toLowerCase()).filter(Boolean);
-  const inbound = settings.inbound_address.trim().toLowerCase();
+  // 1.20.2 (lib/helpdesk/mailboxes): every listed address counts as ours, plus-tagged forms and reply addresses included.
+  const ownMailbox = await (await import("./mailboxes")).ownAddressMatcher();
   const local = (a: string) => a.split("@")[0].split("+")[0];
-  const ours = (a: string) =>
-    a === inbound ||
-    (inbound && local(a) === local(inbound) && a.split("@")[1] === inbound.split("@")[1]) ||
-    /\+hd-[a-z0-9]{16}@/.test(a) ||
-    aliases.some((al) => (al.includes("@") ? a === al : local(a) === al));
+  const ours = (a: string) => ownMailbox(a) || aliases.some((al) => (al.includes("@") ? a === al : local(a) === al));
   const from = email.from.email.trim().toLowerCase();
   const people: CcInput[] = [];
   const seen = new Set<string>();

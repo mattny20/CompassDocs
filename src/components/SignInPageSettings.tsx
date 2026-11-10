@@ -422,7 +422,7 @@ export function SignInPageSettings({
           </div>
         </div>
       </div>
-      <SaveRow className="mt-6" dirty={dirty} busy={saving} onSave={save} label="Save changes" />
+      <SaveRow flush className="mt-6" dirty={dirty} busy={saving} onSave={save} label="Save changes" />
     </>
   );
 }

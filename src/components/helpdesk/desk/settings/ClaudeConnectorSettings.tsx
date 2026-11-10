@@ -68,6 +68,7 @@ export function ClaudeConnectorSettings() {
   return (
     <PageContainer>
       <PageHeader
+        back={{ href: "/desk/settings/integrations", label: "Integrations" }}
         icon={<Bot />}
         title="Claude connector"
         subtitle="What Claude can do in the helpdesk for people who connect it. It always acts as that person, with their role and teams."

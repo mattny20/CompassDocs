@@ -53,6 +53,7 @@ export const HD_CC_SKIP_TEXT: Record<string, string> = {
   invalid_email: "is not an email address",
   outside_not_allowed: "is outside the workspace, and outside senders are off",
   blocked: "can't be copied on requests",
+  own_address: "is one of the helpdesk's own addresses",
   requester: "is the requester",
   already: "is already copied",
   limit: `would go past ${HD_CC_LIMIT} people`,
