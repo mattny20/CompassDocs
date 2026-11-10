@@ -373,8 +373,43 @@ describe("contact cards (integration)", () => {
     assert.match(card.qr, /^data:image\/png;base64,/);
     assert.equal(card.earlier_tickets?.count, 1, "the team-B ticket is not agent A's to count");
     assert.equal(card.earlier_tickets?.recent[0].number, earlierNo);
+    // The requester strip (1.20.3): none of them open, and nobody has rated yet.
+    assert.equal(card.earlier_tickets?.open, 0, "the open team-B ticket is not agent A's to count either");
+    assert.deepEqual(card.earlier_tickets?.open_recent, []);
+    assert.deepEqual(card.earlier_tickets?.earlier_recent?.map((r) => r.number), [earlierNo]);
+    assert.equal(card.earlier_tickets?.satisfaction, null);
     assert.equal(card.vip.vip, false);
     assert.equal(card.minimal, false);
+  });
+
+  test("the requester strip's history (1.20.3): open tickets counted and listed, ratings averaged, in the viewer's scope only", async () => {
+    await settings({});
+    const { contactCardFor } = await import("../src/lib/helpdesk/contact-cards");
+    const made = await fixtureQuery(
+      `INSERT INTO hd_tickets (subject, requester_id, requester_name, requester_email, team_id, status, created_at, csat_score, csat_at) VALUES
+         ($1, $4, 'r', $5, $6, 'pending', now() - interval '2 days', NULL, NULL),
+         ($2, $4, 'r', $5, $6, 'closed', now() - interval '20 days', 4, now()),
+         ($3, $4, 'r', $5, $7, 'solved', now() - interval '30 days', 1, now())
+       RETURNING id, number`,
+      [`${STAMP} Strip open`, `${STAMP} Strip rated`, `${STAMP} Strip rated, team B`, P.requester.id, P.requester.email, teamA, teamB]
+    );
+    try {
+      await pool().query("UPDATE hd_tickets SET csat_score = 5, csat_at = now() WHERE id = $1", [ticketId]);
+      const a = (await contactCardFor(viewer("agentA"), P.requester.id, { ticket: await ticketRef(ticketNo), audience: "agent" })).earlier_tickets!;
+      assert.equal(a.count, 3, "the earlier one, the open one and the rated one; team B's stay out");
+      assert.equal(a.open, 1);
+      assert.deepEqual(a.open_recent, [{ number: made.rows[0].number, subject: `${STAMP} Strip open` }]);
+      assert.deepEqual(a.earlier_recent?.map((r) => [r.number, r.status]), [[earlierNo, "solved"], [made.rows[1].number, "closed"]], "the rest, newest first");
+      assert.equal(new Date(a.earlier_last_at!).getTime(), new Date(a.earlier_recent![0].created_at).getTime());
+      assert.deepEqual(a.satisfaction, { average: 4.5, ratings: 2 }, "this ticket's 5 and the closed one's 4; team B's 1 is not agent A's to see");
+      // Someone who sees every team counts them all.
+      const all = (await contactCardFor(viewer("hdAdmin"), P.requester.id, { ticket: await ticketRef(ticketNo), audience: "agent" })).earlier_tickets!;
+      assert.equal(all.open, 2, "team B's open ticket too");
+      assert.deepEqual(all.satisfaction, { average: 3.3, ratings: 3 });
+    } finally {
+      await pool().query("UPDATE hd_tickets SET csat_score = NULL, csat_at = NULL WHERE id = $1", [ticketId]);
+      await pool().query("DELETE FROM hd_tickets WHERE id = ANY($1)", [made.rows.map((r: { id: number }) => r.id)]);
+    }
   });
 
   test("custom fields mapped to Webex, Slack, pronouns and extras; Teams for everyone", async () => {

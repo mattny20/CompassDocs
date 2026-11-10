@@ -46,12 +46,12 @@ import { VipChip } from "./VipChip";
 
 export type ContactCardVariant = "panel" | "popover" | "compact";
 
-const IM_ICON: Record<HdCardIm["kind"], typeof MessageSquare> = { teams: MessageSquare, webex: Video, slack: Hash };
-const AVAIL_DOT: Record<string, string> = { available: "bg-emerald-500", away: "bg-amber-400", offline: "bg-slate-300" };
+export const IM_ICON: Record<HdCardIm["kind"], typeof MessageSquare> = { teams: MessageSquare, webex: Video, slack: Hash };
+export const AVAIL_DOT: Record<string, string> = { available: "bg-emerald-500", away: "bg-amber-400", offline: "bg-slate-300" };
 const ICON = "h-4 w-4 shrink-0 text-slate-400";
 
 /** "14:05", re-read every half minute while the card is open. */
-function useLocalTime(tz: string | null | undefined, initial: string | null): string | null {
+export function useLocalTime(tz: string | null | undefined, initial: string | null): string | null {
   const [now, setNow] = useState<string | null>(initial);
   useEffect(() => {
     if (!tz) return;
@@ -64,12 +64,12 @@ function useLocalTime(tz: string | null | undefined, initial: string | null): st
 }
 
 /** Opens in a new tab when it is a web link; an app link (msteams:, slack:, webexteams:) opens in place. */
-function linkTarget(href: string): { target?: string; rel?: string } {
+export function linkTarget(href: string): { target?: string; rel?: string } {
   return /^https:\/\//.test(href) ? { target: "_blank", rel: "noopener noreferrer" } : {};
 }
 
-export function CardAvatar({ card, size = "lg" }: { card: Pick<HdContactCard, "photo_url" | "initials">; size?: "sm" | "md" | "lg" }) {
-  const dim = size === "lg" ? "h-14 w-14 text-lg" : size === "md" ? "h-10 w-10 text-sm" : "h-8 w-8 text-xs";
+export function CardAvatar({ card, size = "lg" }: { card: Pick<HdContactCard, "photo_url" | "initials">; size?: "sm" | "md" | "strip" | "lg" }) {
+  const dim = size === "lg" ? "h-14 w-14 text-lg" : size === "strip" ? "h-11 w-11 text-sm" : size === "md" ? "h-10 w-10 text-sm" : "h-8 w-8 text-xs";
   if (card.photo_url) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={card.photo_url} alt="" className={`${dim} shrink-0 rounded-full object-cover ring-2 ring-slate-100`} />;
@@ -312,7 +312,7 @@ export function ContactCard({
 }
 
 /** An address that wraps before the @ (and at dots) rather than mid-word. */
-function BreakableEmail({ email }: { email: string }) {
+export function BreakableEmail({ email }: { email: string }) {
   // A break chance before the @ and before each dot of the domain.
   const parts = email.split(/(?=@)|(?<=@[^.]*)(?=\.)|(?<=@.*)(?=\.)/);
   return (

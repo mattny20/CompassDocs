@@ -44,6 +44,8 @@ import { useClaudeTicket } from "../claude/ClaudeDesk";
 import { Conversation } from "./Conversation";
 import { FollowButton, TicketCcRow, useTicketPeople } from "./TicketPeople";
 import { SidePanel } from "./SidePanel";
+// 1.20.3: who asked, as a strip under the header (it was the side panel's Requester card).
+import { RequesterStrip } from "./RequesterStrip";
 import { VipChip } from "@/components/helpdesk/contacts/VipChip";
 import { AutomatedChip } from "../intake/AutomatedChip";
 import { OutsideCustomerChip, isPortalTicket } from "../OutsideCustomerChip";
@@ -331,6 +333,9 @@ export function TicketPane({ number }: { number: number }) {
             )}
           </div>
         </div>
+
+        {/* The requester strip (1.20.3): full pane width, above the conversation and the side column. */}
+        <RequesterStrip number={t.number} canWork={can} refreshKey={d.messages.length} onReply={can && !merged ? () => composer.current?.focus("public") : undefined} />
 
         <div className="mt-4 grid grid-cols-1 items-start gap-4 @2xl:grid-cols-[minmax(0,1fr)_15rem] @5xl:grid-cols-[minmax(0,1fr)_18rem]">
           <div className="flex min-w-0 flex-col gap-3">

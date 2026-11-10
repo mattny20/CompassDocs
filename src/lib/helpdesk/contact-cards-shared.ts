@@ -347,6 +347,14 @@ export interface HdContactCard {
     last_at: string | null;
     link: string;
     recent: { number: number; subject: string; status: string; created_at: string }[];
+    /** Requester strip (1.20.3): how many of those are still open, and the newest of them. */
+    open?: number;
+    open_recent?: { number: number; subject: string }[];
+    /** The rest (solved or closed): the newest of them, and when the last one was opened. */
+    earlier_recent?: { number: number; subject: string; status: string; created_at: string }[];
+    earlier_last_at?: string | null;
+    /** Their satisfaction ratings on tickets the viewer can see (this one included); null when they never rated. */
+    satisfaction?: { average: number; ratings: number } | null;
   } | null;
   /** How they are on this ticket. */
   relation: HdContactRelation;

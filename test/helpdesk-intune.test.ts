@@ -615,6 +615,34 @@ describe("Intune: one asset per device, people by email or UPN", () => {
     assert.equal(r.body.assigned.length, 2);
   });
 
+  test("the requester strip (1.20.3): his devices carry Intune's compliance, and the band and the Devices tile draw the dot with the words", async () => {
+    const t = await ticket("Strip: VPN on the MacBook");
+    const got = await assets.requesterDevices((await ticketOf(t.id))!);
+    assert.equal(got.connected, true);
+    assert.deepEqual(got.devices.map((d) => `${d.name}|${d.provider_label}|${d.intune?.compliance}`).sort(), ["Daniel's iPhone|Intune|noncompliant", "MacBook Pro 14 (2024)|Snipe-IT|compliant"]);
+    const mac = got.devices.find((d) => d.provider_label === "Snipe-IT")!;
+    const phone = got.devices.find((d) => d.provider_label === "Intune")!;
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const strip = await import("../src/components/helpdesk/desk/ticket/RequesterStrip");
+    const html = (c: typeof strip.DeviceFact | typeof strip.DeviceRow, a: typeof mac) => renderToStaticMarkup(createElement(c, { a }));
+    // The band: a green dot and "Compliant", an amber one and "Not compliant"; always a dot with words.
+    const ok = html(strip.DeviceFact, mac);
+    assert.match(ok, /MacBook Pro 14 \(2024\)<\/a><span class="[^"]*bg-emerald-500[^"]*" data-compliance="ok" aria-hidden="true"><\/span><span[^>]*>Compliant<\/span>/);
+    assert.ok(ok.includes(`href="/desk/assets/${mac.id}"`), "the name opens the asset's page");
+    const bad = html(strip.DeviceFact, phone);
+    assert.match(bad, /data-compliance="warn"/);
+    assert.match(bad, /bg-amber-500[^>]*><\/span><span[^>]*>Not compliant<\/span>/);
+    // A source that says nothing about compliance (or says "unknown") draws no dot in the band.
+    assert.doesNotMatch(html(strip.DeviceFact, { ...mac, intune: null }), /data-compliance|ompliant/);
+    assert.doesNotMatch(html(strip.DeviceFact, { ...mac, intune: { ...mac.intune!, compliance: "unknown" } }), /data-compliance|ompliance/);
+    // The Devices tile: the same dot and words, then model · OS · seen.
+    const row = html(strip.DeviceRow, phone);
+    assert.match(row, /data-compliance="warn"[^>]*><\/span>Not compliant<\/span>/);
+    assert.match(row, /iOS [\d.]+ · seen /);
+    assert.match(html(strip.DeviceRow, { ...mac, intune: { ...mac.intune!, compliance: "unknown" } }), /data-compliance="neutral"[^>]*><\/span>Compliance unknown/);
+  });
+
   test("a self-set address never matches: Priya's device isn't offered on Mallory's ticket", async () => {
     const t = await ticket("Laptop", "req2");
     const o = await assets.assetOptions(agentUser(), (await ticketOf(t.id))!, "");

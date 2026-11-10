@@ -4,6 +4,29 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.20.3] - 2026-11-10
+
+The requester strip. On a ticket, the person who asked now sits in a strip
+under the ticket header, above the conversation, with their contact buttons,
+devices and tickets in view.
+
+### Changed
+- **The requester moved from the side panel to a strip under the ticket
+  header.** Closed, it shows who asked, with their title, department, office
+  and local time; one group of buttons (Email, Call, then Teams, Webex or
+  Slack); and a line of facts: their devices, open and earlier tickets, and
+  their manager. Call lists the numbers when the person has more than one.
+- **Open the strip for four tiles:** Contact (copy or open each value),
+  Devices (every device assigned to them, with compliance from Intune),
+  Work, and History (open tickets, earlier ones, satisfaction ratings).
+- **The strip remembers open or closed per agent,** follows the pane on a
+  phone, and shows only what contact cards, assets and tickets hold. "Also
+  on this ticket" stays in the side panel.
+
+### Upgrading
+- **No schema change.** Nothing to set up: the strip uses your contact cards
+  and asset sources as they are.
+
 ## [1.20.2] - 2026-11-10
 
 Several help addresses for the helpdesk, an Integrations hub in Desk

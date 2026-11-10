@@ -32,7 +32,7 @@ import type { Role, SessionUser } from "../types";
 import { hq, hqOne } from "./db-core";
 import { agentTeamIds, canWorkTicket, ticketRelation } from "./access";
 import { HD_ROLE_LABEL, type HdRole } from "./roles-shared";
-import type { HdAvailability, HdTicket } from "./types";
+import { HD_OPEN_STATUSES, type HdAvailability, type HdTicket } from "./types";
 import {
   HD_CONTACT_CARDS_KEY,
   HD_CONTACT_RELATION_LABEL,
@@ -422,17 +422,42 @@ async function earlierTickets(viewer: Viewer, t: TicketRef, person: TicketPerson
     params.push(teams, viewer.id);
     scope = `AND (team_id = ANY($4) OR assignee_id = $5)`;
   }
-  const where = `id <> $3 AND parent_ticket_id IS NULL AND deleted_at IS NULL
+  const base = `parent_ticket_id IS NULL AND deleted_at IS NULL
       AND (($1::int IS NOT NULL AND requester_id = $1) OR ($1::int IS NULL AND $2 <> '' AND lower(requester_email) = lower($2))) ${scope}`;
-  const [agg, recent] = await Promise.all([
-    hqOne<{ n: number; last_at: string | null }>(`SELECT count(*)::int AS n, max(created_at) AS last_at FROM hd_tickets WHERE ${where}`, params),
+  const where = `id <> $3 AND ${base}`;
+  // Requester strip (1.20.3): the open ones among them, and the person's ratings (this ticket's too).
+  const open = `status IN (${HD_OPEN_STATUSES.map((s) => `'${s}'`).join(", ")})`;
+  const [agg, recent, openRecent, earlierRecent] = await Promise.all([
+    hqOne<{ n: number; last_at: string | null; open: number; earlier_last_at: string | null; ratings: number; average: number | null }>(
+      `SELECT count(*) FILTER (WHERE id <> $3)::int AS n, max(created_at) FILTER (WHERE id <> $3) AS last_at,
+              count(*) FILTER (WHERE id <> $3 AND ${open})::int AS open,
+              max(created_at) FILTER (WHERE id <> $3 AND NOT ${open}) AS earlier_last_at,
+              count(csat_score)::int AS ratings, avg(csat_score)::float8 AS average
+         FROM hd_tickets WHERE ${base}`,
+      params
+    ),
     hq<{ number: number; subject: string; status: string; created_at: string }>(
       `SELECT number, subject, status, created_at FROM hd_tickets WHERE ${where} ORDER BY created_at DESC LIMIT 5`,
       params
     ),
+    hq<{ number: number; subject: string }>(`SELECT number, subject FROM hd_tickets WHERE ${where} AND ${open} ORDER BY created_at DESC LIMIT 5`, params),
+    hq<{ number: number; subject: string; status: string; created_at: string }>(
+      `SELECT number, subject, status, created_at FROM hd_tickets WHERE ${where} AND NOT ${open} ORDER BY created_at DESC LIMIT 5`,
+      params
+    ),
   ]);
   const link = person.user_id ? `/desk?requester=${person.user_id}` : `/desk?requester_email=${encodeURIComponent(person.email)}`;
-  return { count: agg?.n ?? 0, last_at: agg?.last_at ?? null, link, recent };
+  return {
+    count: agg?.n ?? 0,
+    last_at: agg?.last_at ?? null,
+    link,
+    recent,
+    open: agg?.open ?? 0,
+    open_recent: openRecent,
+    earlier_recent: earlierRecent,
+    earlier_last_at: agg?.earlier_last_at ?? null,
+    satisfaction: agg?.ratings && agg.average != null ? { average: Math.round(agg.average * 10) / 10, ratings: agg.ratings } : null,
+  };
 }
 
 /**

@@ -3221,6 +3221,9 @@ Get help.
   the person's `panel` card (a quiet chevron opens it, a `ghost sm` "Show
   less" under the card closes it, both `aria-expanded`; the compact row
   gives way to the card, never both, so the card keeps the full width).
+  On the desk's ticket the requester is the strip under the header
+  (§Requester strip, 1.20.3): the side panel passes `requester={false}`
+  and keeps only "Also on this ticket".
 - **Hover cards** (`ContactHoverCard`) open after 350ms on hover or focus
   of a name (dotted underline), in the house `Popover` (`w-80`), and stay
   open while the pointer is on the name or the card. In a queue row (one
@@ -3237,6 +3240,100 @@ Get help.
   directory rule plus the helpdesk list with notes), office time zones (a
   `TextInput` with a zone datalist) and a "Who sees what" table of
   checkboxes, one column per audience; one `SaveRow`.
+
+## Requester strip
+
+The requester strip (1.20.3, `desk/ticket/RequesterStrip.tsx`) is who
+asked, across the open ticket: under the header (subject, CC/Following
+row), above the conversation and the side column, full pane width. It
+took the place of the side panel's Requester card and is the second
+layout of an `HdContactCard`, after `ContactCard`: the same server-narrowed
+card, so the strip never reads a field of its own. One per ticket; a
+ticket with no requester has none (no empty strip), and everyone else on
+it stays in the side panel's "Also on this ticket".
+
+- **The shell** is the card recipe (`CARD_CLASS`, `mt-3`), no
+  `overflow-hidden` (the More menu and tooltips hang out of it; the band
+  rounds its own bottom corners with `last:rounded-b-xl`). Rows are
+  separated by `border-t border-slate-100`. The layout follows the pane,
+  not the window: stacked by default, the wide form from `@2xl` (the
+  article is the `@container`), like the ticket's own grid.
+- **Row 1** (`px-3 py-2.5`, `gap-3`): the photo or initials at 44px
+  (`CardAvatar size="strip"`) with the presence dot on it (`PresenceDot`
+  from Teams, else the desk availability dot; the wrapper carries the
+  words as `data-tt` and `sr-only`); the name (`text-[0.9375rem]
+  font-bold`, a link to the directory profile when the viewer may read
+  it) with `VipChip` only when the card says VIP; line 2 the job title
+  (`text-[0.8125rem] text-slate-700`, or "Not in the directory"); line 3
+  department · office · "14:05 local time" (`text-xs text-slate-500`,
+  each only when known, the zone as the time's `data-tt`).
+- **The contact group** is one joined control, never loose buttons:
+  `role="group"` "Contact {name}", `rounded-lg border` with hairlines
+  between the segments, each segment `h-8 px-3 text-xs font-semibold`
+  with a 14px `text-compass-600` lucide icon and a word. The order is
+  fixed so chat is always at hand: `Mail` **Email** (`mailto:`), `Phone`
+  **Call**, then chat as the card orders it (`MessageSquare` Teams,
+  `Video` Webex, `Hash` Slack). There is one Call however many numbers
+  the card has: with one it is a `tel:` link; with several it is a menu
+  button (a small `ChevronDown`, `aria-haspopup="menu"`) whose `Popover`
+  lists each number as a `menuitem` link, its label at the left and the
+  number at the right (`Smartphone` for a cell). Segments are links,
+  not buttons, except the two that open a menu; the person follows as
+  `sr-only`. At most four segments: with more than four, three stay and
+  the rest go under a last **More** segment (`MoreHorizontal`, the same
+  menu of `menuitem` links). Under `@2xl` the group takes its own
+  full-width line as a one-row grid of equal columns (`grid-flow-col
+  auto-cols-fr`), and is a flex row from `@2xl`; a menu segment is a
+  `relative` holder around its button, so its menu hangs under it.
+- **The details button** is a 32px bordered icon button at the right
+  (`ChevronDown` / `ChevronUp`), `aria-expanded`, `aria-controls`,
+  `data-tt` and `aria-label` "Show requester details" / "Hide requester
+  details". Its bubble, and those of the tiles' right-hand icon actions,
+  end at the control's right edge (`after:left-auto! after:right-0!
+  after:[transform:none]!`) rather than centring on it: the strip
+  reaches the pane's edge, and a centred bubble, even hidden, widens the
+  pane into a sideways scroll (§Tooltips). The photo's presence bubble
+  is `data-tt-align="start"` for the same reason at the left. Open or closed is remembered per agent in the browser
+  (`localStorage`, in try/catch); closed until they say otherwise.
+- **Row 2, the facts band** (`bg-canvas`, `text-[0.8125rem]`): a `ul` of
+  facts, hairline `border-l border-slate-200` between them from `@2xl`,
+  one per line under it. Icons are 16px `text-slate-400`; the value is
+  `font-semibold text-slate-800`, its qualifier `text-slate-500`. Up to
+  two devices (computers first, then phones, then the rest), each the
+  asset glyph, the name (a link to the asset's page) and, only when the
+  source reports compliance, a 6px status dot (`emerald` compliant,
+  `amber` not) with the words; "+N more" opens the details. Then `Ticket`
+  "N open · M earlier" (their other tickets in two parts, still open
+  and solved or closed; a link to them in the queue; "First ticket from
+  Daniel" when there are none) and `UserRound` Manager. A
+  fact with no data is left out; with no facts there is no band. Status
+  is always a dot plus words, never colour alone, never a coloured pill.
+- **The open view** is four tiles in a `grid` (`gap-2.5 p-3`, two
+  columns from `@2xl`, one under it): `rounded-lg border
+  border-slate-100 px-3 py-2.5`, each an `h3` `Eyebrow` with a quiet
+  slate icon (`Contact` Contact, `MonitorSmartphone` Devices, `Briefcase`
+  Work, `Ticket` History). Rows are a `dl`: `grid-cols-[5.25rem_1fr]`,
+  28px tall, the label `text-xs text-slate-500`, the value `text-slate-800`
+  with its quiet icon actions at the right. Contact values are links
+  (`mailto:`, `tel:`, the chat link) that wrap, never truncate, each with
+  an icon-only `CopyButton` (toast "Email copied."); the email also has
+  **Reply in ticket**; a chat row opens the service (`ExternalLink`) or
+  its app (`Laptop`); the tile's footer keeps the card's **Open
+  profile**, **Schedule a meeting** and `ProfileActions`. Devices lists
+  every device: name (to the asset page), the compliance dot and words,
+  then `model · OS · seen 2h ago` or `model · TAG · Snipe-IT`, and an
+  `ExternalLink` to the source. History has the open tickets as links,
+  "N earlier tickets · last one 6d ago" with **Show** / **Hide**
+  (`aria-expanded`) over the five latest and "All N tickets", and
+  "4.8 of 5 · 12 ratings" when they have rated. A tile with nothing to
+  show is left out (Devices only while an asset source is connected).
+- **Only what exists.** The strip shows what the contact card, the asset
+  cache and the tickets already hold. No field is invented for it: there
+  are no working hours, language or requester notes until a feature
+  stores them.
+- **Print** shows the closed strip's first row with the email and phones
+  as text in place of the buttons (`hidden print:block`); the group, the
+  details button, the band and the tiles are `print:hidden`.
 
 ## Business calendars
 
