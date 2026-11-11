@@ -1,9 +1,18 @@
 "use client";
 
 // Shared "one-click Microsoft setup" wizard (used by the SSO and directory
-// sync panels). Starts the enterprise device-code flow, shows the code to
+// sync panels, and by the helpdesk's Microsoft Intune page since 1.20.4).
+// Starts the enterprise device-code flow, shows the code to
 // enter at microsoft.com/devicelogin, polls until the tenant admin finishes
 // signing in, then refetches the panel's state and hands it to the caller.
+//
+// 1.20.4: the poll that follows the sign-in does the setup's work and may
+// take a while (Intune waits for Microsoft to activate the new app), so
+// once a poll has been out for a few seconds the line says "Setting it up
+// with Microsoft. This can take a minute…" and cancel is gone: the server
+// finishes whatever the page does. The poll's answer goes to onDone and, when
+// doneMessage is a function, picks the closing words (doneWarn: as a
+// warning notice, for a setup that finished with something left to do).
 
 import { useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
@@ -14,6 +23,7 @@ export function MsDeviceSetup({
   refreshUrl,
   blurb,
   doneMessage,
+  doneWarn,
   onDone,
 }: {
   startUrl: string;
@@ -21,13 +31,18 @@ export function MsDeviceSetup({
   /** Admin view endpoint refetched after success; its JSON goes to onDone. */
   refreshUrl: string;
   blurb: string;
-  doneMessage: string;
-  onDone: (state: any) => void;
+  doneMessage: string | ((result: any) => string);
+  /** True when the setup finished with something left for the admin to do: the closing notice is a warning. */
+  doneWarn?: (result: any) => boolean;
+  /** `result` is the poll's own answer ({ status: "done", … }). */
+  onDone: (state: any, result: any) => void;
 }) {
   const [phase, setPhase] = useState<"idle" | "starting" | "waiting" | "done">("idle");
   const [code, setCode] = useState("");
   const [uri, setUri] = useState("");
   const [error, setError] = useState("");
+  const [working, setWorking] = useState(false);
+  const [result, setResult] = useState<any>(null);
   const stop = useRef(false);
 
   async function begin() {
@@ -37,7 +52,8 @@ export function MsDeviceSetup({
     const res = await fetch(startUrl, { method: "POST" });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data?.error || "Could not start Microsoft sign-in.");
+      // A 404 is an enterprise build from before this setup existed (the route is its own).
+      setError(data?.error || (res.status === 404 ? "This build can't do this setup yet. Update the enterprise image, or enter the details by hand." : "Could not start Microsoft sign-in."));
       setPhase("idle");
       return;
     }
@@ -50,16 +66,25 @@ export function MsDeviceSetup({
     while (!stop.current && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, intervalMs));
       if (stop.current) return;
-      const p = await fetch(pollUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ setup_id: data.setup_id }),
-      });
+      // "Not yet" answers at once: a poll still out after a few seconds is the setup itself running.
+      const slow = setTimeout(() => setWorking(true), 3000);
+      let p: Response;
+      try {
+        p = await fetch(pollUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ setup_id: data.setup_id }),
+        });
+      } finally {
+        clearTimeout(slow);
+        setWorking(false);
+      }
       const pd = await p.json().catch(() => ({}));
       if (p.ok && pd.status === "done") {
+        setResult(pd);
         setPhase("done");
         const fresh = await fetch(refreshUrl);
-        if (fresh.ok) onDone(await fresh.json());
+        if (fresh.ok) onDone(await fresh.json(), pd);
         return;
       }
       if (!p.ok) {
@@ -76,8 +101,8 @@ export function MsDeviceSetup({
 
   if (phase === "done") {
     return (
-      <div className="notice-ok mb-4 rounded-lg border px-3 py-2 text-sm">
-        {doneMessage}
+      <div className={`${doneWarn?.(result) ? "notice-warn" : "notice-ok"} mb-4 rounded-lg border px-3 py-2 text-sm`} role="status">
+        {typeof doneMessage === "function" ? doneMessage(result) : doneMessage}
       </div>
     );
   }
@@ -104,16 +129,22 @@ export function MsDeviceSetup({
           </p>
           <p className="mt-1 flex items-center gap-2 text-xs text-slate-500">
             <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-compass-500" />
-            Waiting for you to finish signing in…
-            <button
-              className="font-medium text-slate-400 underline hover:text-slate-600"
-              onClick={() => {
-                stop.current = true;
-                setPhase("idle");
-              }}
-            >
-              cancel
-            </button>
+            {working ? (
+              "Setting it up with Microsoft. This can take a minute…"
+            ) : (
+              <>
+                Waiting for you to finish signing in…
+                <button
+                  className="font-medium text-slate-400 underline hover:text-slate-600"
+                  onClick={() => {
+                    stop.current = true;
+                    setPhase("idle");
+                  }}
+                >
+                  cancel
+                </button>
+              </>
+            )}
           </p>
         </div>
       ) : (

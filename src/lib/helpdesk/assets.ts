@@ -68,6 +68,12 @@
 //               tenant: new credentials are signed in with first, and only
 //               another tid retires the old rows (intuneSourceCheck,
 //               adoptIntuneSource, under INTUNE_SYNC_LOCK).
+//   one-click   1.20.4: the enterprise overlay's setup (ee/intune-setup)
+//               creates Intune's app registration in Entra and saves it
+//               through saveAssetSettings, so every rule above holds. It
+//               reads intuneSetupState before it creates anything, and
+//               saveIntuneAppUnverified keeps the new secret when Microsoft
+//               is still activating the app after the setup's wait.
 //   cleanup     the sweep deletes unlinked rows of retired and switched-off
 //               sources and blanks the person on retired or gone rows;
 //               anonymising deletes a retired or gone row it unlinked last
@@ -496,24 +502,10 @@ export async function saveAssetSettings(patch: AssetSettingsPatch): Promise<{ ch
       const t = await testIntune(c.value);
       if (!t.ok) throw new AssetError(t.error, 409);
       const from = cur.intune?.cache_source ?? "";
-      if (from && from !== t.tenant && patch.confirm_tenant_change !== true) {
-        const e = new AssetError(
-          "These credentials sign in to a different Microsoft 365 tenant than the Intune devices already here. Connecting starts a new device list: devices linked to tickets stay on them, marked as no longer in Intune, and the rest are removed.",
-          409
-        );
-        e.code = "tenant_change";
-        throw e;
-      }
-      const wasMode = cur.intune?.tenant || cur.intune?.client_id || cur.intune?.secret ? "own" : cur.intune?.on ? "directory" : null;
-      const r = await adoptIntuneSource(t.tenant, t.tag, true, { tenant: c.value.tenant, client_id: c.value.clientId, secret: c.value.secret });
-      credsCache = null;
-      changed.push("intune_credentials");
-      if (wasMode === "directory") changed.push("intune_own_app");
-      if (!cur.intune?.on) changed.push("intune_on");
-      if (r?.changed) {
-        intuneRetired = r.retired;
-        changed.push("intune_source_changed");
-      }
+      if (from && from !== t.tenant && patch.confirm_tenant_change !== true) throw tenantChangeError();
+      const r = await storeOwnIntuneApp(cur, c.value, t.tenant);
+      changed.push(...r.changed);
+      intuneRetired = r.retired;
     }
   }
   if (patch.intune !== undefined) {
@@ -562,6 +554,74 @@ export async function saveAssetSettings(patch: AssetSettingsPatch): Promise<{ ch
     liveLookups.clear();
   }
   return { changed, retired: retired + intuneRetired };
+}
+
+/** Credentials for another tenant than the cached devices': the page asks, then sends confirm_tenant_change. */
+function tenantChangeError(): AssetError {
+  const e = new AssetError(
+    "These credentials sign in to a different Microsoft 365 tenant than the Intune devices already here. Connecting starts a new device list: devices linked to tickets stay on them, marked as no longer in Intune, and the rest are removed.",
+    409
+  );
+  e.code = "tenant_change";
+  return e;
+}
+
+/**
+ * Save Intune's own app registration `c` as the one that signs in to tenant
+ * `tid`, and switch Intune on. Answers what changed (names for the audit)
+ * and how many linked devices of another tenant were retired.
+ */
+async function storeOwnIntuneApp(cur: AssetSettings, c: IntuneCredentials, tid: string): Promise<{ changed: string[]; retired: number }> {
+  const wasMode = cur.intune?.tenant || cur.intune?.client_id || cur.intune?.secret ? "own" : cur.intune?.on ? "directory" : null;
+  const r = await adoptIntuneSource(tid, credTag(c), true, { tenant: c.tenant, client_id: c.clientId, secret: c.secret });
+  credsCache = null;
+  const changed = ["intune_credentials"];
+  if (wasMode === "directory") changed.push("intune_own_app");
+  if (!cur.intune?.on) changed.push("intune_on");
+  if (r?.changed) changed.push("intune_source_changed");
+  return { changed, retired: r?.changed ? r.retired : 0 };
+}
+
+/**
+ * 1.20.4, the one-click setup (enterprise overlay, ee/intune-setup): what it
+ * must know before it creates anything in Entra. `tenantInUse` is the tenant
+ * ID the Intune devices here came from ("" when there are none), `ownApp`
+ * whether Intune already has an app registration of its own saved.
+ */
+export async function intuneSetupState(): Promise<{ tenantInUse: string; ownApp: boolean }> {
+  const it = (await getAssetSettings()).intune;
+  return { tenantInUse: it?.cache_source ?? "", ownApp: !!it?.secret };
+}
+
+/**
+ * 1.20.4, the one-click setup: save an app registration the setup created in
+ * tenant `tenantId` a moment ago, when Microsoft has not finished activating
+ * it in the time the setup waits. saveAssetSettings signs in first and would
+ * refuse, and the new secret (shown once by Entra) would be lost. This skips
+ * the sign-in and nothing else:
+ *
+ *   - the tenant is the one the admin signed in to when the app was made
+ *     (single-tenant), the credentials' tenant must be that tenant ID, and a
+ *     provider built for it refuses a token for any other (build, expectTid);
+ *   - devices here from another tenant refuse it ("tenant_change"), as
+ *     saveAssetSettings does without confirm_tenant_change;
+ *   - the secret is sealed like any other (writeIntune).
+ *
+ * Intune is on afterwards and its syncs say why they fail until the app
+ * works. Called by server code only, never with a request's body.
+ */
+export async function saveIntuneAppUnverified(tenantId: string, raw: unknown): Promise<{ changed: string[]; retired: number }> {
+  const tid = tenantId.trim().toLowerCase();
+  const cur = await getAssetSettings();
+  const c = checkIntuneCredentials(raw);
+  if (!c.ok) throw new AssetError(c.error);
+  if (!GUID.test(tid) || c.value.tenant.toLowerCase() !== tid) throw new AssetError("The app registration's tenant must be the ID of the tenant it was created in.");
+  const from = cur.intune?.cache_source ?? "";
+  if (from && from !== tid) throw tenantChangeError();
+  const r = await storeOwnIntuneApp(cur, c.value, tid);
+  supplierCache.clear();
+  liveLookups.clear();
+  return r;
 }
 
 /** A switched-off source: its unlinked rows and its sync record go; linked rows stay as history. */

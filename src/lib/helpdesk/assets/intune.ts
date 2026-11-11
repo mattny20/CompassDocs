@@ -29,7 +29,8 @@
 //
 // Tokens are cached in memory per (tenant, client ID, secret) until five
 // minutes before they expire; a 401 from Graph drops the token and retries
-// once. Paging backs off on 429 like Snipe-IT's.
+// once, and a 403 drops it for the next call (1.20.4: a token keeps the
+// permissions it was issued with). Paging backs off on 429 like Snipe-IT's.
 //
 // The source's identity is the tenant the token signs in to (its `tid`
 // claim, else GET /organization), never the tenant text an admin typed: the
@@ -239,6 +240,10 @@ export function intuneProvider(cfg: IntuneConfig): AssetProvider {
           throw new AssetHttpError(`Microsoft Graph refused ${app}'s sign-in (401). Check the app registration in ${where}.`, 401, "http", null, e.detail);
         }
         if (e instanceof AssetHttpError && e.status === 403) {
+          // 1.20.4: an app-only token carries the permissions the app had when it was issued. Drop it,
+          // so the next call signs in again and sees a permission granted (or a consent that reached
+          // Graph) since: a new app registration's first tokens can come before its consent has.
+          tokens.delete(cacheKey);
           throw new AssetHttpError(
             `Microsoft Graph won't list managed devices (403). In Entra, give ${app} the ${INTUNE_PERMISSION} application permission and grant admin consent.`,
             403,

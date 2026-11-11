@@ -12,7 +12,11 @@
 //     link; another tenant asks first, then retires the old devices;
 //   - forgetting the credentials turns Intune off and never falls back;
 //   - the stored secret is sealed (real settings row, under the assets
-//     settings lock, restored after).
+//     settings lock, restored after);
+//   - 1.20.4, the core side of the one-click setup (the setup itself is the
+//     enterprise overlay's): what it reads before it creates anything, the
+//     save without a sign-in for an app Microsoft is still activating and
+//     what that save refuses, and a 403 dropping the cached token.
 //
 // Run: DATABASE_URL=… npx tsx --tsconfig ./tsconfig.test.json --test test/helpdesk-intune-own.test.ts
 
@@ -478,6 +482,135 @@ describe("an install connected before 1.20.2 (the directory sync's app)", () => 
     assert.deepEqual([s.intune?.cache_source, s.intune?.tenant], [OTHER_TID, OTHER_TENANT]);
     assert.deepEqual((await auditRows("helpdesk.assets.intune_credentials")).at(-1), { changed: ["intune_credentials", "intune_own_app", "intune_source_changed"], tenant: OTHER_TENANT, client_id: OWN.client_id, linked_assets_retired: 1 });
     directorySyncLicensed = false;
+  });
+});
+
+describe("the one-click setup's core side (1.20.4)", () => {
+  // What the setup saves: the tenant ID of the admin's sign-in, the new app's client ID and secret.
+  const NEW_APP = { tenant: TID, client_id: OWN.client_id, secret: OWN.secret };
+  const audited = () => auditRows("helpdesk.assets.intune_credentials");
+
+  test("what it reads before it creates anything in Entra: the tenant in use, and whether Intune has its own app", async () => {
+    assets.setAssetSettingsForTests(BASE());
+    assert.deepEqual(await assets.intuneSetupState(), { tenantInUse: "", ownApp: false });
+    // An install on the directory sync app: a tenant in use, no app of its own.
+    assets.setAssetSettingsForTests(BASE({ on: true, cache_source: TID, cred_tag: "legacy" }));
+    assert.deepEqual(await assets.intuneSetupState(), { tenantInUse: TID, ownApp: false });
+    // Switched off or forgotten, the devices' tenant is still the one in use (linked devices stay).
+    assets.setAssetSettingsForTests(BASE({ on: false, cache_source: OTHER_TID }));
+    assert.deepEqual(await assets.intuneSetupState(), { tenantInUse: OTHER_TID, ownApp: false });
+    assets.setAssetSettingsForTests(BASE({ on: true, cache_source: TID, tenant: TID, client_id: OWN.client_id, secret: OWN.secret }));
+    assert.deepEqual(await assets.intuneSetupState(), { tenantInUse: TID, ownApp: true });
+  });
+
+  test("a 403 drops the cached token: consent that reaches Graph later is seen at the next try", async () => {
+    intune.clearIntuneTokensForTests();
+    const creds = { tenant: TID, clientId: OWN.client_id, secret: OWN.secret, mode: "own" as const };
+    graph.forbid = true;
+    try {
+      const before = graph.tokensIssued;
+      assert.equal((await assets.testIntune(creds)).ok, false);
+      assert.equal((await assets.testIntune(creds)).ok, false);
+      assert.equal(graph.tokensIssued - before, 2, "each try after a 403 signs in again");
+    } finally {
+      graph.forbid = false;
+    }
+    const before = graph.tokensIssued;
+    assert.equal((await assets.testIntune(creds)).ok, true);
+    assert.equal((await assets.testIntune(creds)).ok, true);
+    assert.equal(graph.tokensIssued - before, 1, "a token that works is kept");
+  });
+
+  test("an app Microsoft is still activating: the normal save refuses, the setup's save keeps the secret, and it works once Microsoft is ready", async () => {
+    assets.setAssetSettingsForTests(BASE());
+    intune.clearIntuneTokensForTests();
+    const had = (await audited()).length;
+    graph.forbid = true; // the consent has not reached Graph yet
+    try {
+      await assert.rejects(assets.saveAssetSettings({ intune_credentials: NEW_APP }), (e: Error & { status?: number; code?: string }) => {
+        assert.equal(e.status, 409);
+        assert.equal(e.code, undefined, "a refusal to retry, not a question");
+        return true;
+      });
+      assert.deepEqual(await assets.intuneSetupState(), { tenantInUse: "", ownApp: false }, "nothing saved by the refusal");
+      const r = await assets.saveIntuneAppUnverified(TID.toUpperCase(), NEW_APP);
+      assert.deepEqual(r, { changed: ["intune_credentials", "intune_on"], retired: 0 });
+      const s = await assets.getAssetSettings();
+      assert.deepEqual(
+        [s.intune?.on, s.intune?.cache_source, s.intune?.tenant, s.intune?.client_id, s.intune?.secret, s.intune?.cred_tag],
+        [true, TID, TID, OWN.client_id, OWN.secret, assets.credTag({ tenant: TID, clientId: OWN.client_id })]
+      );
+      // Saved and on; the card has nothing to "check" (the tenant is known), and a test says why it can't list devices yet.
+      const v = await view();
+      assert.deepEqual(
+        { on: v.intune.on, mode: v.intune.mode, secret_set: v.intune.secret_set, unavailable: v.intune.unavailable, check_error: v.intune.check_error },
+        { on: true, mode: "own", secret_set: true, unavailable: null, check_error: "" }
+      );
+      assert.ok(!JSON.stringify(v).includes(OWN.secret));
+      const t = await assets.testIntune();
+      assert.equal(t.ok, false);
+      assert.match((t as { error: string }).error, /DeviceManagementManagedDevices\.Read\.All/);
+    } finally {
+      graph.forbid = false;
+    }
+    // Microsoft is ready: Test connection and the sync work with what was saved.
+    assert.deepEqual(await assets.testIntune(), { ok: true, total: 1, tenant: TID, tag: assets.credTag({ tenant: TID, clientId: OWN.client_id }) });
+    await pool().query("DELETE FROM hd_assets WHERE provider LIKE $1", [`${INTUNE}%`]);
+    const sync = await assets.syncProvider(INTUNE, { force: true });
+    assert.equal(sync.ok, true, JSON.stringify(sync));
+    assert.deepEqual((await rows()).map((x) => x.external_id), ["d-1"]);
+    assert.equal((await audited()).length, had, "the library audits nothing: the caller does, as the route does");
+    assert.ok(!logged.join("\n").includes(OWN.secret), "a log line carried the secret");
+  });
+
+  test("what the setup's save refuses: a tenant that is not the tenant ID, a missing secret, devices here from another tenant", async () => {
+    assets.setAssetSettingsForTests(BASE());
+    const refused = async (tid: string, raw: unknown, re: RegExp, code?: string) => {
+      await assert.rejects(assets.saveIntuneAppUnverified(tid, raw), (e: Error & { code?: string }) => {
+        assert.match(e.message, re);
+        assert.equal(e.code, code);
+        return true;
+      });
+      assert.equal((await assets.getAssetSettings()).intune?.secret ?? "", "", "nothing saved");
+    };
+    // The tenant as a domain could be any tenant's: only the ID the app was created in is taken.
+    await refused(TID, { ...NEW_APP, tenant: TENANT }, /must be the ID of the tenant it was created in/);
+    await refused(TENANT, { ...NEW_APP, tenant: TENANT }, /must be the ID of the tenant it was created in/);
+    await refused(TID, { ...NEW_APP, tenant: OTHER_TID }, /must be the ID of the tenant it was created in/);
+    await refused(TID, { tenant: TID, client_id: OWN.client_id }, /Paste the client secret/);
+    await refused(TID, { ...NEW_APP, client_id: "nope" }, /is a GUID/);
+    // Devices here came from another tenant: refused as the form's save is without the confirmation, and nothing is retired.
+    assets.setAssetSettingsForTests(BASE({ on: true, cache_source: OTHER_TID, cred_tag: "legacy" }));
+    await seedDevices();
+    await refused(TID, NEW_APP, /different Microsoft 365 tenant/, "tenant_change");
+    assert.deepEqual((await rows()).map((x) => [x.external_id, x.provider, x.gone_at]), [["d-linked", INTUNE, null], ["d-loose", INTUNE, null]]);
+    assert.equal((await assets.getAssetSettings()).intune?.cache_source, OTHER_TID);
+  });
+
+  test("an install on the directory sync app, same tenant: its own app takes over and every device and link stays", async () => {
+    assets.setAssetSettingsForTests(BASE({ on: true, cache_source: TID, cred_tag: assets.credTag({ tenant: DIR.tenant, clientId: DIR.clientId }) }));
+    directorySyncLicensed = true;
+    directoryConfig = DIR;
+    assets.setIntuneCredentialsForTests(undefined);
+    try {
+      await seedDevices();
+      assert.equal((await view()).intune.mode, "directory");
+      // Through the normal save (the setup's first choice) the answer is the form's own.
+      const r = await assets.saveAssetSettings({ intune_credentials: NEW_APP });
+      assert.deepEqual(r, { changed: ["intune_credentials", "intune_own_app"], retired: 0 });
+      assert.deepEqual((await rows()).map((x) => [x.external_id, x.provider, x.gone_at]), [["d-linked", INTUNE, null], ["d-loose", INTUNE, null]]);
+      // And through the setup's save without a sign-in, from the same starting point.
+      assets.setAssetSettingsForTests(BASE({ on: true, cache_source: TID, cred_tag: assets.credTag({ tenant: DIR.tenant, clientId: DIR.clientId }) }));
+      assets.setIntuneCredentialsForTests(undefined);
+      const u = await assets.saveIntuneAppUnverified(TID, NEW_APP);
+      assert.deepEqual(u, { changed: ["intune_credentials", "intune_own_app"], retired: 0 });
+      assert.deepEqual((await rows()).map((x) => [x.external_id, x.provider, x.gone_at]), [["d-linked", INTUNE, null], ["d-loose", INTUNE, null]]);
+      assert.equal((await view()).intune.mode, "own");
+    } finally {
+      directorySyncLicensed = false;
+      directoryConfig = { tenant: "", clientId: "", clientSecret: "" };
+      assets.setIntuneCredentialsForTests(undefined);
+    }
   });
 });
 

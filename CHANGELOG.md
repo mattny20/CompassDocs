@@ -4,6 +4,32 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.20.4] - 2026-11-11
+
+One-click setup for Microsoft Intune. The desk can now create Intune's app
+registration in Entra for you.
+
+### Added
+- **Microsoft Intune: "Set up automatically with Microsoft".** On the Intune
+  page, sign in once as a tenant admin and CompassDocs creates the app
+  registration with the one permission it needs, grants admin consent, saves
+  the details with the secret encrypted, connects Intune and starts the
+  first sync. The form stays for doing it by hand.
+- **It leaves Entra tidy.** Nothing is created when you sign in to a
+  different tenant than the one your Intune devices came from, or when
+  Intune already has its own app registration. If a step fails after the app
+  was made, the app is removed again.
+- **When Microsoft is slow to activate the new app,** the details are saved
+  anyway and the page asks you to press Test connection in a minute.
+
+### Fixed
+- **Intune notices a newly granted permission at the next try,** instead of
+  up to an hour later.
+
+### Upgrading
+- **No schema change.** The one-click setup needs the 1.20.4 enterprise
+  image. Workspaces already connected to Intune are not changed.
+
 ## [1.20.3] - 2026-11-10
 
 The requester strip. On a ticket, the person who asked now sits in a strip
