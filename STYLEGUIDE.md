@@ -4992,3 +4992,17 @@ the image work in `appearance-upload`).
   server page that, after sign-in and the page's own capability check,
   `redirect()`s to the new place (`MOVED_SETTINGS`); never a
   `next.config` redirect, which would answer before authentication.
+- **One-click Microsoft setup** (1.20.4 on the Microsoft Intune page; the
+  SSO and directory sync panels before it) is `<MsDeviceSetup>`
+  (`components/MsDeviceSetup`), placed above the fields it fills in, which
+  stay as the way to do it by hand: a `primary` button with one sentence
+  beside it saying what the setup creates and grants; then the code to
+  enter at microsoft.com/devicelogin with a pulsing dot and a "cancel"
+  link; once the server is doing the work the line reads "Setting it up
+  with Microsoft. This can take a minute…" and cancel is gone; and a
+  closing notice in its place, `notice-ok`, or `notice-warn` (`doneWarn`)
+  when the setup finished with something left for the admin to do. A
+  refusal is a red line under the button, which can be pressed again.
+  Offer it only while it has something to create: Intune's is hidden once
+  an app registration of its own is saved, because a second run would
+  leave a second app in Entra.

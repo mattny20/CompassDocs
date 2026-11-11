@@ -20,6 +20,14 @@
 // page; Connect signs in with them before anything is saved. An install
 // connected before 1.20.2 keeps using the Microsoft 365 directory sync's
 // app, and the page says so, until its own credentials are entered.
+//
+// 1.20.4: "Set up automatically with Microsoft" above the app registration
+// fields (MsDeviceSetup, as on the directory sync panel): one sign-in as a
+// tenant admin and the enterprise build creates the app registration in
+// Entra with the one permission, grants admin consent and connects Intune
+// (POST /api/ee/intune/setup/start and …/poll). Offered while Intune has no
+// app registration of its own saved; the fields stay as the way to do it by
+// hand.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Laptop, Lock, Package, PlugZap, RefreshCw, SlidersHorizontal } from "lucide-react";
@@ -34,6 +42,7 @@ import { RadioCards } from "@/components/PolicyFields";
 import { RelativeTime } from "@/components/RelativeTime";
 import { SaveRow } from "@/components/SaveRow";
 import { LoadingRow } from "@/components/Spinner";
+import { MsDeviceSetup } from "@/components/MsDeviceSetup";
 import { toast } from "@/components/Toasts";
 import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
 import { INTUNE_PERMISSION, type HdAssetOnSolve, type HdAssetSettingsView } from "@/lib/helpdesk/assets-shared";
@@ -363,6 +372,10 @@ function IntuneCard({ view, snipeConnected, onView }: { view: HdAssetSettingsVie
   const [clientId, setClientId] = useState(it.client_id);
   const [secret, setSecret] = useState("");
   const [replacing, setReplacing] = useState(false);
+  // 1.20.4, the one-click setup: its closing notice stays once Intune has its own app (setupDone),
+  // and forgetting that app offers the setup afresh (setupRun remounts it).
+  const [setupDone, setSetupDone] = useState(false);
+  const [setupRun, setSetupRun] = useState(0);
   const secretInput = useRef<HTMLInputElement>(null);
   const legacy = it.mode === "directory";
   const own = it.secret_set;
@@ -441,6 +454,8 @@ function IntuneCard({ view, snipeConnected, onView }: { view: HdAssetSettingsVie
         setTenant("");
         setClientId("");
         setSecret("");
+        setSetupDone(false);
+        setSetupRun((n) => n + 1);
       }
       toast("ok", forget ? "Intune disconnected and its app registration forgotten." : "Intune is off.");
     } catch (e) {
@@ -502,6 +517,37 @@ function IntuneCard({ view, snipeConnected, onView }: { view: HdAssetSettingsVie
         )}
 
         <h3 className="mb-2 mt-5 text-sm font-semibold text-slate-900">{legacy ? "Use Intune's own app registration" : "App registration"}</h3>
+        {/* 1.20.4: offered while Intune has no app registration of its own (a second run would leave a second app in Entra). */}
+        {(!own || setupDone) && (
+          <MsDeviceSetup
+            key={setupRun}
+            startUrl="/api/ee/intune/setup/start"
+            pollUrl="/api/ee/intune/setup/poll"
+            refreshUrl={URL_}
+            blurb={`Signs you in once as a tenant admin, creates the app registration with only the ${INTUNE_PERMISSION} permission, grants admin consent and ${legacy ? "switches Intune to it. Its devices and their links stay" : "connects Intune"}.`}
+            doneMessage={(r) =>
+              r?.verified === false
+                ? "The app registration was created in Entra and saved here. Microsoft is still activating it, so Intune can't sign in yet. Press Test connection in a minute, then Sync now."
+                : `Done. The app registration was created in Entra, admin consent was granted and Intune is connected. Its devices sync now and every 30 minutes.${r?.secret_expires ? ` The client secret is good until ${r.secret_expires}.` : ""}`
+            }
+            doneWarn={(r) => r?.verified === false}
+            onDone={(v: HdAssetSettingsView, r) => {
+              setSetupDone(true);
+              onView(v);
+              setTenant(v.intune.tenant);
+              setClientId(v.intune.client_id);
+              setSecret("");
+              setReplacing(false);
+              setProblem("");
+              // Still being activated by Microsoft: a sync now would only fail. The admin tests, then syncs.
+              if (r?.verified === false) return;
+              // The first sync, as after Connect: started here, carried on by the server.
+              sendJson<{ settings: HdAssetSettingsView }>(`${URL_}/sync`, "POST", { provider: "intune" })
+                .then((x) => onView(x.settings))
+                .catch(() => {});
+            }}
+          />
+        )}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Field label="Tenant" help="The tenant ID, or a domain such as contoso.onmicrosoft.com.">
             <TextInput value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="contoso.onmicrosoft.com" autoComplete="off" spellCheck={false} autoCapitalize="none" />
