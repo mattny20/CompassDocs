@@ -254,7 +254,7 @@ function SampleAnswer({ field: f, value, onChange }: { field: HdFormField; value
   }
   return (
     <Field label={label}>
-      <TextInput type={f.type === "date" ? "date" : f.type === "number" ? "number" : "text"} value={value} maxLength={500} onChange={(e) => onChange(e.target.value)} />
+      <TextInput type={f.type === "date" ? "date" : f.type === "datetime" ? "datetime-local" : f.type === "number" ? "number" : "text"} value={value} maxLength={500} onChange={(e) => onChange(e.target.value)} />
     </Field>
   );
 }

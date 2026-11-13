@@ -87,7 +87,7 @@ export function filterSummary(f: HdViewFilters, teams: { team_id?: number; id?: 
   if (f.created_to) parts.push(`Created to ${f.created_to}`);
   if (f.solved_from) parts.push(`Solved from ${f.solved_from}`);
   if (f.solved_to) parts.push(`Solved to ${f.solved_to}`);
-  for (const k of ["request_type", "channel", "category", "department", "office", "integration", "requester", "requester_email"]) {
+  for (const k of ["request_type", "channel", "category", "subcategory", "department", "office", "integration", "requester", "requester_email"]) {
     if (f[k]) parts.push(`${k.replace(/_/g, " ")} ${f[k].replace(/_/g, " ")}`);
   }
   if (!parts.length) return view === "all" ? "Every ticket" : "All open";

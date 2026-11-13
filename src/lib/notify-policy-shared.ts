@@ -217,6 +217,8 @@ const DESK_TEMPLATES: Record<string, string[]> = {
   sla_breach: ["hd_sla_breach"],
   // 1.19.4 (area C6, lib/helpdesk/share).
   shared_with_me: ["hd_shared"],
+  // 1.20.6 (lib/helpdesk/desk-calendar-reminders).
+  event_reminder: ["hd_event_reminder"],
 };
 
 const DESK_NAMES: string[] = [

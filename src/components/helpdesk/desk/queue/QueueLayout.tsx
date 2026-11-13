@@ -340,6 +340,7 @@ const DRILL_LABEL: Record<string, string> = {
   requester: "requester",
   requester_email: "requester",
   category: "category",
+  subcategory: "sub-category",
   department: "department",
   office: "office",
 };

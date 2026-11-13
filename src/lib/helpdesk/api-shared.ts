@@ -60,6 +60,8 @@ export const HD_WEBHOOK_EVENTS = [
   "approval.decided",
   "ticket.deleted",
   "ticket.restored",
+  // 1.20.6 (lib/helpdesk/desk-calendar): an event ticket's setup was marked complete.
+  "event.setup_completed",
 ] as const;
 export type HdWebhookEvent = (typeof HD_WEBHOOK_EVENTS)[number];
 
@@ -76,6 +78,7 @@ export const HD_WEBHOOK_EVENT_HINT: Record<HdWebhookEvent, string> = {
   "approval.decided": "An approval step is approved or declined",
   "ticket.deleted": "A ticket is moved to the recycle bin",
   "ticket.restored": "A ticket is restored from the recycle bin",
+  "event.setup_completed": "The setup for a ticket's event is marked complete",
 };
 
 /** The events a new webhook starts with. */

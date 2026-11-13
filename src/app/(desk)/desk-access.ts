@@ -86,6 +86,12 @@ export const SETTINGS_CAP: Record<string, string[]> = {
   checklists: ["settings.manage", "request_types.manage", "workflows.manage"],
   // "Before you solve" requirement sets (1.20.5, lib/helpdesk/solve-requirements).
   "before-you-solve": ["settings.manage"],
+  // Managed categories and sub-categories (1.20.6, lib/helpdesk/categories).
+  categories: ["settings.manage"],
+  // The event calendar's reminders and feed links (1.20.6, lib/helpdesk/desk-calendar).
+  "event-calendar": ["settings.manage"],
+  // Custom fields per team (1.20.6, lib/helpdesk/custom-fields).
+  "custom-fields": ["settings.manage"],
   csat: ["csat.manage"],
   workflows: ["workflows.manage"],
   "contact-cards": ["settings.manage"],

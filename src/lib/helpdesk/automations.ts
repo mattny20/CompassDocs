@@ -8,7 +8,8 @@
 //               teams, categories, priorities, request types, sources, and
 //               keywords (any word in the subject or the body; whole words,
 //               any case). No conditions = every ticket.
-//   actions     set team / assignee / priority / status / category, add
+//   actions     set team / assignee / priority / status / category (1.20.6:
+//               and sub-category, both from the admin's list), add
 //               tags, add an internal note, send a macro's reply, notify
 //               (the assignee, the team or one person)
 //
@@ -67,6 +68,8 @@ export const MAX_DEPTH = 3;
 export interface MatchTarget {
   team_id: number | null;
   category: string;
+  /** 1.20.6: the ticket's sub-category ('' = none). */
+  subcategory?: string;
   priority: HdPriority;
   request_type_id: number | null;
   source: HdSource;
@@ -91,7 +94,14 @@ export function keywordHit(keywords: string[], text: string): boolean {
 export function automationMatches(c: HdAutomationConditions, t: MatchTarget): boolean {
   const has = <T>(list: T[] | undefined): list is T[] => Array.isArray(list) && list.length > 0;
   if (has(c.team_ids) && (t.team_id === null || !c.team_ids.includes(t.team_id))) return false;
-  if (has(c.categories) && !c.categories.some((x) => x.toLowerCase() === t.category.toLowerCase())) return false;
+  // 1.20.6: "Category is any of" lists whole categories (`categories`) and single sub-categories (`subcategories`).
+  if (has(c.categories) || has(c.subcategories)) {
+    const cat = t.category.toLowerCase();
+    const sub = (t.subcategory ?? "").toLowerCase();
+    const whole = (c.categories ?? []).some((x) => x.toLowerCase() === cat);
+    const one = (c.subcategories ?? []).some((x) => x.category.toLowerCase() === cat && x.subcategory.toLowerCase() === sub);
+    if (!whole && !one) return false;
+  }
   if (has(c.priorities) && !c.priorities.includes(t.priority)) return false;
   if (has(c.request_type_ids) && (t.request_type_id === null || !c.request_type_ids.includes(t.request_type_id))) return false;
   if (has(c.sources) && !c.sources.includes(t.source)) return false;
@@ -100,13 +110,22 @@ export function automationMatches(c: HdAutomationConditions, t: MatchTarget): bo
 }
 
 /** The field changes a rule would make to this ticket, without the ones it already has. */
-export function effectivePatch(a: HdAutomationActions, t: Pick<HdTicketRow, "team_id" | "assignee_id" | "priority" | "status" | "category" | "tags">): HdTicketPatch {
+export function effectivePatch(
+  a: HdAutomationActions,
+  t: Pick<HdTicketRow, "team_id" | "assignee_id" | "priority" | "status" | "category" | "tags"> & { subcategory?: string }
+): HdTicketPatch {
   const p: HdTicketPatch = {};
   if (a.team_id !== undefined && a.team_id !== t.team_id) p.team_id = a.team_id;
   if (a.assignee_id !== undefined && a.assignee_id !== t.assignee_id) p.assignee_id = a.assignee_id;
   if (a.priority !== undefined && a.priority !== t.priority) p.priority = a.priority;
   if (a.status !== undefined && a.status !== t.status) p.status = a.status;
-  if (a.category !== undefined && a.category !== t.category) p.category = a.category;
+  // 1.20.6: a rule that names a sub-category sets both; one that names only the category leaves a sub-category of it alone.
+  if (a.category !== undefined && a.subcategory) {
+    if (a.category !== t.category || a.subcategory !== (t.subcategory ?? "")) {
+      p.category = a.category;
+      p.subcategory = a.subcategory;
+    }
+  } else if (a.category !== undefined && a.category !== t.category) p.category = a.category;
   if (a.tags_add?.length) {
     const next = [...t.tags];
     for (const tag of a.tags_add) if (!next.includes(tag)) next.push(tag);
@@ -160,7 +179,7 @@ export function validateConditions(raw: unknown): Checked<HdAutomationConditions
   if (raw === undefined || raw === null) return { ok: true, value: {} };
   if (typeof raw !== "object" || Array.isArray(raw)) return { ok: false, error: "Conditions must be an object." };
   const c = raw as Record<string, unknown>;
-  const known = ["team_ids", "categories", "priorities", "request_type_ids", "keywords", "sources"];
+  const known = ["team_ids", "categories", "subcategories", "priorities", "request_type_ids", "keywords", "sources"];
   for (const k of Object.keys(c)) if (!known.includes(k)) return { ok: false, error: `Unknown condition: ${k}.` };
   const out: HdAutomationConditions = {};
   const steps: [keyof HdAutomationConditions, Checked<unknown>][] = [
@@ -175,13 +194,31 @@ export function validateConditions(raw: unknown): Checked<HdAutomationConditions
     if (!r.ok) return r;
     if (r.value !== undefined) (out as Record<string, unknown>)[k] = r.value;
   }
+  // 1.20.6: single sub-categories, each with the category it belongs to.
+  if (c.subcategories !== undefined && c.subcategories !== null) {
+    if (!Array.isArray(c.subcategories) || c.subcategories.length > AUTOMATION_LIMITS.list) return { ok: false, error: "Sub-categories must be a list." };
+    const pairs: { category: string; subcategory: string }[] = [];
+    for (const v of c.subcategories) {
+      const o = v as { category?: unknown; subcategory?: unknown } | null;
+      if (!o || typeof o !== "object" || typeof o.category !== "string" || typeof o.subcategory !== "string") {
+        return { ok: false, error: "Each sub-category is { category, subcategory }." };
+      }
+      const pair = { category: o.category.trim(), subcategory: o.subcategory.trim() };
+      if (!pair.category || !pair.subcategory) continue;
+      if (pair.category.length > AUTOMATION_LIMITS.category || pair.subcategory.length > AUTOMATION_LIMITS.category) {
+        return { ok: false, error: `Keep each of sub-categories under ${AUTOMATION_LIMITS.category} characters.` };
+      }
+      if (!pairs.some((x) => x.category.toLowerCase() === pair.category.toLowerCase() && x.subcategory.toLowerCase() === pair.subcategory.toLowerCase())) pairs.push(pair);
+    }
+    if (pairs.length) out.subcategories = pairs;
+  }
   return { ok: true, value: out };
 }
 
 export function validateActions(raw: unknown): Checked<HdAutomationActions> {
   if (raw === undefined || raw === null || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, error: "Choose at least one action." };
   const a = raw as Record<string, unknown>;
-  const known = ["team_id", "assignee_id", "priority", "status", "category", "tags_add", "internal_note", "macro_id", "notify"];
+  const known = ["team_id", "assignee_id", "priority", "status", "category", "subcategory", "tags_add", "internal_note", "macro_id", "notify"];
   for (const k of Object.keys(a)) if (!known.includes(k)) return { ok: false, error: `Unknown action: ${k}.` };
   const out: HdAutomationActions = {};
   const id = (v: unknown, what: string): Checked<number | undefined> => {
@@ -205,6 +242,12 @@ export function validateActions(raw: unknown): Checked<HdAutomationActions> {
   if (a.category !== undefined && a.category !== null) {
     if (typeof a.category !== "string" || a.category.trim().length > AUTOMATION_LIMITS.category) return { ok: false, error: "The category is too long." };
     out.category = a.category.trim();
+  }
+  // 1.20.6: a sub-category goes with its category.
+  if (a.subcategory !== undefined && a.subcategory !== null && a.subcategory !== "") {
+    if (typeof a.subcategory !== "string" || a.subcategory.trim().length > AUTOMATION_LIMITS.category) return { ok: false, error: "The sub-category is too long." };
+    if (!out.category) return { ok: false, error: "Choose the category the sub-category belongs to." };
+    if (a.subcategory.trim()) out.subcategory = a.subcategory.trim();
   }
   if (a.tags_add !== undefined && a.tags_add !== null) {
     const tags = cleanTags(a.tags_add);
@@ -281,6 +324,41 @@ export async function validateAutomationInput(raw: Record<string, unknown>, part
     const { ensureMacroSchema } = await import("./macros");
     await ensureMacroSchema();
     if (!(await hqOne("SELECT 1 FROM hd_macros WHERE id = $1 AND owner_id IS NULL", [out.actions.macro_id]))) return { ok: false, error: "Unknown macro." };
+  }
+  // 1.20.6 (lib/helpdesk/categories): categories come from the admin's list. A rule sets one that is not archived;
+  // its conditions may name any that is listed (old tickets keep an archived one). Names are stored as the list spells them.
+  if (out.actions?.category || out.conditions?.categories?.length || out.conditions?.subcategories?.length) {
+    const { categoryTree } = await import("./categories");
+    const { findCategory, listNames, resolveCategoryPick } = await import("./categories-shared");
+    const tree = await categoryTree();
+    if (out.actions?.category) {
+      const pick = resolveCategoryPick(tree, { category: out.actions.category, subcategory: out.actions.subcategory ?? "" });
+      if (!pick.ok) return { ok: false, error: pick.error };
+      out.actions.category = pick.category;
+      if (pick.subcategory) out.actions.subcategory = pick.subcategory;
+    }
+    const names = tree.map((x) => x.name);
+    const none = names.length ? `Categories: ${listNames(names)}.` : "No categories are set up yet. An admin adds them in Desk settings, Categories.";
+    if (out.conditions?.categories) {
+      const fixed: string[] = [];
+      for (const name of out.conditions.categories) {
+        const hit = findCategory(tree, name);
+        if (!hit) return { ok: false, error: `"${name}" is not a category on the list. ${none}` };
+        fixed.push(hit.name);
+      }
+      out.conditions.categories = fixed;
+    }
+    if (out.conditions?.subcategories) {
+      const fixed: { category: string; subcategory: string }[] = [];
+      for (const p of out.conditions.subcategories) {
+        const cat = findCategory(tree, p.category);
+        if (!cat) return { ok: false, error: `"${p.category}" is not a category on the list. ${none}` };
+        const sub = findCategory(cat.subcategories, p.subcategory);
+        if (!sub) return { ok: false, error: `"${p.subcategory}" is not a sub-category of ${cat.name}.` };
+        fixed.push({ category: cat.name, subcategory: sub.name });
+      }
+      out.conditions.subcategories = fixed;
+    }
   }
   const people = [out.actions?.assignee_id, typeof out.actions?.notify === "object" ? out.actions.notify.user_id : undefined].filter((x): x is number => !!x);
   if (people.length) {
@@ -363,6 +441,7 @@ async function matchTarget(event: HdAutomationEvent, t: HdTicketRow): Promise<Ma
   return {
     team_id: t.team_id,
     category: t.category,
+    subcategory: t.subcategory ?? "",
     priority: t.priority,
     request_type_id: t.request_type_id,
     source: t.source,
@@ -436,7 +515,12 @@ export async function applyRule(rule: HdAutomation, t: HdTicketRow): Promise<boo
         logEvent("warn", "helpdesk.automation_patch_refused", { automation: rule.id, error: msg });
         const next = { ...left };
         // 1.20.5: a "Before you solve" requirement set refuses the solve the same way (lib/helpdesk/solve-requirements).
-        if ((await import("./checklists-shared")).isChecklistBlock(msg) || (await import("./solve-requirements-shared")).isSolveRequirementBlock(msg)) delete next.status;
+        // 1.20.6: a category that left the list since the rule was saved (lib/helpdesk/categories) drops the category alone.
+        const code = (e as { extra?: { code?: unknown } }).extra?.code;
+        if (code === "category_not_listed" || code === "subcategory_not_listed") {
+          delete next.category;
+          delete next.subcategory;
+        } else if ((await import("./checklists-shared")).isChecklistBlock(msg) || (await import("./solve-requirements-shared")).isSolveRequirementBlock(msg)) delete next.status;
         else {
           delete next.assignee_id;
           delete next.team_id;

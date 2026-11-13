@@ -286,6 +286,28 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.solve_requirements.created": "Created a Before you solve requirement set",
   "helpdesk.solve_requirements.updated": "Changed a Before you solve requirement set",
   "helpdesk.solve_requirements.deleted": "Deleted a Before you solve requirement set",
+  // Managed categories and sub-categories (1.20.6, lib/helpdesk/categories).
+  "helpdesk.category.created": "Added a ticket category",
+  "helpdesk.category.renamed": "Renamed a ticket category",
+  "helpdesk.category.moved": "Reordered the ticket categories",
+  "helpdesk.category.archived": "Archived a ticket category",
+  "helpdesk.category.restored": "Restored a ticket category",
+  "helpdesk.category.merged": "Merged a ticket category into another",
+  "helpdesk.category.deleted": "Deleted a ticket category",
+  "helpdesk.category.adopted": "Added the categories already in use to the list",
+  // The event calendar (1.20.6, lib/helpdesk/desk-calendar): reminder settings and private feed links. Details name the
+  // link's owner and scope, never its address.
+  "helpdesk.calendar.settings_updated": "Changed the event calendar settings",
+  "helpdesk.calendar_feed.created": "Created a calendar feed link",
+  "helpdesk.calendar_feed.regenerated": "Replaced a calendar feed link",
+  "helpdesk.calendar_feed.revoked": "Revoked a calendar feed link",
+  // Custom fields per team (1.20.6, lib/helpdesk/custom-fields).
+  "helpdesk.custom_field.created": "Created a helpdesk custom field",
+  "helpdesk.custom_field.updated": "Changed a helpdesk custom field",
+  "helpdesk.custom_field.archived": "Archived a helpdesk custom field",
+  "helpdesk.custom_field.restored": "Restored a helpdesk custom field",
+  "helpdesk.custom_field.reordered": "Reordered the helpdesk custom fields",
+  "helpdesk.custom_field.deleted": "Deleted a helpdesk custom field",
   // Assets on tickets, Snipe-IT (1.19.3).
   "helpdesk.assets.settings_changed": "Changed the asset settings",
   "helpdesk.assets.disconnected": "Disconnected Snipe-IT",

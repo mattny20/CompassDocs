@@ -1993,6 +1993,10 @@ export async function runImportJob(
     ).catch(() => {});
   }
   const done = await getImportJob(id);
+  // 1.20.6 (lib/helpdesk/categories): an import writes each ticket's category as the old helpdesk named it. Whatever
+  // the run stored (finished, stopped or failed part-way), those names join the admin's list now, so no imported
+  // ticket shows a category that is not on it. Never fails the import.
+  await (await import("./categories")).adoptCategories().catch((e) => logEvent("warn", "helpdesk.import.categories_failed", { job: id, error: e instanceof Error ? e.message : String(e) }));
   if (completed && done?.status === "completed") {
     await removeJobFiles(done.files);
     await hq("UPDATE hd_import_jobs SET files = files - 'main' - 'messages' WHERE id = $1", [id]).catch(() => {});

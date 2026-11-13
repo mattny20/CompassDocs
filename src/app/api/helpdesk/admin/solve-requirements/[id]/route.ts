@@ -1,4 +1,4 @@
-// PUT    /api/helpdesk/admin/solve-requirements/[id]  { name?, enabled?, team_ids?, request_type_ids?, ticket_fields?, fields? }
+// PUT    /api/helpdesk/admin/solve-requirements/[id]  { name?, enabled?, team_ids?, request_type_ids?, ticket_fields?, custom_field_ids?, fields? }
 //        → { set }. What is left out keeps its value. Tickets keep the answers they have.
 //        Audited (helpdesk.solve_requirements.updated, what changed; switching it on or off is in `changed`).
 // DELETE /api/helpdesk/admin/solve-requirements/[id] → { ok }. Tickets keep their answers.
@@ -31,7 +31,7 @@ export async function PUT(req: Request, { params }: Ctx) {
   try {
     const r = await updateSolveSet(id, b);
     if (!r) return notFound();
-    const changed = (["name", "enabled", "team_ids", "request_type_ids", "ticket_fields", "fields"] as const).filter((k) => JSON.stringify(r.before[k]) !== JSON.stringify(r.after[k]));
+    const changed = (["name", "enabled", "team_ids", "request_type_ids", "ticket_fields", "custom_field_ids", "fields"] as const).filter((k) => JSON.stringify(r.before[k]) !== JSON.stringify(r.after[k]));
     if (changed.length) {
       await audit({
         actor: actorFrom(gate),
@@ -46,6 +46,7 @@ export async function PUT(req: Request, { params }: Ctx) {
           team_ids: r.after.team_ids,
           request_type_ids: r.after.request_type_ids,
           ticket_fields: r.after.ticket_fields,
+          custom_field_ids: r.after.custom_field_ids,
           closing_fields: r.after.fields.map((f) => f.label),
         },
         ip: ipFrom(req),

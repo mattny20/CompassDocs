@@ -4,6 +4,83 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.20.6] - 2026-11-13
+
+Three additions to the desk: a managed list of categories and
+sub-categories, custom fields per team, and an event calendar.
+
+### Added
+- **Categories and sub-categories, managed by the desk admin.** Desk
+  settings → Categories holds one list of ticket categories, each with
+  sub-categories: add, rename, reorder, archive, merge and delete. Renaming
+  or merging updates the tickets, request types, automations, saved views
+  and report filters that use the name.
+- **Sub-category on tickets.** It shows in the side panel, the queue filter,
+  saved views, reports (with drill-down), the printed ticket, the API
+  (`subcategory`, and a new `GET /categories`), webhooks and the Claude
+  connector. Before you solve gains "A sub-category".
+- **Custom fields.** Desk settings → Custom fields lets an admin create
+  fields (short text, long text, pick one, yes / no, date, date and time,
+  number, a person), assign each to one or more teams or to all teams, and
+  mark each "Agent only" or "Public". Every ticket on those teams shows the
+  fields in its side panel; agents fill them in there.
+- **Public custom fields show to the requester,** read-only, on their
+  request in Get help and in the customer portal. Agent-only fields never
+  leave the agent side.
+- **Custom field values stay with the ticket when it changes team.** They
+  are in the API (`custom_fields`, and a new `GET /custom-fields`), webhooks
+  and the Claude connector, and Before you solve can require one.
+- **Event calendar.** A ticket can carry an event: start, end or all day,
+  place, and how long before the start setup must be ready. Any request type
+  can put its requests on the calendar, with a new "Date and time" question
+  for the time.
+- **Meeting invites by email fill in the event.** An update changes the same
+  ticket; a cancellation marks the event cancelled and adds a note, without
+  closing the ticket.
+- **Setup complete.** A ticket with an event can't be solved or closed, by
+  any route, until its setup is marked complete. Solve shows it as a tick
+  box in Before you solve.
+- **Calendar page:** Day, Week and Month, by team, coloured by team or
+  status, with optional layers for due dates and recurring tickets, and a
+  list on phones. Print a day sheet with tick boxes, a week or a month.
+- **Reminders before setup is due** (a day and an hour before, out of the
+  box), plus one if an event starts with setup still open. Each agent
+  chooses bell, email or push under "Event reminders".
+- **Double-booking warning** when two events share a place and overlap. It
+  never blocks.
+- **Private calendar feed links** for Outlook, Google Calendar and Apple
+  Calendar, per team or for all your teams. A link is shown once and can be
+  replaced or revoked.
+
+### Changed
+- **A category is picked from the list, no longer typed:** on the ticket, in
+  request types, in automations and in the queue filter. A name that is not
+  on the list is refused with the allowed values (`code:
+  "category_not_listed"`); nothing adds a category by itself.
+- **The API can set a ticket's category.** `PATCH /tickets/{number}` now
+  takes `category` and `subcategory`; it used to refuse `category`.
+- **The time export has a new last column,** "Sub-category".
+- **Enterprise image builds can leave the type check to a separate step**
+  (`COMPASSDOCS_BUILD_SKIP_TYPECHECK=1`). Unset, builds are unchanged.
+
+### Fixed
+- **Pressing Solve several times no longer reopens the Before you solve
+  dialog** after you cancel it.
+- **The Before you solve dialog's buttons no longer cover the last line
+  above them.**
+
+### Upgrading
+- **Nothing to run.** Categories already on tickets, request types and
+  automations join the list on the first start; spellings that differ only
+  by case or spacing become one. No custom field or event exists until you
+  add one.
+- **Schema:** new tables for categories, custom fields and their values,
+  ticket events, event reminders, calendar feed links and calendar
+  preferences; new columns `subcategory` on `hd_tickets` and
+  `hd_request_types` and `calendar` on `hd_request_types`. All are added on
+  start.
+- **Rolling back to 1.20.5 is safe:** it ignores the new tables and columns.
+
 ## [1.20.5] - 2026-11-13
 
 Three additions: send-from addresses for the desk's email, a Duo approval on

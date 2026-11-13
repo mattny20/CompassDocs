@@ -40,6 +40,10 @@
 //      the refusal is logged and audited (helpdesk.inbound.rejected) and no
 //      mail is sent back, since the From of unsolicited mail is easily
 //      forged and a bounce would land on whoever was impersonated.
+//      1.20.6: a meeting invite in the mail (a text/calendar part or an
+//      .ics attachment) fills in the ticket's event; an update for the same
+//      meeting updates it and a cancellation marks it cancelled, never
+//      closing the ticket (lib/helpdesk/desk-calendar).
 //   5. Attachments go to the helpdesk attachment store after the message
 //      exists (count, size and type limits here; the store enforces its
 //      own); the ones not added are listed in a note on the ticket.
@@ -453,7 +457,15 @@ export async function processInboundEmail(
   // sender's In-Reply-To/References name an email that opened (or was added
   // to) a ticket: a colleague's Reply all before the desk answered. The
   // same authority rules as a token reply follow.
-  const threadTicketId = !token && verified ? await (await import("./reply-all")).ticketForReplyAll(email) : null;
+  const replyAllTicketId = !token && verified ? await (await import("./reply-all")).ticketForReplyAll(email) : null;
+  // 1.20.6 (lib/helpdesk/desk-calendar): a meeting invite the mail carries (a text/calendar part or an .ics
+  // attachment). A new ticket gets its event from it. An update or a cancellation of a meeting some open ticket's
+  // event came from (the same UID), from that ticket's own verified requester, belongs to that ticket even when the
+  // mail names no thread: Outlook and Google send those as new mail. The same authority rules as a token reply follow.
+  const calendar = await import("./desk-calendar");
+  const invite = await calendar.inviteFromEmail(email);
+  const threadTicketId =
+    replyAllTicketId ?? (!token && verified && invite ? await calendar.ticketForInviteUid(invite.uid, { id: sender?.id ?? null, email: email.from.email }) : null);
   let followUpOf: number | null = null;
   // 1.19.1 review (lib/helpdesk/portal-hooks): the portal contact whose
   // closed ticket this follows up; the follow-up opens as their portal ticket.
@@ -554,6 +566,8 @@ export async function processInboundEmail(
             return processInboundEmail(email, { ...opts, outsideSenders, trustUnverified, mergeRetry: true });
           }
           if (r) await storeAttachments(email, t.id, r.message.id, author.id);
+          // 1.20.6: the invite it carried updates or cancels the ticket's event, or fills it in when there is none.
+          if (r && invite) await calendar.applyInviteToTicket(t.id, invite, { name: author.name }, { origin: opts.origin });
           // 1.19.4 (C7): binned between the lookup and the append (addMessage found no live row): a new ticket below.
           if (r || !(await (await import("./recycle-bin-guard")).ticketIsBinned({ id: t.id }))) {
             return reply(200, { ok: true, outcome: "appended", ticket: t.number });
@@ -639,7 +653,8 @@ export async function processInboundEmail(
   // A reply's quoted thread stays out (1.19.4: so a binned conversation never comes back in a new ticket).
   let body = inboundBody(email, { reply: followUpOf !== null || binnedReply });
   if (followUpOf !== null) body = `_Follow-up to #${followUpOf}, which was closed._\n\n${body}`;
-  const subject = cleanSubject(email.subject) || "(no subject)";
+  // 1.20.6: an invite with no subject line takes the meeting's own title.
+  const subject = cleanSubject(email.subject) || invite?.summary || "(no subject)";
   const { createTicket } = await import("./tickets");
   const ticket = await createTicket(
     {
@@ -659,6 +674,8 @@ export async function processInboundEmail(
     [ticket.id]
   );
   if (first) await storeAttachments(email, ticket.id, first.id, author.id);
+  // 1.20.6: a meeting invite fills in the ticket's event (lib/helpdesk/desk-calendar applyInviteToTicket; never throws).
+  if (invite) await calendar.applyInviteToTicket(ticket.id, invite, { name: author.name }, { origin: opts.origin });
   // The mail's Cc become the request's CCs (1.19.1, agent V3), only when the
   // sender is verified; outside addresses only while outside senders are on.
   if (verified) {

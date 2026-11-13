@@ -270,13 +270,15 @@ export async function exportTimeCsv(user: SessionUser, f: TimeExportFilters, tz:
     team: string | null;
     request_type: string | null;
     category: string;
+    subcategory: string;
     agent: string | null;
     minutes: number;
     note: string;
     source: string;
   }>(
     `SELECT to_char(e.logged_at AT TIME ZONE $1, 'YYYY-MM-DD HH24:MI') AS logged, t.number, t.subject, tm.name AS team, rt.title AS request_type,
-            COALESCE(t.category, '') AS category, COALESCE(NULLIF(u.name, ''), u.username) AS agent, e.minutes, e.note, e.source
+            COALESCE(t.category, '') AS category, COALESCE(t.subcategory, '') AS subcategory,
+            COALESCE(NULLIF(u.name, ''), u.username) AS agent, e.minutes, e.note, e.source
        FROM hd_time_entries e JOIN hd_tickets t ON t.id = e.ticket_id
        LEFT JOIN hd_teams tm ON tm.id = t.team_id LEFT JOIN hd_request_types rt ON rt.id = t.request_type_id LEFT JOIN users u ON u.id = e.user_id
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
@@ -284,10 +286,11 @@ export async function exportTimeCsv(user: SessionUser, f: TimeExportFilters, tz:
     params
   );
   const line = (cells: unknown[]) => cells.map((c) => (typeof c === "number" && Number.isFinite(c) ? String(c) : csvCell(c))).join(",");
-  const out = [line(["Logged", "Ticket", "Subject", "Team", "Request type", "Category", "Agent", "Minutes", "Hours", "Note", "Source"])];
+  // 1.20.6: Sub-category is a new last column, so the columns a spreadsheet already reads stay where they were.
+  const out = [line(["Logged", "Ticket", "Subject", "Team", "Request type", "Category", "Agent", "Minutes", "Hours", "Note", "Source", "Sub-category"])];
   for (const r of rows) {
     out.push(
-      line([r.logged, r.number, r.subject, r.team ?? "", r.request_type ?? "", r.category, r.agent ?? "Former agent", r.minutes, Math.round((r.minutes / 60) * 100) / 100, r.note, r.source === "timer" ? "Timer" : "Manual"])
+      line([r.logged, r.number, r.subject, r.team ?? "", r.request_type ?? "", r.category, r.agent ?? "Former agent", r.minutes, Math.round((r.minutes / 60) * 100) / 100, r.note, r.source === "timer" ? "Timer" : "Manual", r.subcategory])
     );
   }
   return { csv: `${out.join("\r\n")}\r\n`, rows: rows.length };

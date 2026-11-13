@@ -49,11 +49,13 @@ import type {
   HdView,
 } from "./types";
 import type { Role } from "../types";
+import { CATEGORY_LIST_SHARED_LOCK_SQL, categoriesReady, checkCategoryPick } from "./categories";
 
 export const TICKET_LIMITS = {
   subject: 200,
   body: 50_000,
-  category: 60,
+  // 1.20.6: as long as a name on the category list (lib/helpdesk/categories-shared CATEGORY_LIMITS.name); it was 60.
+  category: 80,
   tags: 20,
   tag: 40,
   attachments: 10,
@@ -238,6 +240,7 @@ export function listRow(t: HdTicket): HdTicketListRow {
     status: t.status,
     priority: t.priority,
     category: t.category,
+    subcategory: t.subcategory ?? "",
     tags: t.tags,
     source: t.source,
     parent_ticket_id: t.parent_ticket_id,
@@ -276,7 +279,10 @@ export interface CreateTicketInput {
   assignee_id?: number | null;
   /** Defaults to the request type's sla_priority, else normal. */
   priority?: HdPriority;
+  /** 1.20.6: callers that take it from outside check it against the list first (lib/helpdesk/categories checkCategoryPick). */
   category?: string;
+  /** 1.20.6: a sub-category of `category`. Left out: the request type's, when its category is the one used. */
+  subcategory?: string;
   tags?: string[];
   status?: HdStatus;
   parent_ticket_id?: number | null;
@@ -299,17 +305,22 @@ export async function insertTicketTx(client: PoolClient, input: CreateTicketInpu
   const subject = input.subject.trim().slice(0, TICKET_LIMITS.subject) || "(no subject)";
   let teamId = input.team_id ?? null;
   let category = (input.category ?? "").trim().slice(0, TICKET_LIMITS.category);
+  let subcategory = category ? (input.subcategory ?? "").trim().slice(0, TICKET_LIMITS.category) : "";
   let priority: HdPriority = input.priority ?? "normal";
   if (input.request_type_id) {
     const rt = (
-      await client.query<{ team_id: number | null; category: string; sla_priority: string }>(
-        "SELECT team_id, category, sla_priority FROM hd_request_types WHERE id = $1",
+      await client.query<{ team_id: number | null; category: string; subcategory: string; sla_priority: string }>(
+        "SELECT team_id, category, subcategory, sla_priority FROM hd_request_types WHERE id = $1",
         [input.request_type_id]
       )
     ).rows[0];
     if (rt) {
       if (input.team_id === undefined) teamId = rt.team_id;
-      if (!category) category = rt.category;
+      // The request type's category, and (1.20.6) its sub-category with it.
+      if (!category) {
+        category = rt.category;
+        subcategory = rt.category ? (rt.subcategory ?? "") : "";
+      }
       if (!input.priority && isPriorityValue(rt.sla_priority)) priority = rt.sla_priority;
     }
   }
@@ -333,10 +344,11 @@ export async function insertTicketTx(client: PoolClient, input: CreateTicketInpu
       const res = await client.query(
         `INSERT INTO hd_tickets (subject, requester_id, requester_name, requester_email, team_id, assignee_id, status,
             priority, category, tags, request_type_id, form_answers, source, source_ref, parent_ticket_id, workflow_run_id,
-            sla_policy_id, first_reply_due, resolve_due, reply_token, created_at, updated_at, solved_at, sla_paused_at, mailbox_id)
+            sla_policy_id, first_reply_due, resolve_due, reply_token, created_at, updated_at, solved_at, sla_paused_at, mailbox_id,
+            subcategory)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $21,
                  CASE WHEN $7 IN ('solved', 'closed') THEN $21::timestamptz END,
-                 CASE WHEN $7 IN ('pending', 'on_hold') THEN $21::timestamptz END, $22)
+                 CASE WHEN $7 IN ('pending', 'on_hold') THEN $21::timestamptz END, $22, $23)
          RETURNING *`,
         [
           subject,
@@ -361,6 +373,7 @@ export async function insertTicketTx(client: PoolClient, input: CreateTicketInpu
           newTicketReplyToken(),
           createdAt,
           mailboxId,
+          subcategory,
         ]
       );
       await client.query("RELEASE SAVEPOINT hd_ticket_insert");
@@ -460,9 +473,16 @@ export function validateTicketPatch(raw: Record<string, unknown>): HdTicketPatch
       out[k] = n;
     }
   }
+  // 1.20.6: null clears, like ''. Whether the names are on the list is checked where they are stored (updateTicket).
   if (raw.category !== undefined) {
-    if (typeof raw.category !== "string" || raw.category.length > TICKET_LIMITS.category) throw new HdTicketError("Category is too long.");
-    out.category = raw.category.trim();
+    const c = raw.category === null ? "" : raw.category;
+    if (typeof c !== "string" || c.length > TICKET_LIMITS.category) throw new HdTicketError("Category is too long.");
+    out.category = c.trim();
+  }
+  if (raw.subcategory !== undefined) {
+    const c = raw.subcategory === null ? "" : raw.subcategory;
+    if (typeof c !== "string" || c.length > TICKET_LIMITS.category) throw new HdTicketError("Sub-category is too long.");
+    out.subcategory = c.trim();
   }
   if (raw.tags !== undefined) {
     const tags = cleanTicketTags(raw.tags);
@@ -473,6 +493,13 @@ export function validateTicketPatch(raw: Record<string, unknown>): HdTicketPatch
     const s = typeof raw.subject === "string" ? raw.subject.trim() : "";
     if (!s || s.length > TICKET_LIMITS.subject) throw new HdTicketError("The subject must be 1 to 200 characters.");
     out.subject = s;
+  }
+  // 1.20.6: custom field values by key (lib/helpdesk/custom-fields); each key and value is checked in updateTicket's transaction.
+  if (raw.custom_fields !== undefined) {
+    if (typeof raw.custom_fields !== "object" || raw.custom_fields === null || Array.isArray(raw.custom_fields)) {
+      throw new HdTicketError('Send custom_fields as an object keyed by field key, like { "impact": "high" }. null clears a value.');
+    }
+    if (Object.keys(raw.custom_fields).length) out.custom_fields = raw.custom_fields as Record<string, unknown>;
   }
   return out;
 }
@@ -524,12 +551,17 @@ export async function updateTicket(
   actor: UpdateActor,
   ctx: HdHookContext = {},
   /** 1.20.5: the closing answers sent with a solve (lib/helpdesk/solve-requirements); stored only if the ticket is solved. */
-  opts: { solveAnswers?: unknown } = {}
+  /** 1.20.6: `setupComplete` marks the ticket's event setup complete in the same transaction as a solve (lib/helpdesk/desk-calendar). */
+  opts: { solveAnswers?: unknown; setupComplete?: boolean } = {}
 ): Promise<UpdateResult | undefined> {
   const now = new Date();
   // 1.20.5: the switched-on "Before you solve" sets, read before the transaction (one cached lookup; none defined: nothing more).
+  // 1.20.6: the category list has taken in what was already in use before a pick is checked against it.
+  if (patch.category !== undefined || patch.subcategory !== undefined) await categoriesReady();
   const solveSets = patch.status === "solved" || patch.status === "closed" ? await (await import("./solve-requirements")).solveSetsSnapshot() : null;
   const tx = await withTx(async (client) => {
+    // 1.20.6: a category change holds the list still (shared; taken before the ticket row, see lib/helpdesk/categories).
+    if (patch.category !== undefined || patch.subcategory !== undefined) await client.query(CATEGORY_LIST_SHARED_LOCK_SQL);
     const before = await getTicketRow(ticketId, client, true);
     if (!before) return undefined;
     if (patch.status !== undefined && patch.status !== before.status) await assertNotMergedTx(client, before);
@@ -579,14 +611,61 @@ export async function updateTicket(
       assigneeChangedTo = patch.assignee_id;
       changed.push("assignee_id");
     }
-    if (patch.category !== undefined && patch.category !== before.category) {
-      set("category", patch.category);
-      changed.push("category");
-      lines.push({ kind: "internal", body: patch.category ? `${whoMd} set the category to ${mdInline(patch.category)}` : `${whoMd} cleared the category` });
+    // 1.20.6 (lib/helpdesk/categories): a category and a sub-category are picked from the admin's list. What is set
+    // must be on it and not archived (400, naming the allowed values); a new category without a sub-category clears
+    // the old one, which belonged to the old category. What the ticket already has is kept as it is.
+    let categoryAfter = before.category;
+    let subcategoryAfter = before.subcategory ?? "";
+    if (patch.category !== undefined || patch.subcategory !== undefined) {
+      const had = { category: before.category, subcategory: before.subcategory ?? "" };
+      const categoryKept = patch.category === undefined || patch.category.toLowerCase() === had.category.toLowerCase();
+      const want = {
+        category: patch.category ?? had.category,
+        subcategory: patch.subcategory !== undefined ? patch.subcategory : categoryKept ? had.subcategory : "",
+      };
+      const pick = await checkCategoryPick(want, had, client);
+      if (!pick.ok) {
+        const err = new HdTicketError(pick.error, 400);
+        err.extra = { code: pick.code, allowed: pick.allowed };
+        throw err;
+      }
+      const catChanged = pick.category !== had.category;
+      const subChanged = pick.subcategory !== had.subcategory;
+      categoryAfter = pick.category;
+      subcategoryAfter = pick.subcategory;
+      if (catChanged) {
+        set("category", pick.category);
+        changed.push("category");
+      }
+      if (subChanged) {
+        set("subcategory", pick.subcategory);
+        changed.push("subcategory");
+      }
+      if (catChanged) {
+        const to = pick.subcategory ? `${pick.category} › ${pick.subcategory}` : pick.category;
+        lines.push({ kind: "internal", body: pick.category ? `${whoMd} set the category to ${mdInline(to)}` : `${whoMd} cleared the category` });
+      } else if (subChanged) {
+        lines.push({ kind: "internal", body: pick.subcategory ? `${whoMd} set the sub-category to ${mdInline(pick.subcategory)}` : `${whoMd} cleared the sub-category` });
+      }
     }
     if (patch.tags !== undefined && JSON.stringify(patch.tags) !== JSON.stringify(before.tags ?? [])) {
       set("tags", patch.tags);
       changed.push("tags");
+    }
+    // 1.20.6: custom field values (lib/helpdesk/custom-fields): checked against the team this same change leaves the ticket in,
+    // stored here (before the solve check below, which may require one), one internal line per change. A bad key or value: 400.
+    if (patch.custom_fields !== undefined) {
+      const cf = await import("./custom-fields");
+      try {
+        const r = await cf.applyCustomFieldsTx(client, { ticketId, teamId, values: patch.custom_fields, actor: { id: actor.id, name: actor.name }, now });
+        if (r.changed.length) {
+          changed.push("custom_fields");
+          for (const body of r.lines) lines.push({ kind: "internal", body });
+        }
+      } catch (e) {
+        if (e instanceof cf.CustomFieldError) throw new HdTicketError(e.message, e.status);
+        throw e;
+      }
     }
 
     // Dues as they stand, then as team, priority and status move them. The
@@ -629,6 +708,7 @@ export async function updateTicket(
       duesMoved = true;
     }
     let solved = false;
+    let setupCompleted = false;
     if (patch.status !== undefined && patch.status !== before.status) {
       const to = patch.status;
       // A workflow task's required hand-off comes first, whatever solves it
@@ -644,21 +724,28 @@ export async function updateTicket(
       // 1.20.5: "Before you solve" requirement sets, whatever solves it (lib/helpdesk/solve-requirements): 409 naming what is
       // missing. The ticket is read as this same change leaves it, and the answers sent with the solve are stored here, so
       // they are saved only if it is solved.
-      if (solveSets?.sets.length) {
+      // 1.20.6: an event whose setup is not marked complete holds the ticket open on every route, solved → closed too
+      // (lib/helpdesk/desk-calendar). It is refused below with the same sentence and code as a requirement set, so every
+      // caller that understands one understands the other. A solve that ticks "Setup complete" marks it here.
+      const setup = await (await import("./desk-calendar")).eventSetupOnCloseTx(client, ticketId, before.status, to, { complete: opts.setupComplete === true, actor: { id: actor.id, name: actor.name }, now });
+      if (setup.line) lines.push({ kind: "internal", body: setup.line });
+      setupCompleted = setup.completed;
+      if (solveSets?.sets.length || setup.open) {
         const sr = await (await import("./solve-requirements")).applySolveRequirementsTx(
           client,
-          solveSets,
+          solveSets ?? { sets: [], assetsOn: false },
           {
             id: ticketId,
             team_id: teamId,
             request_type_id: before.request_type_id,
             assignee_id: patch.assignee_id !== undefined ? patch.assignee_id : before.assignee_id,
-            category: patch.category !== undefined ? patch.category : before.category,
+            category: categoryAfter,
+            subcategory: subcategoryAfter,
             tags: patch.tags !== undefined ? patch.tags : before.tags ?? [],
             first_replied_at: before.first_replied_at,
             source: before.source,
           },
-          { from: before.status, to, answers: opts.solveAnswers, actor: { id: actor.id, name: actor.name }, now }
+          { from: before.status, to, answers: opts.solveAnswers, actor: { id: actor.id, name: actor.name }, now, eventSetupOpen: setup.open }
         );
         if (sr.refusal) {
           const err = new HdTicketError(sr.refusal.error, sr.refusal.status);
@@ -708,7 +795,8 @@ export async function updateTicket(
         if (!resolveDue || Date.parse(resolveDue) > now.getTime()) set("resolve_breached_at", null);
       }
     }
-    if (!sets.length) return { before, changed, assigneeChangedTo, solved: false };
+    // 1.20.6: a change to custom fields alone sets no column of the ticket, but still stamps it and leaves its lines.
+    if (!sets.length && !changed.includes("custom_fields")) return { before, changed, assigneeChangedTo, solved: false, setupCompleted: false };
     set("updated_at", now);
     await client.query(`UPDATE hd_tickets SET ${sets.join(", ")} WHERE id = $1`, params);
     for (const l of lines) {
@@ -718,9 +806,11 @@ export async function updateTicket(
         [ticketId, actor.id, actor.name, l.kind, actor.via === "mcp" ? `${l.body} via Claude` : actor.via === "api" ? `${l.body} via API` : actor.via === "claude_desk" ? `${l.body} via Claude in the desk` : l.body, now]
       );
     }
-    return { before, changed, assigneeChangedTo, solved };
+    return { before, changed, assigneeChangedTo, solved, setupCompleted };
   });
   if (!tx) return undefined;
+  // 1.20.6: the solve marked its event's setup complete (lib/helpdesk/desk-calendar): its webhooks, after the commit.
+  if (tx.setupCompleted) await (await import("./desk-calendar")).afterSetupCompleted(ticketId, { id: actor.id, name: actor.name }, ctx.origin);
   if (tx.changed.length) {
     const before = tx.before;
     const after = patch.status;
@@ -776,6 +866,8 @@ export interface TicketListFilters {
   tag?: string;
   /** '' = no category. */
   category?: string;
+  /** 1.20.6: '' = no sub-category. A sub-category's name; with `category` it is that category's. */
+  subcategory?: string;
   /** The requester's directory entry ('' = none recorded). */
   department?: string;
   office?: string;
@@ -888,6 +980,7 @@ export async function listTickets(
   if (f.mailbox) where.push(`t.mailbox_id = (SELECT mbf.id FROM hd_mailboxes mbf WHERE lower(mbf.address) = ${bind(f.mailbox.toLowerCase())})`);
   if (f.tag) where.push(`${bind(f.tag)} = ANY(t.tags)`);
   if (f.category !== undefined) where.push(`COALESCE(t.category, '') = ${bind(f.category)}`);
+  if (f.subcategory !== undefined) where.push(`COALESCE(t.subcategory, '') = ${bind(f.subcategory)}`);
   if (f.origin) where.push(f.origin === "automated" ? "COALESCE(t.automated, 0) = 1" : "COALESCE(t.automated, 0) = 0");
   for (const k of ["department", "office"] as const) {
     if (f[k] === undefined) continue;

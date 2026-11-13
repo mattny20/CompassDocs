@@ -11,6 +11,9 @@
 //   On the ticket   the ticket fields that must be set before a solve. Only
 //                   the ones this install can meet are offered (a linked
 //                   asset needs a connected asset source).
+//                   1.20.6: and "A custom field": a custom field (Desk
+//                   settings → Custom fields) that must be filled in. It is
+//                   asked only on tickets of a team the field is assigned to.
 //   Closing fields  what the agent fills in, built with the request form's
 //                   builder (settings/FormBuilder) and its field types.
 //
@@ -21,7 +24,7 @@ import { useRouter } from "next/navigation";
 import { ClipboardCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
-import { DangerAction, DangerZone, EmptyState, Field, SectionEmpty, TextInput, Toggle } from "@/components/form";
+import { DangerAction, DangerZone, EmptyState, Field, SectionEmpty, Select, TextInput, Toggle } from "@/components/form";
 import { PageHeader } from "@/components/PageHeader";
 import { PageContainer } from "@/components/PageWidth";
 import { SaveRow } from "@/components/SaveRow";
@@ -53,6 +56,8 @@ interface Draft {
   team_ids: number[];
   request_type_ids: number[];
   ticket_fields: HdSolveTicketField[];
+  /** 1.20.6: custom fields that must be filled in. */
+  custom_field_ids: number[];
   fields: HdFormField[];
 }
 
@@ -67,6 +72,8 @@ function draftOf(s: HdSolveRequirementSet, data: SolveSettingsData): Draft {
     team_ids,
     request_type_ids,
     ticket_fields: s.ticket_fields,
+    // A custom field deleted since the last save is not carried on.
+    custom_field_ids: (s.custom_field_ids ?? []).filter((id) => (data.custom_fields ?? []).some((f) => f.id === id)),
     fields: s.fields,
   };
 }
@@ -140,7 +147,17 @@ function SetPage({ set, data, onChanged }: { set: HdSolveRequirementSet & { answ
   const nameError = tried && !draft.name.trim() ? "A requirement set needs a name." : undefined;
   const scopeEmpty = draft.scope === "chosen" && !draft.team_ids.length && !draft.request_type_ids.length;
   const scopeError = tried && scopeEmpty ? "Pick at least one team or request type, or choose All tickets." : undefined;
-  const nothing = !draft.ticket_fields.length && !draft.fields.length;
+  const nothing = !draft.ticket_fields.length && !draft.custom_field_ids.length && !draft.fields.length;
+  // 1.20.6: the custom fields this set requires, and the ones it could (archived ones are not offered).
+  const customFields = data.custom_fields ?? [];
+  const requiredCustom = draft.custom_field_ids.map((id) => customFields.find((f) => f.id === id)).filter((f): f is NonNullable<typeof f> => !!f);
+  const offeredCustom = customFields.filter((f) => !f.archived && !draft.custom_field_ids.includes(f.id));
+  const customTeams = (f: (typeof customFields)[number]) =>
+    f.archived
+      ? "This field is archived, so it isn't asked for now."
+      : f.all_teams
+        ? "Filled in on the ticket or in the Before you solve dialog."
+        : `Filled in on the ticket or in the Before you solve dialog. Asked only on tickets of ${f.team_ids.map((id) => data.teams.find((t) => t.id === id)?.name).filter(Boolean).join(", ") || "its teams"}.`;
   const emptyError = tried && draft.enabled && nothing ? "Add at least one requirement before you switch the set on." : undefined;
   const unlabelled = draft.fields.findIndex((f) => !f.label.trim());
   const optionless = draft.fields.findIndex((f) => (f.type === "choice" || f.type === "select") && (f.options ?? []).some((o) => !o.label.trim()));
@@ -165,6 +182,7 @@ function SetPage({ set, data, onChanged }: { set: HdSolveRequirementSet & { answ
           team_ids: draft.scope === "all" ? [] : draft.team_ids,
           request_type_ids: draft.scope === "all" ? [] : draft.request_type_ids,
           ticket_fields: draft.ticket_fields,
+          custom_field_ids: draft.custom_field_ids,
           fields: draft.fields,
         },
         "Couldn't save the requirement set."
@@ -323,8 +341,44 @@ function SetPage({ set, data, onChanged }: { set: HdSolveRequirementSet & { answ
                   </li>
                 );
               })}
+              {requiredCustom.map((f) => (
+                <li key={`cf-${f.id}`} data-testid="solve-custom-field-row">
+                  <label className="flex cursor-pointer items-start gap-3 px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked
+                      onChange={() => change({ custom_field_ids: draft.custom_field_ids.filter((x) => x !== f.id) })}
+                      className="mt-0.5 h-4 w-4 accent-compass-600"
+                    />
+                    <span className="min-w-0">
+                      <span className="block break-words text-sm font-medium text-slate-800">A custom field: {f.label}</span>
+                      <span className="block text-xs text-slate-500">{customTeams(f)}</span>
+                    </span>
+                  </label>
+                </li>
+              ))}
             </ul>
           </fieldset>
+          {/* 1.20.6: require a custom field (Desk settings → Custom fields). */}
+          {offeredCustom.length > 0 && (
+            <Field label="A custom field" help="Pick a custom field that must be filled in before a solve. It is asked only on tickets of a team the field is assigned to." size="md" className="mt-4">
+              <Select
+                value=""
+                onChange={(e) => {
+                  const id = Number(e.target.value);
+                  if (id) change({ custom_field_ids: [...draft.custom_field_ids, id] });
+                }}
+                data-testid="solve-custom-field-pick"
+              >
+                <option value="">Choose a field…</option>
+                {offeredCustom.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
         </Card>
 
         <Card

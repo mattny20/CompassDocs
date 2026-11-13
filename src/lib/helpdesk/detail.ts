@@ -153,14 +153,50 @@ export async function ticketDetail(user: { id: number; role: Role }, t: HdTicket
     ...(await mailboxFields(user, t, canWork)),
     // "Before you solve" (1.20.5, lib/helpdesk/solve-requirements): the answers kept on the ticket, and whether a set applies.
     ...(await solveFields(t)),
+    // Custom fields (1.20.6, lib/helpdesk/custom-fields): the fields of the ticket's team with their values. None defined: one cached lookup.
+    ...(await customFields(t)),
   };
 }
 
-async function solveFields(t: HdTicket): Promise<Pick<HdTicketDetail, "solve_details" | "before_solve">> {
+/** 1.20.6 (lib/helpdesk/desk-calendar): the ticket's event, and whether its setup still holds a solve. */
+async function eventFields(t: HdTicket): Promise<{ event?: HdTicketDetail["event"]; setupOpen: boolean }> {
+  try {
+    const event = await (await import("./desk-calendar")).getTicketEvent(t.id);
+    return event ? { event, setupOpen: !event.cancelled && !event.setup_complete } : { setupOpen: false };
+  } catch (e) {
+    console.error("[helpdesk] ticket event:", e);
+    return { setupOpen: false };
+  }
+}
+
+async function customFields(t: HdTicket): Promise<Pick<HdTicketDetail, "custom_fields">> {
+  try {
+    const custom_fields = await (await import("./custom-fields")).ticketCustomFields(t);
+    return custom_fields.length ? { custom_fields } : {};
+  } catch (e) {
+    console.error("[helpdesk] custom fields:", e);
+    return {};
+  }
+}
+
+/** The requester's side (1.20.6): only the Public custom fields that have a value. */
+async function publicDetails(t: HdTicket): Promise<Pick<HdRequestDetail, "details">> {
+  try {
+    const details = await (await import("./custom-fields")).publicCustomDetails(t);
+    return details.length ? { details } : {};
+  } catch (e) {
+    console.error("[helpdesk] custom fields:", e);
+    return {};
+  }
+}
+
+async function solveFields(t: HdTicket): Promise<Pick<HdTicketDetail, "solve_details" | "before_solve" | "event">> {
   try {
     const { solveSetsApplyTo, ticketSolveDetails } = await import("./solve-requirements");
-    const [solve_details, before_solve] = await Promise.all([ticketSolveDetails(t.id), solveSetsApplyTo(t)]);
-    return { ...(solve_details.length ? { solve_details } : {}), ...(before_solve ? { before_solve } : {}) };
+    const [solve_details, applies, ev] = await Promise.all([ticketSolveDetails(t.id), solveSetsApplyTo(t), eventFields(t)]);
+    // 1.20.6: an event whose setup is open is asked about before a solve too, set or no set.
+    const before_solve = applies || ev.setupOpen;
+    return { ...(solve_details.length ? { solve_details } : {}), ...(before_solve ? { before_solve } : {}), ...(ev.event ? { event: ev.event } : {}) };
   } catch (e) {
     console.error("[helpdesk] solve details:", e);
     return {};
@@ -226,6 +262,8 @@ export async function requestDetail(
     can_reply: (isRequester || (await isCcOfRequest(user.id, t.id, relation))) && t.status !== "closed",
     can_rate: isRequester && settings.csat_enabled && (t.status === "solved" || t.status === "closed") && t.csat_score === null,
     my_approval: myApproval,
+    // 1.20.6: the Public custom fields with a value (lib/helpdesk/custom-fields); agent-only fields are never read here.
+    ...(await publicDetails(t)),
   };
 }
 

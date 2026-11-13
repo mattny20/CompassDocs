@@ -62,6 +62,7 @@ import { mdInline } from "./md-inline";
 import { answerText, validateAnswers, validateFormFields } from "./request-types";
 import type { HdFormAnswers, HdFormField, HdStatus } from "./types";
 import {
+  checkSolveCustomFieldIds,
   checkSolveSetInput,
   isSolveTicketField,
   solveAnswerKey,
@@ -90,7 +91,7 @@ export class SolveRequirementError extends Error {
 
 // --- Sets -------------------------------------------------------------------------------
 
-const SET_COLS = "id, name, enabled, team_ids, request_type_ids, ticket_fields, fields, created_at, updated_at";
+const SET_COLS = "id, name, enabled, team_ids, request_type_ids, ticket_fields, custom_field_ids, fields, created_at, updated_at";
 
 type SetRow = Omit<HdSolveRequirementSet, "enabled" | "ticket_fields"> & { enabled: number; ticket_fields: string[] };
 
@@ -102,6 +103,7 @@ function toSet(r: SetRow): HdSolveRequirementSet {
     team_ids: r.team_ids ?? [],
     request_type_ids: r.request_type_ids ?? [],
     ticket_fields: (r.ticket_fields ?? []).filter(isSolveTicketField),
+    custom_field_ids: r.custom_field_ids ?? [],
     fields: Array.isArray(r.fields) ? r.fields : [],
     created_at: r.created_at,
     updated_at: r.updated_at,
@@ -127,10 +129,13 @@ function checked(raw: unknown): HdSolveRequirementSetInput {
   if (f.value.length > SOLVE_REQ_LIMITS.fields) throw new SolveRequirementError(`A requirement set has up to ${SOLVE_REQ_LIMITS.fields} closing fields.`);
   // A closing field is filled in by an agent: there is no directory entry to prefill it from.
   const fields = f.value.map(({ default_from: _drop, ...rest }) => rest);
-  if (c.value.enabled && !c.value.ticket_fields.length && !fields.length) {
+  // 1.20.6: custom fields that must be filled in (lib/helpdesk/custom-fields).
+  const custom = checkSolveCustomFieldIds(raw);
+  if (!custom.ok) throw new SolveRequirementError(custom.error);
+  if (c.value.enabled && !c.value.ticket_fields.length && !custom.value.length && !fields.length) {
     throw new SolveRequirementError("Add at least one requirement before you switch the set on.");
   }
-  return { ...c.value, fields };
+  return { ...c.value, custom_field_ids: custom.value, fields };
 }
 
 /** Teams and request types the input names exist. */
@@ -143,6 +148,11 @@ async function checkRefs(input: HdSolveRequirementSetInput): Promise<void> {
     const found = await hq<{ id: number }>("SELECT id FROM hd_request_types WHERE id = ANY($1::int[])", [input.request_type_ids]);
     if (found.length !== input.request_type_ids.length) throw new SolveRequirementError("One of the request types no longer exists. Pick again.");
   }
+  // 1.20.6: custom fields (lib/helpdesk/custom-fields). An archived one may stay listed; it is not asked for while archived.
+  if (input.custom_field_ids.length) {
+    const found = await hq<{ id: number }>("SELECT id FROM hd_custom_fields WHERE id = ANY($1::int[])", [input.custom_field_ids]);
+    if (found.length !== input.custom_field_ids.length) throw new SolveRequirementError("One of the custom fields no longer exists. Pick again.");
+  }
 }
 
 export async function createSolveSet(raw: unknown, actor: { id: number | null }): Promise<HdSolveRequirementSet> {
@@ -151,9 +161,9 @@ export async function createSolveSet(raw: unknown, actor: { id: number | null })
   const n = await hqOne<{ n: number }>("SELECT count(*)::int AS n FROM hd_solve_requirement_sets");
   if ((n?.n ?? 0) >= SOLVE_REQ_LIMITS.sets) throw new SolveRequirementError(`Up to ${SOLVE_REQ_LIMITS.sets} requirement sets. Delete one you no longer use.`, 409);
   const r = await hqOne<SetRow>(
-    `INSERT INTO hd_solve_requirement_sets (name, enabled, team_ids, request_type_ids, ticket_fields, fields, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7) RETURNING ${SET_COLS}`,
-    [input.name, input.enabled ? 1 : 0, input.team_ids, input.request_type_ids, input.ticket_fields, JSON.stringify(input.fields), actor.id]
+    `INSERT INTO hd_solve_requirement_sets (name, enabled, team_ids, request_type_ids, ticket_fields, fields, created_by, custom_field_ids)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8) RETURNING ${SET_COLS}`,
+    [input.name, input.enabled ? 1 : 0, input.team_ids, input.request_type_ids, input.ticket_fields, JSON.stringify(input.fields), actor.id, input.custom_field_ids]
   );
   invalidateSolveSets();
   return toSet(r!);
@@ -171,19 +181,20 @@ export async function updateSolveSet(id: number, raw: unknown): Promise<{ before
     team_ids: r.team_ids ?? (await existing("hd_teams", before.team_ids)),
     request_type_ids: r.request_type_ids ?? (await existing("hd_request_types", before.request_type_ids)),
     ticket_fields: r.ticket_fields ?? before.ticket_fields,
+    custom_field_ids: r.custom_field_ids ?? (await existing("hd_custom_fields", before.custom_field_ids)),
     fields: r.fields ?? before.fields,
   });
   await checkRefs(input);
   const row = await hqOne<SetRow>(
-    `UPDATE hd_solve_requirement_sets SET name = $2, enabled = $3, team_ids = $4, request_type_ids = $5, ticket_fields = $6, fields = $7::jsonb, updated_at = now()
+    `UPDATE hd_solve_requirement_sets SET name = $2, enabled = $3, team_ids = $4, request_type_ids = $5, ticket_fields = $6, fields = $7::jsonb, custom_field_ids = $8, updated_at = now()
       WHERE id = $1 RETURNING ${SET_COLS}`,
-    [id, input.name, input.enabled ? 1 : 0, input.team_ids, input.request_type_ids, input.ticket_fields, JSON.stringify(input.fields)]
+    [id, input.name, input.enabled ? 1 : 0, input.team_ids, input.request_type_ids, input.ticket_fields, JSON.stringify(input.fields), input.custom_field_ids]
   );
   invalidateSolveSets();
   return row ? { before, after: toSet(row) } : undefined;
 }
 
-async function existing(table: "hd_teams" | "hd_request_types", ids: number[]): Promise<number[]> {
+async function existing(table: "hd_teams" | "hd_request_types" | "hd_custom_fields", ids: number[]): Promise<number[]> {
   if (!ids.length) return ids;
   const found = new Set((await hq<{ id: number }>(`SELECT id FROM ${table} WHERE id = ANY($1::int[])`, [ids])).map((r) => r.id));
   return ids.filter((id) => found.has(id));
@@ -239,7 +250,7 @@ const NO_SETS: SolveSetsSnapshot = { sets: [], assetsOn: false };
 
 async function loadSets(client?: HdQueryable): Promise<HdSolveRequirementSet[]> {
   const rows = await hq<SetRow>(`SELECT ${SET_COLS} FROM hd_solve_requirement_sets WHERE enabled = 1 ORDER BY lower(name), id`, [], client);
-  return rows.map(toSet).filter((s) => s.ticket_fields.length || s.fields.length);
+  return rows.map(toSet).filter((s) => s.ticket_fields.length || s.fields.length || s.custom_field_ids.length);
 }
 
 /**
@@ -281,6 +292,8 @@ export interface SolveTicketFacts {
   request_type_id: number | null;
   assignee_id: number | null;
   category: string;
+  /** 1.20.6 */
+  subcategory?: string;
   tags: string[];
   first_replied_at: string | null;
   source: string;
@@ -343,7 +356,23 @@ async function storedAnswers(ticketId: number, client?: HdQueryable): Promise<St
 export async function evaluateSolve(
   snap: SolveSetsSnapshot,
   t: SolveTicketFacts,
-  opts: { client?: HdQueryable; answers?: unknown; replyPending?: boolean } = {}
+  opts: { client?: HdQueryable; answers?: unknown; replyPending?: boolean; eventSetupOpen?: boolean; setupComplete?: boolean; /** 1.20.6: custom field values this solve is about to send. */ customFields?: unknown } = {}
+): Promise<SolveEvaluation> {
+  const e = await evaluateSets(snap, t, opts);
+  // 1.20.6 (lib/helpdesk/desk-calendar): an event whose setup is not marked complete is one more thing a solve needs,
+  // on every ticket that carries one (no set required; a workflow task too). `setupComplete`: this solve marks it.
+  // `eventSetupOpen`: the caller already read it under its lock (updateTicket).
+  if (e.invalid || opts.setupComplete) return e;
+  const open = opts.eventSetupOpen ?? (await (await import("./desk-calendar")).eventSetupOpen(t.id, opts.client));
+  if (!open) return e;
+  return { ...e, applies: true, missing: [...e.missing, { kind: "event_setup", key: "setup_complete", label: (await import("./desk-calendar-shared")).EVENT_SETUP_LABEL }] };
+}
+
+/** The requirement sets' half of evaluateSolve (1.20.5). */
+async function evaluateSets(
+  snap: SolveSetsSnapshot,
+  t: SolveTicketFacts,
+  opts: { client?: HdQueryable; answers?: unknown; replyPending?: boolean; /** 1.20.6: custom field values this solve is about to send. */ customFields?: unknown } = {}
 ): Promise<SolveEvaluation> {
   if (!snap.sets.length) return NOT_APPLICABLE;
   // A workflow task's closing step is its hand-off (engine validateTaskSolve).
@@ -363,6 +392,19 @@ export async function evaluateSolve(
   if (wanted.has("assignee")) met.set("assignee", t.assignee_id !== null);
   if (wanted.has("team")) met.set("team", t.team_id !== null);
   if (wanted.has("category")) met.set("category", (t.category ?? "").trim() !== "");
+  // 1.20.6: a sub-category, unless the ticket's category has none to pick (then there is nothing to ask for).
+  if (wanted.has("subcategory")) {
+    let ok = (t.subcategory ?? "").trim() !== "";
+    if (!ok && (t.category ?? "").trim() !== "") {
+      ok = !(await hqOne(
+        `SELECT 1 AS x FROM hd_categories c JOIN hd_categories s ON s.parent_id = c.id AND s.archived_at IS NULL
+          WHERE c.parent_id IS NULL AND lower(c.name) = lower($1) LIMIT 1`,
+        [t.category.trim()],
+        client
+      ));
+    }
+    met.set("subcategory", ok);
+  }
   if (wanted.has("tag")) met.set("tag", (t.tags ?? []).length > 0);
   if (wanted.has("reply")) met.set("reply", t.first_replied_at !== null || opts.replyPending === true);
   if (wanted.has("asset")) met.set("asset", !!(await hqOne("SELECT 1 AS x FROM hd_ticket_assets WHERE ticket_id = $1 LIMIT 1", [t.id], client)));
@@ -371,6 +413,17 @@ export async function evaluateSolve(
   const missing: HdSolveMissing[] = [];
   for (const f of SOLVE_TICKET_FIELDS) {
     if (met.get(f) === false) missing.push({ kind: "ticket_field", field: f, label: SOLVE_TICKET_FIELD_LABEL[f] });
+  }
+
+  // 1.20.6: custom fields a matching set requires (lib/helpdesk/custom-fields): read only when one does. A field that is
+  // archived, deleted or not assigned to the ticket's team is not asked for (nothing could be filled in).
+  const wantedCustom = [...new Set(matched.flatMap((s) => s.custom_field_ids))];
+  let custom: import("./custom-fields-shared").HdSolveCustomField[] = [];
+  if (wantedCustom.length) {
+    const cf = await (await import("./custom-fields")).customFieldsForSolve(t.id, t.team_id, wantedCustom, { client, pending: opts.customFields });
+    if (cf.invalid) return { ...NOT_APPLICABLE, applies: true, invalid: cf.invalid };
+    custom = cf.fields;
+    for (const c of custom) if (!c.met) missing.push({ kind: "custom_field", field_id: c.id, key: c.key, label: c.label });
   }
 
   // Closing fields: an answer sent now, else the one the ticket has, if it still fits the field.
@@ -414,6 +467,7 @@ export async function evaluateSolve(
       id: s.id,
       name: s.name,
       ticket_fields: s.ticket_fields.filter((f) => wanted.has(f)).map((f) => ({ field: f, label: SOLVE_TICKET_FIELD_LABEL[f], met: met.get(f) === true })),
+      custom_fields: custom.filter((c) => s.custom_field_ids.includes(c.id)),
       fields: s.fields,
     })),
     missing,
@@ -445,10 +499,20 @@ function refusalOf(e: SolveEvaluation): SolveRefusal | null {
   return null;
 }
 
-const FACT_COLS = "id, team_id, request_type_id, assignee_id, category, tags, first_replied_at, source";
+const FACT_COLS = "id, team_id, request_type_id, assignee_id, category, subcategory, tags, first_replied_at, source";
 
 /** The field changes a solve makes in the same step (the desk's quick setters, a macro's, the API's). */
-export type SolveFieldPatch = { team_id?: number | null; assignee_id?: number | null; category?: string; tags?: string[] };
+export type SolveFieldPatch = {
+  team_id?: number | null;
+  assignee_id?: number | null;
+  category?: string;
+  subcategory?: string;
+  tags?: string[];
+  /** 1.20.6: the solve marks its event's setup complete in the same step (the dialog's "Setup complete" tick box). */
+  setup_complete?: boolean;
+  /** 1.20.6: custom field values by key (lib/helpdesk/custom-fields). */
+  custom_fields?: Record<string, unknown>;
+};
 
 function withPatch(t: SolveTicketFacts, p: SolveFieldPatch | undefined): SolveTicketFacts {
   if (!p) return t;
@@ -457,6 +521,9 @@ function withPatch(t: SolveTicketFacts, p: SolveFieldPatch | undefined): SolveTi
     team_id: p.team_id !== undefined ? p.team_id : t.team_id,
     assignee_id: p.assignee_id !== undefined ? p.assignee_id : t.assignee_id,
     category: p.category !== undefined ? p.category : t.category,
+    // 1.20.6: a new category without a sub-category clears the old one, as updateTicket does.
+    subcategory:
+      p.subcategory !== undefined ? p.subcategory : p.category !== undefined && p.category.toLowerCase() !== (t.category ?? "").toLowerCase() ? "" : t.subcategory,
     tags: p.tags !== undefined ? p.tags : t.tags,
   };
 }
@@ -473,10 +540,15 @@ export async function solveRequirementRefusal(
   opts: { client?: HdQueryable; snapshot?: SolveSetsSnapshot; answers?: unknown; patch?: SolveFieldPatch; replyPending?: boolean } = {}
 ): Promise<SolveRefusal | null> {
   const snap = opts.snapshot ?? (opts.client ? await solveSetsSnapshotTx(opts.client) : await solveSetsSnapshot());
-  if (!snap.sets.length) return null;
+  // 1.20.6: with no sets, the one thing left to ask is the ticket's event (one indexed read; lib/helpdesk/desk-calendar).
+  const setupComplete = opts.patch?.setup_complete === true;
+  const eventSetupOpen = setupComplete ? false : await (await import("./desk-calendar")).eventSetupOpen(ticketId, opts.client);
+  if (!snap.sets.length && !eventSetupOpen) return null;
   const t = await hqOne<SolveTicketFacts>(`SELECT ${FACT_COLS} FROM hd_tickets WHERE id = $1`, [ticketId], opts.client);
   if (!t) return null;
-  return refusalOf(await evaluateSolve(snap, withPatch(t, opts.patch), { client: opts.client, answers: opts.answers, replyPending: opts.replyPending }));
+  return refusalOf(
+    await evaluateSolve(snap, withPatch(t, opts.patch), { client: opts.client, answers: opts.answers, replyPending: opts.replyPending, eventSetupOpen, setupComplete, customFields: opts.patch?.custom_fields })
+  );
 }
 
 /**
@@ -490,10 +562,15 @@ export async function applySolveRequirementsTx(
   client: HdQueryable,
   snap: SolveSetsSnapshot,
   t: SolveTicketFacts,
-  opts: { from: HdStatus; to: HdStatus; answers?: unknown; actor: { id: number | null; name: string }; now: Date }
+  opts: { from: HdStatus; to: HdStatus; answers?: unknown; actor: { id: number | null; name: string }; now: Date; /** 1.20.6: the ticket's event still waits for "Setup complete" (read by updateTicket under its lock). */ eventSetupOpen?: boolean }
 ): Promise<{ refusal: SolveRefusal | null; line: string | null }> {
-  if (!solvesForRequirements(opts.from, opts.to)) return { refusal: null, line: null };
-  const e = await evaluateSolve(snap, t, { client, answers: opts.answers });
+  if (!solvesForRequirements(opts.from, opts.to)) {
+    // 1.20.6: solved → closed asks nothing of the sets, but an event's setup still holds the ticket (lib/helpdesk/desk-calendar).
+    if (!opts.eventSetupOpen) return { refusal: null, line: null };
+    const missing: HdSolveMissing[] = [{ kind: "event_setup", key: "setup_complete", label: (await import("./desk-calendar-shared")).EVENT_SETUP_LABEL }];
+    return { refusal: { status: 409, error: solveBlockMessage(missing), code: SOLVE_BLOCK_CODE, missing }, line: null };
+  }
+  const e = await evaluateSolve(snap, t, { client, answers: opts.answers, eventSetupOpen: opts.eventSetupOpen ?? false });
   const refusal = refusalOf(e);
   if (refusal || !e.applies) return { refusal, line: null };
   for (const c of e.clears) {
@@ -561,7 +638,15 @@ export async function solveCheckFor(
 ): Promise<HdSolveCheck & { invalid: string | null }> {
   const snap = await solveSetsSnapshot();
   const facts = withPatch(ticket, opts.patch);
-  const e = await evaluateSolve(snap, facts, { answers: opts.answers, replyPending: opts.replyPending });
+  // 1.20.6: the ticket's event while its setup is open (lib/helpdesk/desk-calendar); the dialog offers "Setup complete".
+  const eventSetup = await (await import("./desk-calendar")).openSetupEvent(ticket.id);
+  const e = await evaluateSolve(snap, facts, {
+    answers: opts.answers,
+    replyPending: opts.replyPending,
+    eventSetupOpen: !!eventSetup,
+    setupComplete: opts.patch?.setup_complete === true,
+    customFields: opts.patch?.custom_fields,
+  });
   const names: Record<string, string> = {};
   const people = e.sets.flatMap((s) => s.fields.filter((f) => f.type === "user").map((f) => solveAnswerKey(s.id, f.key))).filter((k) => typeof e.answers[k] === "number");
   if (people.length) {
@@ -576,7 +661,8 @@ export async function solveCheckFor(
     optional_open: e.optionalOpen,
     answers: e.answers,
     answer_names: names,
-    ticket: { team_id: ticket.team_id, team_name: ticket.team_name ?? null, assignee_id: ticket.assignee_id, category: ticket.category ?? "", tags: ticket.tags ?? [] },
+    ticket: { team_id: ticket.team_id, team_name: ticket.team_name ?? null, assignee_id: ticket.assignee_id, category: ticket.category ?? "", subcategory: ticket.subcategory ?? "", tags: ticket.tags ?? [] },
+    ...(eventSetup ? { event_setup: eventSetup } : {}),
     invalid: e.invalid,
   };
 }
@@ -595,7 +681,14 @@ export async function solveRequirementsForMcp(ticket: SolveTicketFacts & { statu
     solve_details: details,
     before_you_solve: {
       needed_now: c.error,
+      // 1.20.6: the ticket's event waits for its setup (hd_update_ticket: event { setup_complete: true }, once a person confirms it is done).
+      ...(c.event_setup ? { event_setup_complete: false } : {}),
       ticket_fields: c.sets.flatMap((s) => s.ticket_fields).filter((f, i, all) => all.findIndex((x) => x.field === f.field) === i).map((f) => ({ field: f.field, label: f.label, met: f.met })),
+      // 1.20.6: custom fields that must be filled in first: set them with hd_update_ticket's custom_fields (in the same call as the solve, or before).
+      custom_fields: c.sets
+        .flatMap((s) => s.custom_fields)
+        .filter((f, i, all) => all.findIndex((x) => x.id === f.id) === i)
+        .map((f) => ({ key: f.key, label: f.label, type: f.type, ...(f.options.length ? { options: f.options.map((o) => ({ value: o.value, label: o.label })) } : {}), filled: f.met })),
       closing_fields: c.sets.flatMap((s) =>
         s.fields.map((f) => ({
           set: s.name,

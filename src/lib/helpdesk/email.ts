@@ -130,7 +130,8 @@ export const HD_NOTE_NOTICE_TEMPLATE = "hd_internal_note";
  * 1.19.4 (area C6, lib/helpdesk/share): hd_shared, which carries one
  * agent's private message to another.
  */
-export const HD_AGENT_ONLY_TEMPLATES: ReadonlySet<string> = new Set([HD_NOTE_NOTICE_TEMPLATE, "hd_shared"]);
+// 1.20.6 (lib/helpdesk/desk-calendar-reminders): hd_event_reminder, a reminder to the agents who set an event up.
+export const HD_AGENT_ONLY_TEMPLATES: ReadonlySet<string> = new Set([HD_NOTE_NOTICE_TEMPLATE, "hd_shared", "hd_event_reminder"]);
 
 /** The Message-ID of an internal-note notice: <hd-note-<token>-<random>@domain>. */
 export function noteNoticeMessageId(token: string, fromAddress: string): string {
@@ -548,7 +549,7 @@ export async function sendHelpdeskEmail(
     if (base) {
       thread = base.thread;
       // The requester of this ticket follows it in Get help; anyone else in the desk.
-      forRequester = base.requesterId === userId && templateKey !== "hd_assigned" && templateKey !== "hd_sla_warning" && templateKey !== "hd_sla_breach";
+      forRequester = base.requesterId === userId && templateKey !== "hd_assigned" && templateKey !== "hd_sla_warning" && templateKey !== "hd_sla_breach" && templateKey !== "hd_event_reminder";
       const links: Record<string, string> = forRequester ? { ticket_url: hdLinks.request(number) } : {};
       merged = { ...base.vars, ...links, ...vars };
     }

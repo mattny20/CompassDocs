@@ -133,6 +133,26 @@ export function RequestDetail({
         {!closed && <AssignedAgentCard request={req.number} teamName={req.team_name} refreshKey={req.updated_at} />}
         {/* CCs (1.19.1, agent V3): the requester and the people copied. */}
         <RequestPeopleCard number={req.number} viewerId={viewerId} requesterName={req.requester_name} onChanged={() => void load()} />
+        {/* Public custom fields the desk filled in (1.20.6, lib/helpdesk/custom-fields): read-only, only those with a value. */}
+        {req.details && req.details.length > 0 && (
+          <aside aria-labelledby="hd-details" className={`${CARD_CLASS} px-4 py-3`} data-testid="hd-request-details">
+            <Eyebrow as="h2" className="mb-1 py-1">
+              <span id="hd-details">Details</span>
+            </Eyebrow>
+            <dl className="divide-y divide-slate-100">
+              {req.details.map((d) => {
+                const value = d.type === "date" ? fmt.day(d.value) || d.value : d.type === "datetime" ? `${fmt.day(d.value.slice(0, 10)) || d.value.slice(0, 10)}, ${d.value.slice(11, 16)}` : d.value;
+                const long = d.type === "textarea" || value.length > 40;
+                return (
+                  <div key={d.key} className={`py-2 text-sm ${long ? "" : "flex items-start justify-between gap-4"}`}>
+                    <dt className="shrink-0 text-slate-500">{d.label}</dt>
+                    <dd className={`min-w-0 whitespace-pre-line break-words font-medium text-slate-800 ${long ? "mt-0.5" : "text-right"}`}>{value}</dd>
+                  </div>
+                );
+              })}
+            </dl>
+          </aside>
+        )}
         {answers.length > 0 && (
           <aside aria-labelledby="hd-answers" className={`${CARD_CLASS} px-4 py-3`}>
             <Eyebrow as="h2" className="mb-1 py-1">

@@ -11,10 +11,11 @@
 //
 //   GET   /me
 //         → { token: {id, name, expires_at}, acts_as: {name, role, role_label, teams:[{id,name}]}, can: "<line>", capabilities: [...] }
-//   GET   /tickets?view=&status=&priority=&team=&assignee=&tag=&q=&created_from=&created_to=&sort=&limit=&cursor=
+//   GET   /tickets?view=&status=&priority=&team=&assignee=&tag=&category=&subcategory=&q=&created_from=&created_to=&sort=&limit=&cursor=
 //         view: open (default; a q without a view searches every status) | all | mine | unassigned | overdue | waiting | workflow | solved_week | team:<id>
 //         assignee: <user id> | none.  sort: updated (default) | created | number.  limit 1..100 (25).
 //         created_from / created_to: YYYY-MM-DD (the default calendar's zone).
+//         1.20.6: category / subcategory: a name from GET /categories; none = tickets without one.
 //         → { tickets: [Ticket], total, next_cursor: string | null }
 //         Cursor paging: pass next_cursor back (same filters) for the next page. It is
 //         offset-based: a ticket that changes while you page may show twice or move pages.
@@ -22,13 +23,25 @@
 //         → Ticket + { messages: [Message] }  Public replies and status lines always; internal
 //           notes (and replies held for review, with review_state) only if the role can add
 //           internal notes in the ticket's team.
-//   PATCH /tickets/{number}  { status?, priority?, team_id?, assignee_id?, tags?, solve_answers? }
+//   PATCH /tickets/{number}  { status?, priority?, team_id?, assignee_id?, tags?, category?, subcategory?, solve_answers? }
 //         Each change needs the desk capability for it (Change status, Change priority,
 //         Transfer to another team, Assign within their teams / Assign to anyone); tags need
 //         only that the token works the ticket. → { ticket: Ticket, changed: [...] }
 //         1.20.5: solve_answers ({ "<closing field key>": value }, or "<set id>:<key>" for one
 //         requirement set) goes with a status that solves the ticket and is stored with it;
 //         it is ignored on any other change. See "Before you solve" below.
+//         1.20.6: category and subcategory are names from the desk admin's list (GET /categories),
+//         matched whatever their case; null or "" clears. A new category without a subcategory
+//         clears the old sub-category. A name that is not on the list, or is archived, answers
+//         400 { error, code: "category_not_listed" | "subcategory_not_listed", allowed: [names] }
+//         and changes nothing: the API never adds a category. Needs only that the token works
+//         the ticket, like tags.
+//   GET   /categories  (1.20.6)
+//         → { categories: [{ name, subcategories: [name] }] }  what a ticket can be given, in the
+//         admin's order. Archived entries are left out.
+//         1.20.6: event ({ starts_at, ends_at, place?, setup_minutes? }, or { all_day: true, start_date, end_date? }; any
+//         part alone changes that part; null removes it) sets the ticket's event, and event.setup_complete (true /
+//         false) marks its setup. It needs only that the token works the ticket. See "Events" below.
 //   POST  /tickets/{number}/notes  { body }          (Add internal notes) → 201 { message }
 //   POST  /tickets/{number}/replies  { body, status?, solve_answers? }
 //         A public reply to the requester (Reply to the requester, or Reply after review: then
@@ -44,6 +57,27 @@
 //   text as a string, a choice as its option value, a number, a date "YYYY-MM-DD", a tick as
 //   true, a person as their user id. A bad answer is 400. GET /tickets/{number} and the PATCH
 //   answer carry solve_details: [{ set, key, label, value, text }], the answers kept so far.
+//
+//   Events (1.20.6, the desk's Calendar): a ticket can carry one event. GET /tickets/{number} and the PATCH answer
+//   carry event: { starts_at, ends_at, all_day, start_date?, end_date?, timezone, place, setup_minutes, ready_by,
+//   setup_complete, setup_completed_at, setup_completed_by, cancelled } or null. Times are UTC instants; send them
+//   with their zone ("2026-11-20T14:00:00Z" or "…+01:00"). A whole-day event has all_day: true and its days as
+//   dates (end_date is the last day, inclusive), counted in `timezone`. While an event's setup is not marked
+//   complete the ticket can't be solved or closed: 409 { error, code: "solve_requirements", missing: [{ kind:
+//   "event_setup", key: "setup_complete", label }] }. Send event: { setup_complete: true } first, or in the same
+//   PATCH as the status (then it is saved only if the ticket is solved). A cancelled event blocks nothing.
+//
+//   Custom fields (1.20.6, Desk settings → Custom fields): GET /tickets/{number} and the PATCH
+//   answer carry custom_fields: { "<field key>": value | null }, one entry per field assigned to
+//   the ticket's team ({} when none; null = not filled in). PATCH /tickets/{number} takes
+//   custom_fields the same way: text as a string, a choice as its option value, a number, a date
+//   "YYYY-MM-DD", yes/no as true or false, a person as their user id; null clears a value. Any
+//   token that works the ticket may set them (as tags). A key that is not a field, a field that
+//   is archived or not assigned to the ticket's team (the team this same PATCH moves it to
+//   counts), or a value that does not fit its kind or options: 400 with a sentence, and nothing
+//   is changed.
+//   GET   /custom-fields → { custom_fields: [{ key, label, type, help?, options?: [{ value, label }],
+//         visibility: "agent" | "public", all_teams, team_ids, archived }] }  the definitions
 //   GET   /approvals → { approvals: [...] }  pending approvals on requests in the token's queues
 //   GET   /reports/summary?from=YYYY-MM-DD&to=YYYY-MM-DD&team=<id>
 //         The Claude connector's hd_report numbers. Every team needs All reports; team=<id>
@@ -279,6 +313,8 @@ function ticketSummary(t: HdTicket | HdTicketListRow, origin: string, requesterE
     requester: { name: t.requester_name, ...(requesterEmail !== undefined ? { email: requesterEmail } : {}) },
     tags: t.tags ?? [],
     category: t.category || null,
+    // 1.20.6 (additive): a sub-category of `category`, from the admin's list (lib/helpdesk/categories); null = none.
+    subcategory: t.subcategory || null,
     source: t.source,
     in_workflow: t.in_workflow,
     due: t.due_label || null,
@@ -403,6 +439,11 @@ export async function listTicketsRoute(ctx: ApiCtx): Promise<ApiOut> {
   }
   const tag = sp.get("tag");
   if (tag) f.tag = tag.slice(0, 80);
+  // 1.20.6 (additive): by category and sub-category name; "none" = tickets without one.
+  const category = sp.get("category");
+  if (category) f.category = category === "none" ? "" : category.slice(0, 80);
+  const subcategory = sp.get("subcategory");
+  if (subcategory) f.subcategory = subcategory === "none" ? "" : subcategory.slice(0, 80);
   for (const k of ["created_from", "created_to"] as const) {
     const v = sp.get(k);
     if (v) {
@@ -445,7 +486,14 @@ export async function getTicketRoute(ctx: ApiCtx, number: string): Promise<ApiOu
   return {
     status: 200,
     ticket: ref(t),
-    body: { ...ticketFull(t, ctx.origin), solve_details: await solveDetails(t.id), internal_notes_included: notes, messages: messages.map((m) => messageOut(m, notes)) },
+    body: {
+      ...ticketFull(t, ctx.origin),
+      solve_details: await solveDetails(t.id),
+      event: await eventOf(t.id),
+      custom_fields: await customFields(t),
+      internal_notes_included: notes,
+      messages: messages.map((m) => messageOut(m, notes)),
+    },
   };
 }
 
@@ -454,7 +502,18 @@ async function solveDetails(ticketId: number) {
   return (await import("./solve-requirements")).solveDetailsOut(ticketId);
 }
 
-const PATCH_KEYS = ["status", "priority", "team_id", "assignee_id", "tags", "solve_answers"] as const;
+/** 1.20.6 (additive): the ticket's event (lib/helpdesk/desk-calendar eventOut); null when it has none. */
+async function eventOf(ticketId: number) {
+  return (await import("./desk-calendar")).ticketEventOut(ticketId);
+}
+
+/** 1.20.6 (additive): the custom fields of the ticket's team, { "<key>": value | null }; {} when none applies (lib/helpdesk/custom-fields). */
+async function customFields(t: { id: number; team_id: number | null }) {
+  return (await import("./custom-fields")).customFieldsOut(t);
+}
+
+// 1.20.6: category and subcategory, from the admin's list (lib/helpdesk/categories); event (lib/helpdesk/desk-calendar); custom_fields (lib/helpdesk/custom-fields).
+const PATCH_KEYS = ["status", "priority", "team_id", "assignee_id", "tags", "category", "subcategory", "solve_answers", "event", "custom_fields"] as const;
 
 export async function patchTicketRoute(ctx: ApiCtx, number: string): Promise<ApiOut> {
   const t = await workTicket(ctx.user, number);
@@ -464,7 +523,11 @@ export async function patchTicketRoute(ctx: ApiCtx, number: string): Promise<Api
   if (unknown.length) return json(400, `Only ${PATCH_KEYS.join(", ")} can be changed here (not ${unknown.join(", ")}).`);
   const solveAnswers = b.solve_answers;
   delete b.solve_answers;
-  if (!Object.keys(b).length) return json(400, `Say what to change: ${PATCH_KEYS.filter((k) => k !== "solve_answers").join(", ")}.`);
+  // 1.20.6: `event` sets, changes or (null) removes the ticket's event; it needs only that the token works the ticket.
+  const hasEvent = Object.prototype.hasOwnProperty.call(b, "event");
+  const eventPatch = b.event;
+  delete b.event;
+  if (!Object.keys(b).length && !hasEvent) return json(400, `Say what to change: ${PATCH_KEYS.filter((k) => k !== "solve_answers").join(", ")}.`);
   const patch = validateTicketPatch(b);
   const { patchRefusal } = await import("./patch-caps");
   const refused = await patchRefusal(ctx.user as never, t, patch);
@@ -479,17 +542,35 @@ export async function patchTicketRoute(ctx: ApiCtx, number: string): Promise<Api
     const missing = await validateTaskSolve(t.id);
     if (missing) return { status: 409, body: missing, ticket: ref(t) };
   }
-  const r = await updateTicket(t.id, patch, { id: ctx.user.id, name: ctx.user.name, role: ctx.user.role, via: "api" }, { origin: ctx.origin }, { solveAnswers });
+  // 1.20.6: the event first (its own checks), then the rest. `event.setup_complete: true` sent with a status that solves
+  // is saved in the solve's own transaction, so it is kept only if the ticket is solved.
+  let eventChanged = false;
+  let setupComplete = false;
+  if (hasEvent) {
+    const cal = await import("./desk-calendar");
+    try {
+      const done = await cal.applyEventPatch(t, eventPatch, { id: ctx.user.id, name: ctx.user.name, via: "api" }, { origin: ctx.origin, deferSetup: patch.status === "solved" || patch.status === "closed" });
+      eventChanged = done.changed;
+      setupComplete = done.setupDeferred;
+    } catch (e) {
+      if (e instanceof cal.EventError) return { ...json(e.status, e.message), ticket: ref(t) };
+      throw e;
+    }
+  }
+  const r = Object.keys(patch).length
+    ? await updateTicket(t.id, patch, { id: ctx.user.id, name: ctx.user.name, role: ctx.user.role, via: "api" }, { origin: ctx.origin }, { solveAnswers, setupComplete })
+    : await getTicketByNumber(t.number).then((ticket) => (ticket ? { ticket, changed: [] as string[], before: t } : undefined));
   if (!r) return NO_TICKET(number);
   if (r.changed.includes("assignee_id")) {
     const { recordManualAssignment } = await import("./assignment/engine");
     void recordManualAssignment(r.ticket.id, { fromUserId: r.before.assignee_id, toUserId: r.ticket.assignee_id, teamId: r.ticket.team_id, actorId: ctx.user.id });
   }
+  const changed = [...r.changed, ...(eventChanged || setupComplete ? ["event"] : [])];
   return {
     status: 200,
     ticket: ref(r.ticket),
-    body: { ticket: { ...ticketFull(r.ticket, ctx.origin), solve_details: await solveDetails(r.ticket.id) }, changed: r.changed },
-    audit: { action: "helpdesk.ticket.updated", details: { number: t.number, changed: r.changed } },
+    body: { ticket: { ...ticketFull(r.ticket, ctx.origin), solve_details: await solveDetails(r.ticket.id), event: await eventOf(r.ticket.id), custom_fields: await customFields(r.ticket) }, changed },
+    audit: { action: "helpdesk.ticket.updated", details: { number: t.number, changed } },
   };
 }
 
@@ -567,6 +648,22 @@ export async function addReplyRoute(ctx: ApiCtx, number: string): Promise<ApiOut
   };
 }
 
+/** 1.20.6: the categories a ticket can be given, each with its sub-categories (the desk admin's list; nothing archived). */
+export async function listCategoriesRoute(_ctx: ApiCtx): Promise<ApiOut> {
+  const { activeCategories } = await import("./categories");
+  return { status: 200, body: { categories: (await activeCategories()).map((c) => ({ name: c.name, subcategories: c.subcategories.map((s) => s.name) })) } };
+}
+
+/** 1.20.6: the custom field definitions, so an integration knows each key, kind and option value (lib/helpdesk/custom-fields). */
+export async function listCustomFieldsRoute(_ctx: ApiCtx): Promise<ApiOut> {
+  const { customFieldOut, customFieldsSnapshot } = await import("./custom-fields");
+  const fields = await customFieldsSnapshot();
+  return {
+    status: 200,
+    body: { custom_fields: fields.map((f) => ({ ...customFieldOut(f), all_teams: f.all_teams, team_ids: f.all_teams ? [] : f.team_ids, archived: f.archived })) },
+  };
+}
+
 export async function listApprovalsRoute(ctx: ApiCtx): Promise<ApiOut> {
   const { listDeskApprovals } = await import("./approvals");
   const rows = await listDeskApprovals(ctx.user, await agentTeamIds(ctx.user));
@@ -621,6 +718,8 @@ export async function reportSummaryRoute(ctx: ApiCtx): Promise<ApiOut> {
       by_team: r.by_team.slice(0, 50),
       by_agent: r.by_agent.slice(0, 50),
       by_category: r.by_category.slice(0, 50),
+      // 1.20.6 (additive): the tickets that have a sub-category.
+      by_subcategory: (r.by_subcategory ?? []).slice(0, 100),
       note: "Times are business minutes in each team's calendar.",
     },
   };

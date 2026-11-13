@@ -41,10 +41,24 @@ export async function POST(req: Request, { params }: Ctx) {
     if (typeof b.solve_fields !== "object" || Array.isArray(b.solve_fields)) return badRequest("Send solve_fields as an object.");
     const raw = b.solve_fields as Record<string, unknown>;
     try {
-      patch = validateTicketPatch({ assignee_id: raw.assignee_id, team_id: raw.team_id, category: raw.category, tags: raw.tags });
+      // 1.20.6: and the custom fields the dialog filled in (lib/helpdesk/custom-fields); a bad value is said here.
+      patch = validateTicketPatch({ assignee_id: raw.assignee_id, team_id: raw.team_id, category: raw.category, subcategory: raw.subcategory, tags: raw.tags, custom_fields: raw.custom_fields });
+      // 1.20.6: the dialog ticked "Setup complete" for the ticket's event (lib/helpdesk/desk-calendar).
+      if (raw.setup_complete === true) patch = { ...patch, setup_complete: true };
     } catch (e) {
       if (e instanceof HdTicketError) return badRequest(e.message);
       throw e;
+    }
+    // 1.20.6: a category the dialog set is one from the admin's list (lib/helpdesk/categories); said here, before the solve is tried.
+    if (patch.category !== undefined || patch.subcategory !== undefined) {
+      const t = found.ticket;
+      const { checkCategoryPick } = await import("@/lib/helpdesk/categories");
+      const kept = patch.category === undefined || patch.category.toLowerCase() === t.category.toLowerCase();
+      const pick = await checkCategoryPick(
+        { category: patch.category ?? t.category, subcategory: patch.subcategory !== undefined ? patch.subcategory : kept ? (t.subcategory ?? "") : "" },
+        { category: t.category, subcategory: t.subcategory ?? "" }
+      );
+      if (!pick.ok) return NextResponse.json({ error: pick.error, code: pick.code, allowed: pick.allowed }, { status: 400 });
     }
   }
   const { invalid, ...check } = await solveCheckFor(found.ticket, { answers: b.solve_answers, patch, replyPending: b.reply === true });

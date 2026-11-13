@@ -7,7 +7,8 @@
 // fields:
 //   generic   JSON { from, to, cc, subject, text, html, message_id,
 //             in_reply_to, references, headers, attachments: [{ filename,
-//             content_type, content (base64) }] }
+//             content_type, content (base64) }], calendar (1.20.6: a
+//             meeting invite's text/calendar part, as text) }
 //   postmark  Postmark's inbound webhook JSON (FromFull, ToFull, TextBody,
 //             HtmlBody, Headers [{Name, Value}], Attachments [{Name,
 //             Content, ContentType}])
@@ -247,6 +248,8 @@ export function parseGeneric(body: Record<string, unknown>): InboundEmail {
           data: b64(a.content ?? a.data),
         }))
     : [];
+  // 1.20.6: a meeting invite's text/calendar part, sent as `calendar` (the iCalendar text): read like an .ics attachment.
+  if (typeof body.calendar === "string" && body.calendar) files.push({ name: "invite.ics", type: "text/calendar", data: Buffer.from(body.calendar, "utf8") });
   return finish({
     provider: "generic",
     from,

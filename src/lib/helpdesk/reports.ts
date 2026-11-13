@@ -112,6 +112,8 @@ export interface Row {
   assignee_id: number | null;
   assignee_name: string | null;
   category: string;
+  /** 1.20.6 */
+  subcategory?: string;
   created_at: string;
   first_replied_at: string | null;
   solved_at: string | null;
@@ -209,7 +211,7 @@ export async function reportSummary(range: ReportRange, opts: { hours?: HdBusine
   // Every ticket the range touches: created, solved, rated or due in it.
   const rows = await hq<Row>(
     `SELECT t.id, t.team_id, tm.name AS team_name, t.assignee_id, COALESCE(NULLIF(u.name, ''), u.username) AS assignee_name,
-            t.category, t.created_at, t.first_replied_at, t.solved_at, t.first_reply_due, t.resolve_due,
+            t.category, t.subcategory, t.created_at, t.first_replied_at, t.solved_at, t.first_reply_due, t.resolve_due,
             t.sla_paused_ms, t.csat_score, t.csat_at, t.merged_into
        FROM hd_tickets t
        LEFT JOIN hd_teams tm ON tm.id = t.team_id
@@ -306,6 +308,15 @@ export async function reportSummary(range: ReportRange, opts: { hours?: HdBusine
   };
   for (const r of created) catOf(r).created++;
   for (const r of solved) catOf(r).solved++;
+  // 1.20.6: and by sub-category, for the tickets that have one (lib/helpdesk/categories).
+  const subs = new Map<string, { category: string; subcategory: string; created: number; solved: number }>();
+  const subOf = (r: Row) => {
+    const k = `${r.category}\u0000${r.subcategory}`;
+    if (!subs.has(k)) subs.set(k, { category: r.category, subcategory: r.subcategory ?? "", created: 0, solved: 0 });
+    return subs.get(k)!;
+  };
+  for (const r of created) if (r.subcategory) subOf(r).created++;
+  for (const r of solved) if (r.subcategory) subOf(r).solved++;
 
   const csatSum = rated.reduce((s, r) => s + (r.csat_score ?? 0), 0);
   return {
@@ -327,6 +338,7 @@ export async function reportSummary(range: ReportRange, opts: { hours?: HdBusine
       .map((a) => ({ user_id: a.user_id, name: a.name, solved: a.solved, first_reply_median_minutes: median(a.replies), csat_percent: pct(a.good, a.rated) }))
       .sort((a, b) => b.solved - a.solved || a.name.localeCompare(b.name)),
     by_category: [...cats.values()].sort((a, b) => b.created - a.created || a.category.localeCompare(b.category)),
+    by_subcategory: [...subs.values()].sort((a, b) => b.created - a.created || a.category.localeCompare(b.category) || a.subcategory.localeCompare(b.subcategory)),
   };
 }
 
@@ -357,5 +369,11 @@ export function reportCsv(r: HdReportSummaryC): string {
   out.push("");
   out.push("Category,Created,Solved");
   for (const c of r.by_category) out.push(line([c.category || "(none)", c.created, c.solved]));
+  // 1.20.6: a block per sub-category, only while any ticket in the range has one.
+  if (r.by_subcategory?.length) {
+    out.push("");
+    out.push("Category,Sub-category,Created,Solved");
+    for (const c of r.by_subcategory) out.push(line([c.category, c.subcategory, c.created, c.solved]));
+  }
   return out.join("\r\n") + "\r\n";
 }

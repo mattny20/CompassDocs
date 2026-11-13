@@ -542,7 +542,11 @@ describe("system-written internal notes show names as text", () => {
 
   test("ticket updates: rename, team, assignee and category lines show the values as text", async () => {
     const t = await ticket(MIX, "RR");
-    const category = "# x:9[l] *e* www.e.example 10:30";
+    // 1.20.6: a category is one from the admin's list (lib/helpdesk/categories): this run's own entry, removed below.
+    const category = `# x:9[l] *e* www.e.example 10:30 ${STAMP}`;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const categories = require("../src/lib/helpdesk/categories") as typeof import("../src/lib/helpdesk/categories");
+    await categories.createCategory({ name: category }, { id: null });
     await tickets.updateTicket(t.id, { subject: `Plain ${STAMP}`, team_id: T.A, assignee_id: P.evil2.id, category }, { id: P.evil.id, name: P.evil.name }, { silent: true });
     const notes = await internal(t.id);
     const expect: Record<string, string[]> = {
@@ -556,6 +560,8 @@ describe("system-written internal notes show names as text", () => {
       assert.ok(line, `${what}: ${JSON.stringify(notes)}`);
       assertInert(line!, values, what);
     }
+    await pool().query("UPDATE hd_tickets SET category = '' WHERE id = $1", [t.id]);
+    await pool().query("DELETE FROM hd_categories WHERE name = $1", [category]);
   });
 
   test("incidents: declare, link, unlink and the rule's line name people and the rule as text", async () => {

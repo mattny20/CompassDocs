@@ -313,7 +313,7 @@ describe("time tracking (database)", () => {
     const all = await get("mgr");
     assert.equal(all.status, 200);
     const lines = all.text.trim().split("\r\n");
-    assert.equal(lines[0], "\"Logged\",\"Ticket\",\"Subject\",\"Team\",\"Request type\",\"Category\",\"Agent\",\"Minutes\",\"Hours\",\"Note\",\"Source\"");
+    assert.equal(lines[0], "\"Logged\",\"Ticket\",\"Subject\",\"Team\",\"Request type\",\"Category\",\"Agent\",\"Minutes\",\"Hours\",\"Note\",\"Source\",\"Sub-category\"");
     const count = Number((await pool().query("SELECT count(*) AS c FROM hd_time_entries WHERE ticket_id = ANY($1)", [[K.a1.id, K.a2.id, K.b1.id]])).rows[0].c);
     assert.equal(lines.length - 1, count);
     assert.ok(all.text.includes("\"'=HYPERLINK(\"\"x\"\")\""), "a formula is defused");

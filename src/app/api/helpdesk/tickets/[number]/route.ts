@@ -18,6 +18,12 @@
 // change that solves the ticket ("Before you solve", lib/helpdesk/solve-requirements): the answers are stored in
 // the same transaction as the solve and ignored on any other change. A ticket that still needs something answers
 // 409 { error, code: "solve_requirements", missing: [...] } and nothing is saved.
+// 1.20.6: a ticket whose event's setup is not marked complete answers the same 409 (missing: [{ kind: "event_setup" }]) on a
+// change to solved or closed; `setup_complete: true` in that same body marks it with the solve (lib/helpdesk/desk-calendar).
+// 1.20.6: `custom_fields` ({ "<field key>": value | null }) sets the ticket's custom fields (lib/helpdesk/custom-fields):
+// any agent who works the ticket, as its category and tags. Each key must be a field assigned to the ticket's team
+// (the team this same PATCH moves it to counts) and each value fit its kind and options, else 400 with a sentence and
+// nothing is saved. Each change leaves an agents-only timeline line; "custom_fields" is listed in `changed`.
 // Helpdesk 1.19.0 (helpdesk.agent). 404 for a ticket outside the caller's queues.
 
 import { NextResponse } from "next/server";
@@ -100,7 +106,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
       patch,
       { id: gate.id, name: gate.name || gate.username, role: gate.role, ...(viaClaude ? { via: "claude_desk" as const } : {}) },
       { origin: originOf(req) },
-      { solveAnswers: b.solve_answers }
+      // 1.20.6: `setup_complete: true` with a solve marks the event's setup in the same transaction ("Before you solve"'s tick box).
+      { solveAnswers: b.solve_answers, setupComplete: b.setup_complete === true }
     );
     if (!r) return notFound();
     if (viaClaude && r.changed.length) {

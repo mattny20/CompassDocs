@@ -118,7 +118,8 @@ export async function addMessage(ticketId: number, input: AddMessageInput, ctx: 
         throw err;
       }
       // 1.20.5: and so is one a "Before you solve" requirement set would refuse. A public reply counts as the reply it requires.
-      if (solveSets?.sets.length) {
+      // 1.20.6: asked with or without a set: an event's setup holds the solve too (lib/helpdesk/desk-calendar).
+      if (solveSets) {
         const needs = await (await import("./solve-requirements")).solveRequirementRefusal(ticketId, {
           client,
           snapshot: solveSets,
@@ -177,7 +178,8 @@ export async function addMessage(ticketId: number, input: AddMessageInput, ctx: 
     const solves = solvesForChecklists(status, input.then_status);
     const withFields = solves && !!input.solve?.fields && Object.keys(input.solve.fields).length > 0;
     try {
-      const r = await updateTicket(ticketId, { ...(solves ? input.solve?.fields : undefined), status: input.then_status }, actor, ctx, solves ? { solveAnswers: input.solve?.answers } : {});
+      const { setup_complete: setupComplete, ...solveFields } = (solves ? input.solve?.fields : undefined) ?? {};
+      const r = await updateTicket(ticketId, { ...solveFields, status: input.then_status }, actor, ctx, solves ? { solveAnswers: input.solve?.answers, setupComplete: setupComplete === true } : {});
       status = r?.ticket.status ?? status;
     } catch (e) {
       // 1.19.2: a required item unticked since the check above. The reply is stored, so it is

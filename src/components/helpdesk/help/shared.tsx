@@ -108,6 +108,8 @@ export function formatAnswer(
     return opt ? opt.label : String(raw);
   }
   if (field.type === "date" && typeof raw === "string") return day(raw);
+  // 1.20.6: "2026-11-20T14:00" reads as the day and the time the person chose.
+  if (field.type === "datetime" && typeof raw === "string") return `${day(raw.slice(0, 10))}, ${raw.slice(11, 16)}`;
   if (field.type === "user") {
     const name = answers[`${field.key}__name`];
     return typeof name === "string" && name ? name : String(raw);

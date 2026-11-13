@@ -28,6 +28,9 @@ import { getJson, itemOf, listOf, sendJson } from "../api";
 import { useRequestTypes, useTeams } from "../admin-data";
 import { TEAM_ICON_NAMES, TeamIcon } from "../TeamIcon";
 import { FormBuilder } from "./FormBuilder";
+import { CategoryFields } from "../categories/CategoryFields";
+import { RequestTypeCalendarCard } from "../calendar/RequestTypeCalendarCard";
+import { checkRequestTypeCalendar } from "@/lib/helpdesk/desk-calendar-shared";
 
 export function RequestTypesSettings() {
   const { types, error, reload } = useRequestTypes();
@@ -165,10 +168,13 @@ function TypeEditor({
     return undefined;
   }, [v.form]);
   const titleError = !v.title.trim() ? "Give the request type a name." : undefined;
+  // 1.20.6 "Goes on the calendar": the same check the server makes (lib/helpdesk/desk-calendar-shared).
+  const calendarCheck = useMemo(() => checkRequestTypeCalendar(v.calendar ?? null, v.form), [v.calendar, v.form]);
+  const calendarError = calendarCheck.ok ? undefined : calendarCheck.error;
 
   async function save() {
     setTried(true);
-    if (formError || titleError) return;
+    if (formError || titleError || calendarError) return;
     setBusy(true);
     try {
       const d = await sendJson(
@@ -180,6 +186,7 @@ function TypeEditor({
           icon: v.icon,
           team_id: v.team_id,
           category: v.category,
+          subcategory: v.subcategory ?? "",
           workflow_id: v.workflow_id,
           sla_priority: v.sla_priority,
           visibility: v.visibility,
@@ -187,6 +194,7 @@ function TypeEditor({
           active: v.active,
           eta_label: v.eta_label,
           form: v.form,
+          ...(calendarCheck.ok ? { calendar: calendarCheck.value } : {}),
         },
         "Couldn't save the request type."
       );
@@ -299,9 +307,14 @@ function TypeEditor({
               ))}
             </Select>
           </Field>
-          <Field label="Category (optional)" help="Set on its tickets, for reports and rules.">
-            <TextInput value={v.category} maxLength={80} onChange={(e) => set({ category: e.target.value })} />
-          </Field>
+          {/* 1.20.6: picked from the desk admin's list (Desk settings → Categories), never typed. */}
+          <CategoryFields
+            value={{ category: v.category, subcategory: v.subcategory ?? "" }}
+            onChange={(next) => set(next)}
+            labels={{ category: "Category (optional)", subcategory: "Sub-category (optional)" }}
+            help="Set on its tickets, for reports and rules."
+            testid="rt"
+          />
         </div>
       </Card>
       <Card title="Who can use it">
@@ -335,6 +348,20 @@ function TypeEditor({
           </p>
         )}
       </Card>
+      {/* 1.20.6: requests of this type create a ticket with an event (calendar/RequestTypeCalendarCard). */}
+      <RequestTypeCalendarCard
+        form={v.form}
+        value={v.calendar}
+        onChange={(calendar) => set({ calendar })}
+        error={tried ? calendarError : undefined}
+        onAddQuestion={() => {
+          const taken = new Set(v.form.map((f) => f.key));
+          let key = "event_start";
+          for (let n = 2; taken.has(key); n++) key = `event_start_${n}`;
+          set({ form: [...v.form, { key, label: "When does it start?", type: "datetime", required: true }] });
+          return key;
+        }}
+      />
       <SaveRow dirty={dirty} busy={busy} onSave={save} label="Save request type" flush />
     </div>
   );

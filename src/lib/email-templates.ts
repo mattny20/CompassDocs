@@ -635,6 +635,33 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       "{{message}}\n\n" +
       "[Open #{{ticket_number}} in the desk]({{ticket_url}}) to answer. Don't reply to this email: notes are not sent by email.",
   },
+  // 1.20.6 (lib/helpdesk/desk-calendar-reminders): an event on a ticket is coming up, or has started with its setup open.
+  {
+    key: "hd_event_reminder",
+    label: "Helpdesk: event reminder",
+    description:
+      "Sent to the ticket's owner (or its team) before an event's setup must be ready, and once more if the event starts before setup is marked complete. Desk settings, Event calendar chooses when and to whom. Only agents get it.",
+    tags: [
+      T("ticket_number", "Ticket number"),
+      T("subject", "Ticket subject"),
+      T("headline", "\"Setup due in 1 hour\" or \"The event has started and setup isn't marked complete\""),
+      T("event_when", "When the event is, in the desk's time zone"),
+      T("event_place", "Where it is (blank when no place was given)"),
+      T("ready_by", "When setup must be ready"),
+      T("ticket_url", "Link to the ticket in the desk"),
+      T("org_name", "Workspace name"),
+    ],
+    text: ["subject", "event_place"],
+    optional: ["event_place"],
+    subject: "[{{org_name}}] {{headline}}: #{{ticket_number}} {{subject}}",
+    body:
+      "**{{headline}}** on **#{{ticket_number}}**:\n\n" +
+      "> {{subject}}\n\n" +
+      "**When:** {{event_when}}\n\n" +
+      "**Where:** {{event_place}}\n\n" +
+      "**Ready by:** {{ready_by}}\n\n" +
+      "[Open #{{ticket_number}} in the desk]({{ticket_url}}) and mark Setup complete when it is done. The ticket can't be solved until then.",
+  },
   // 1.19.4 (area C6, lib/helpdesk/share): an agent shares a ticket with another.
   {
     key: "hd_shared",
@@ -968,6 +995,15 @@ export const SAMPLE_VARS: Record<string, Record<string, string>> = {
     sharer_name: "Ana Kowalski",
     message: "Can you check the MFA side? You re-enrolled Daniel's phone yesterday.",
     follow_line: "You now follow it, so you'll hear about its new replies and notes.",
+    ticket_url: "/desk/tickets/1047",
+  },
+  hd_event_reminder: {
+    ticket_number: "1047",
+    subject: "Board meeting: room and video setup",
+    headline: "Setup due in 1 hour",
+    event_when: "Fri 20 Nov 2026, 14:00 to 15:30 (London time)",
+    event_place: "Boardroom A",
+    ready_by: "13:30 (30 minutes before)",
     ticket_url: "/desk/tickets/1047",
   },
   hd_merged: {

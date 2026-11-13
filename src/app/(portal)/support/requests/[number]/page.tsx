@@ -12,6 +12,7 @@ import { notFound, redirect } from "next/navigation";
 import { ChevronLeft, Download, GitMerge } from "lucide-react";
 import Link from "next/link";
 import { chipClass } from "@/components/Chip";
+import { EYEBROW_TEXT } from "@/components/Heading";
 import { contactRequestDetail, contactTicket, currentPortalContact, getPortalSettings, portalOpen } from "@/lib/helpdesk/portal";
 import { isPortalRating, portalJoinedNotices, portalSurveyState } from "@/lib/helpdesk/portal-csat";
 import { PortalSurvey } from "@/components/helpdesk/portal/PortalSurvey";
@@ -83,6 +84,23 @@ export default async function PortalRequest({
             </div>
           ))}
         </dl>
+      )}
+
+      {/* Public custom fields the desk filled in (1.20.6, lib/helpdesk/custom-fields): read-only, only those with a value. */}
+      {r.details.length > 0 && (
+        <section aria-labelledby="portal-details" className="mt-4 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs" data-testid="portal-request-details">
+          <h2 id="portal-details" className={EYEBROW_TEXT}>
+            Details
+          </h2>
+          <dl className="mt-2 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+            {r.details.map((d, i) => (
+              <div key={i} className="min-w-0">
+                <dt className="text-xs text-slate-500">{d.label}</dt>
+                <dd className="whitespace-pre-line break-words text-slate-800">{d.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
       )}
 
       <h2 className="sr-only">Conversation</h2>

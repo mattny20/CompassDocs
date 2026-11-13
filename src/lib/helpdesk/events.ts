@@ -53,6 +53,11 @@ export async function afterTicketCreated(
   ticket: { id: number; request_type_id: number | null; source: string; parent_ticket_id: number | null },
   ctx: HdHookContext = {}
 ): Promise<void> {
+  // 1.20.6: a request type that goes on the calendar fills in the ticket's event from the form (lib/helpdesk/desk-calendar),
+  // before the webhook below so ticket.created carries it.
+  if (ticket.request_type_id && ticket.parent_ticket_id === null) {
+    await safely("calendar.requestType", async () => (await import("./desk-calendar")).eventFromRequestType(ticket.id, { origin: ctx.origin }));
+  }
   // 1.19.4: outgoing webhooks first (C2, lib/helpdesk/webhooks), so ticket.created is queued before anything
   // below can change the ticket (assignment, rules: ticket.updated) or open its task tickets (their own ticket.created).
   await safely("webhooks.created", async () => (await import("./webhooks")).emitHelpdeskWebhookEvent("ticket.created", { ticketId: ticket.id, actor: { id: ctx.actorId, name: ctx.actorName }, origin: ctx.origin }));

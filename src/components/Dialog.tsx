@@ -45,7 +45,7 @@ export interface DialogField {
    * cleared); like every native control it takes the workspace accent from
    * the global accent-color rule, so nothing is restyled here.
    */
-  type?: "text" | "password" | "number" | "url" | "email" | "textarea" | "date";
+  type?: "text" | "password" | "number" | "url" | "email" | "textarea" | "date" | "datetime-local";
   /** Return a message to block, undefined to accept. */
   validate?: (value: string, all: Record<string, string>) => string | undefined;
   /** For type="number": bounds checked with rangeError. */

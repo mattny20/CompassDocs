@@ -428,6 +428,8 @@ export const HD_DIMENSIONS = {
   assignee: { label: "Assignee", kind: "category", drill: "assignee" },
   request_type: { label: "Request type", kind: "category", drill: "request_type" },
   category: { label: "Category", kind: "category", drill: "category" },
+  // 1.20.6 (lib/helpdesk/categories): keyed "Category › Sub-category", so two categories' "Other" stay apart.
+  subcategory: { label: "Sub-category", kind: "category", drill: "subcategory" },
   priority: { label: "Priority", kind: "category", drill: "priority" },
   channel: { label: "Channel", kind: "category", drill: "channel" },
   status: { label: "Status", kind: "category", drill: "status" },
@@ -1085,6 +1087,7 @@ export function codeLabel(dim: HdDimension, key: HdKey): string {
     if (dim === "team") return "No team";
     if (dim === "request_type") return "No request type";
     if (dim === "tag") return "No tag";
+    if (dim === "subcategory") return "No sub-category";
     if (dim === "integration") return "No integration";
     return "Not set";
   }
@@ -1114,7 +1117,7 @@ export function codeLabel(dim: HdDimension, key: HdKey): string {
  * The desk queue's address for the tickets behind one value (D's
  * /desk?from=reports&… drill-down, components/helpdesk/desk/queue/views).
  * Parameters: team, assignee (id | none), priority, request_type, channel,
- * status, tag, category, department, office, created_from/created_to or
+ * status, tag, category, subcategory, department, office, created_from/created_to or
  * solved_from/solved_to ("YYYY-MM-DD", inclusive, the helpdesk's zone),
  * breached (1 | now), status_group (open). Null when the measure has no
  * ticket list (workflow runs, approvals).

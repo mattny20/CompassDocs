@@ -78,11 +78,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ number:
       const raw = b.solve_fields as Record<string, unknown>;
       try {
         const { validateTicketPatch } = await import("@/lib/helpdesk/tickets");
-        const p = validateTicketPatch({ assignee_id: raw.assignee_id, team_id: raw.team_id, category: raw.category, tags: raw.tags });
+        // 1.20.6: and the custom fields the dialog filled in (lib/helpdesk/custom-fields).
+        const p = validateTicketPatch({ assignee_id: raw.assignee_id, team_id: raw.team_id, category: raw.category, subcategory: raw.subcategory, tags: raw.tags, custom_fields: raw.custom_fields });
         if (Object.keys(p).length) {
           const { patchRefusal } = await import("@/lib/helpdesk/patch-caps");
           const refused = await patchRefusal(gate, t, p);
           if (refused) return NextResponse.json({ error: refused }, { status: 403 });
+          // 1.20.6: a category the dialog set is one from the admin's list, checked before anything is posted (lib/helpdesk/categories).
+          if (p.category !== undefined || p.subcategory !== undefined) {
+            const { checkCategoryPick } = await import("@/lib/helpdesk/categories");
+            const kept = p.category === undefined || p.category.toLowerCase() === t.category.toLowerCase();
+            const pick = await checkCategoryPick(
+              { category: p.category ?? t.category, subcategory: p.subcategory !== undefined ? p.subcategory : kept ? (t.subcategory ?? "") : "" },
+              { category: t.category, subcategory: t.subcategory ?? "" }
+            );
+            if (!pick.ok) return NextResponse.json({ error: pick.error, code: pick.code, allowed: pick.allowed }, { status: 400 });
+          }
           fields = p;
         }
       } catch (e) {
@@ -90,6 +101,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ number:
         throw e;
       }
     }
+    // 1.20.6: the dialog's "Setup complete" tick travels with the solve (lib/helpdesk/desk-calendar); it needs Change status, as the solve does.
+    if ((b.solve_fields as Record<string, unknown> | undefined)?.setup_complete === true) fields = { ...(fields ?? {}), setup_complete: true };
     solve = { answers: b.solve_answers, fields };
     const { prepareReply } = await import("@/lib/helpdesk/review");
     const willHold = b.kind === "public" && (await prepareReply({ id: gate.id }, t, { kind: "public", asRequester: false })).review_state === "pending";
