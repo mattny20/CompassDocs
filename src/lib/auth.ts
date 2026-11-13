@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { loginHref } from "./return-to";
 import {
   signInCandidates,
+  getAllSettings,
   getSessionUser,
   createSession,
   deleteSession,
@@ -15,7 +16,8 @@ import {
 import { verifyTotpStep } from "./totp";
 import { openSecret } from "./secretbox";
 import { verifyPassword, verifyNothing, newToken } from "./password";
-import { getSessionTimeoutMinutes, getSecureCookieMode } from "./settings-store";
+import { getSessionTimeoutMinutes, getSecureCookieMode, sessionTimeoutFrom } from "./settings-store";
+import { DUO_NOTHING_OWED, duoStepHref, duoSwitchedOn, isDeskPath, type DuoVerdict } from "./duo-policy";
 import { SESSION_TIMEOUT_MAX } from "./settings";
 import { roleAtLeast } from "./types";
 import type { Role, SessionUser, User } from "./types";
@@ -93,23 +95,64 @@ export function toSessionUser(u: User): SessionUser {
   };
 }
 
-/** Read the current user from the session cookie, or null if not signed in. */
-export async function getCurrentUser(): Promise<SessionUser | null> {
+/** The session behind the cookie (1.20.5): its user, and what it still owes the Duo check. */
+export interface CurrentSession {
+  user: SessionUser;
+  /** The cookie's token, for the Duo step's own routes. */
+  token: string;
+  /** lib/duo-policy: `signIn` true means this session may not use CompassDocs yet, `desk` true that it may not use the desk yet. */
+  duo: DuoVerdict;
+}
+
+/**
+ * The session behind the cookie, or null if there is none. Every session
+ * check starts here. Since 1.20.5 it also says whether the session still
+ * owes a Duo approval (lib/duo-policy), decided from the settings map and the
+ * session row this function reads anyway: with no Duo rule switched on the
+ * answer is "nothing owed" after two map lookups, with no further query.
+ *
+ * Almost nothing should call this directly: getCurrentUser, requireUser and
+ * lib/api-auth apiSession apply the verdict. The exceptions are the Duo
+ * step's own page and routes, which must see a session that has not passed
+ * yet.
+ */
+export async function currentSession(): Promise<CurrentSession | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const session = await getSessionUser(token);
   if (!session) return null;
 
+  // One settings read serves the idle timeout and the Duo rules.
+  const settings = await getAllSettings();
   // Sliding idle timeout: push the expiry back to now + configured window.
   // Throttled so an active session updates the row at most ~once a minute.
-  const target = Date.now() + (await getSessionTimeoutMinutes()) * 60_000;
+  const target = Date.now() + sessionTimeoutFrom(settings) * 60_000;
   const current = new Date(session.expires_at).getTime();
   if (!Number.isNaN(current) && target - current > TOUCH_THROTTLE_MS) {
     await touchSession(token, new Date(target).toISOString());
   }
   const user = toSessionUser(session);
   user.newsletter_role = await newsletterLevel(user);
-  return user;
+  const duo = duoSwitchedOn(settings)
+    ? await (await import("./duo-gate")).duoSessionVerdict(settings, session, token)
+    : DUO_NOTHING_OWED;
+  return { user, token, duo };
+}
+
+/**
+ * Read the current user from the session cookie, or null if not signed in.
+ *
+ * 1.20.5: a session that still owes its sign-in Duo approval is NOT signed
+ * in, for every caller. That is the safe default: anything that reads the
+ * session through here, today or later, in core or in the enterprise
+ * overlay, treats such a session as a signed-out visitor without knowing
+ * Duo exists. The gates that can say something more useful (requireUser
+ * sends the page to the Duo step, lib/api-auth answers `mfa_required`) read
+ * currentSession themselves.
+ */
+export async function getCurrentUser(): Promise<SessionUser | null> {
+  const s = await currentSession();
+  return s && !s.duo.signIn ? s.user : null;
 }
 
 /**
@@ -158,9 +201,17 @@ export async function currentPagePath(): Promise<string> {
  * opened signed-out lands on the document after sign-in, not the dashboard.
  */
 export async function requireUser(): Promise<SessionUser> {
-  const user = await getCurrentUser();
-  if (!user) redirect(loginHref(await currentPagePath()));
-  return user;
+  const s = await currentSession();
+  if (!s) redirect(loginHref(await currentPagePath()));
+  // 1.20.5: signed in, but the Duo check is still owed (lib/duo-policy): for
+  // every page, or only for the desk's pages (the "when opening the desk"
+  // rule; the desk's layout, each of its pages and its print page all pass
+  // through here, so the page's own path decides). The step comes back to
+  // this page. The path is read only when something is owed.
+  if (s.duo.signIn || (s.duo.desk && isDeskPath(await currentPagePath()))) {
+    redirect(duoStepHref(await currentPagePath()));
+  }
+  return s.user;
 }
 
 // requireRole(min) lived here until 1.0. Every page that used it now calls

@@ -24,8 +24,7 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { cache } from "react";
-import { crossOriginRejection } from "../api-auth";
-import { getCurrentUser } from "../auth";
+import { apiSession, crossOriginRejection } from "../api-auth";
 import { featureEnabled } from "../ee";
 import { userHolds } from "../access";
 import type { Role, SessionUser } from "../types";
@@ -255,8 +254,9 @@ async function holdsLevel(user: U, level: HdLevel): Promise<boolean> {
 export async function helpdeskGate(level: HdLevel): Promise<SessionUser | NextResponse> {
   const cross = await crossOriginRejection();
   if (cross) return cross;
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  // 1.20.5: every level but "request" is the desk side, which the Duo "when opening the desk" rule covers.
+  const user = await apiSession(level === "request" ? "app" : "desk");
+  if (user instanceof NextResponse) return user;
   if (!(await helpdeskLicensed())) return NextResponse.json({ error: HD_LICENCE_ERROR }, { status: 402 });
   let ok: boolean;
   try {

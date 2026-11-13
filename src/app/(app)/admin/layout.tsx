@@ -4,6 +4,8 @@ import { requireUser, reachableSettingsSections } from "@/lib/auth";
 import { SettingsNav } from "@/components/SettingsNav";
 import { PageContainer } from "@/components/PageWidth";
 import { RAIL_GROUP_TEXT } from "@/components/RailLink";
+import { getAllSettings } from "@/lib/db";
+import { duoSwitchedOn } from "@/lib/duo-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +17,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const user = await requireUser();
   const reachable = await reachableSettingsSections(user);
   if (reachable.length === 0) redirect("/");
+  // 1.20.5: the server's emergency switch is holding the Duo rules off. Say so
+  // on every settings page until it is removed. Read only when the switch is set.
+  const duoHeldOff = process.env.COMPASSDOCS_DUO_DISABLED === "1" && duoSwitchedOn(await getAllSettings());
 
   return (
     <PageContainer>
@@ -24,6 +29,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <p className={`mb-4 flex items-center gap-1.5 ${RAIL_GROUP_TEXT}`}>
         <Settings className="h-3.5 w-3.5" aria-hidden /> Settings
       </p>
+      {duoHeldOff && (
+        <div className="notice-warn mb-4 rounded-lg border px-3 py-2 text-sm">
+          Duo is switched off on the server (<code className="font-mono text-xs">COMPASSDOCS_DUO_DISABLED=1</code>). Nobody is being asked
+          for Duo. Remove it and restart to enforce your Duo rules again.
+        </div>
+      )}
       <div className="flex flex-col gap-6 sm:flex-row sm:gap-8">
         {/* Sticky and self-scrolling: the 20-entry rail stays put while a long
             page (Workspace, Notifications, Backups) scrolls, and fits a

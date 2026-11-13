@@ -1,13 +1,15 @@
-import { headers } from "next/headers";
-import { requireSettingsSection } from "@/lib/auth";
+import { cookies, headers } from "next/headers";
+import { requireSettingsSection, SESSION_COOKIE } from "@/lib/auth";
 import { getSsoConfig, ssoAuthority } from "@/lib/sso-config";
 import { getSamlConfig, samlConfigured, samlSpUrls } from "@/lib/saml-config";
-import { getSetting } from "@/lib/db";
+import { getSetting, listUsers, sessionSid } from "@/lib/db";
+import { duoView } from "@/lib/duo-view";
 import { getAppSettings } from "@/lib/settings-store";
 import { eePresent, featureEnabled } from "@/lib/ee";
 import { SsoSettings } from "@/components/SsoSettings";
 import { SamlPanel } from "@/components/SamlPanel";
 import { ScimPanel } from "@/components/ScimPanel";
+import { DuoSettings } from "@/components/DuoSettings";
 import { SettingsPage } from "@/components/SettingsPage";
 
 import { settingsMetadata } from "@/lib/settings-sections";
@@ -15,7 +17,13 @@ export const dynamic = "force-dynamic";
 export const metadata = settingsMetadata("/admin/sso");
 
 export default async function SsoAdminPage() {
-  await requireSettingsSection("/admin/sso");
+  const user = await requireSettingsSection("/admin/sso");
+  // The Duo sign-in check (1.20.5): its saved settings, whether THIS session has passed its test, and the accounts the bypass list can name.
+  const token = (await cookies()).get(SESSION_COOKIE)?.value ?? "";
+  const [duo, people] = await Promise.all([duoView(user.id, token ? sessionSid(token) : ""), listUsers()]);
+  const duoUsers = people
+    .filter((u) => u.status === "active" || duo.bypass_user_ids.includes(u.id))
+    .map((u) => ({ id: u.id, label: u.name || u.username, sublabel: `${u.username} · ${u.role}${u.status === "active" ? "" : " · disabled"}` }));
   const [cfg, samlCfg, app, bundled, enabled, secretExpires, scimLicensed, scimEnabled, scimTokenHash, scimLast] =
     await Promise.all([
       getSsoConfig(),
@@ -85,6 +93,7 @@ export default async function SsoAdminPage() {
           }}
         />
       )}
+      <DuoSettings initial={duo} users={duoUsers} />
     </>
     </SettingsPage>
   );

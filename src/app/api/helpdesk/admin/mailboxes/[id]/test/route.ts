@@ -1,17 +1,19 @@
 // POST /api/helpdesk/admin/mailboxes/[id]/test   → { ok, to, from, error? }
 // Helpdesk 1.20.2 (lib/helpdesk/mailboxes): "Send test" on Desk settings → Email. One short
 // mail to the caller's own address, sent exactly as a reply on this address would leave: From
-// the address itself when it sends from it, else the workspace address under its name. The
-// mail provider's refusal comes back in its own words (ok: false, status 200: the request
-// worked, the provider said no). A permanent refusal of the address itself (lib/helpdesk/email
-// isSenderRejection) is kept on the mailbox (the list's warning chip), any other failure only
-// comes back in the answer; a test that goes through clears it. channels.manage
-// (settings.manage covers it). Five a minute per person. Audited (helpdesk.mailbox.tested).
+// the send-from address it picked (1.20.5, lib/helpdesk/send-addresses), else the workspace
+// address, under the name a reply carries. The mail provider's refusal comes back in its own
+// words (ok: false, status 200: the request worked, the provider said no). A permanent refusal
+// of the From address itself (lib/helpdesk/email isSenderRejection) is kept on the send-from
+// address (the lists' warning line), any other failure only comes back in the answer; a test
+// that goes through clears it. channels.manage (settings.manage covers it). Five a minute per
+// person. Audited (helpdesk.mailbox.tested).
 
 import { NextResponse } from "next/server";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { sendMailboxTestMail } from "@/lib/helpdesk/email";
-import { clearSendFromFailure, getMailbox, recordSendFromFailure } from "@/lib/helpdesk/mailboxes";
+import { getMailbox } from "@/lib/helpdesk/mailboxes";
+import { clearSendAddressFailure, recordSendAddressFailure } from "@/lib/helpdesk/send-addresses";
 import { hdAnyCapGate } from "@/lib/helpdesk/roles";
 import type { HdCap } from "@/lib/helpdesk/roles";
 import { notFound } from "@/lib/helpdesk/routes";
@@ -45,10 +47,10 @@ export async function POST(req: Request, { params }: Ctx) {
   }
   if (limited(gate.id)) return NextResponse.json({ error: "Too many tests. Try again in a minute." }, { status: 429 });
   const r = await sendMailboxTestMail(box, to);
-  if (box.send_from && r.from) {
-    if (r.ok) await clearSendFromFailure(box.id).catch(() => {});
+  if (box.send_address_id && r.from) {
+    if (r.ok) await clearSendAddressFailure(box.send_address_id).catch(() => {});
     // Only a refusal of the address itself: a bad recipient, a timeout or a "try again" says nothing about it.
-    else if (r.error && r.senderRejected) await recordSendFromFailure(box.id, r.error).catch(() => {});
+    else if (r.error && r.senderRejected) await recordSendAddressFailure(box.send_address_id, r.error, box.address).catch(() => {});
   }
   await audit({
     actor: actorFrom(gate),

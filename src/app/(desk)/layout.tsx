@@ -20,6 +20,7 @@ import { ToastHost } from "@/components/Toasts";
 import { DialogHost } from "@/components/Dialog";
 import { UiScaleSync } from "@/components/UiScale";
 import { DeskShell } from "@/components/helpdesk/desk/DeskShell";
+import { DuoDeskPrompt } from "@/components/helpdesk/desk/DuoDeskPrompt";
 import { DeskForbidden, DeskLicenceGate } from "@/components/helpdesk/desk/DeskGate";
 import { DeskKeysProvider } from "@/components/helpdesk/desk/DeskKeysProvider";
 import { PwaHead } from "@/components/helpdesk/desk/pwa/PwaHead";
@@ -100,6 +101,8 @@ export default async function DeskLayout({ children }: { children: React.ReactNo
           {access.licensed && access.any && <PwaHead />}
           <ToastHost />
           <DialogHost />
+          {/* 1.20.5: shown only when a desk request is refused for want of a Duo approval. */}
+          <DuoDeskPrompt />
         </DeskKeysProvider>
       </WidthProvider>
     </SettingsProvider>

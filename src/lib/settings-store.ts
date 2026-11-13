@@ -107,7 +107,11 @@ export async function getSecureCookieMode(): Promise<SecureCookieMode> {
 
 /** Just the idle session timeout in minutes (used by the auth layer). */
 export async function getSessionTimeoutMinutes(): Promise<number> {
-  const raw = await getAllSettings();
+  return sessionTimeoutFrom(await getAllSettings());
+}
+
+/** The same, from a settings map already in hand (1.20.5: lib/auth reads the map once, for this and for the Duo rules). */
+export function sessionTimeoutFrom(raw: Record<string, string>): number {
   return raw.session_timeout_minutes
     ? clampTimeout(Number(raw.session_timeout_minutes))
     : SETTINGS_DEFAULTS.session_timeout_minutes;

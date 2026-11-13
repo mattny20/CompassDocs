@@ -104,3 +104,12 @@ export function apiV1RateLimited(key: string): boolean {
 export function deskArtUploadRateLimited(key: string): boolean {
   return limited(`desk-art:${key}`, 20, 60 * 60_000);
 }
+
+/**
+ * Starting the Duo step (1.20.5, /api/auth/duo/start): each start can send a
+ * push to someone's phone, so a session cannot ask for more than 10 in five
+ * minutes.
+ */
+export function duoStartRateLimited(key: string): boolean {
+  return limited(`duo-start:${key}`, 10, 5 * 60_000);
+}

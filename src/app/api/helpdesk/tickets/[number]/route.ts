@@ -14,6 +14,10 @@
 // whole request has passed its checks and the other fields are saved.
 // 1.20.0: `via: "claude_desk"` in the body marks a change applied from a Claude in the desk
 // card; it is audited (helpdesk.ticket.updated, via "claude_desk") and changes no rule.
+// 1.20.5: `solve_answers` ({ "<closing field key>": value, … }, or "<set id>:<key>" for one set) goes with a
+// change that solves the ticket ("Before you solve", lib/helpdesk/solve-requirements): the answers are stored in
+// the same transaction as the solve and ignored on any other change. A ticket that still needs something answers
+// 409 { error, code: "solve_requirements", missing: [...] } and nothing is saved.
 // Helpdesk 1.19.0 (helpdesk.agent). 404 for a ticket outside the caller's queues.
 
 import { NextResponse } from "next/server";
@@ -95,7 +99,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
       found.ticket.id,
       patch,
       { id: gate.id, name: gate.name || gate.username, role: gate.role, ...(viaClaude ? { via: "claude_desk" as const } : {}) },
-      { origin: originOf(req) }
+      { origin: originOf(req) },
+      { solveAnswers: b.solve_answers }
     );
     if (!r) return notFound();
     if (viaClaude && r.changed.length) {
@@ -131,7 +136,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
     }
     return NextResponse.json({ ticket: r.ticket, changed: r.changed });
   } catch (e) {
-    if (e instanceof HdTicketError) return NextResponse.json({ error: e.message }, { status: e.status });
+    // 1.20.5: a "Before you solve" refusal also carries its code and what is missing (e.extra).
+    if (e instanceof HdTicketError) return NextResponse.json({ error: e.message, ...e.extra }, { status: e.status });
     throw e;
   }
 }

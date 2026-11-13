@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from "react";
 import { PRESENCE_HEARTBEAT_MS, type HdNewerMessage, type HdPresence, type HdPresenceState } from "@/lib/helpdesk/presence-shared";
-import { ApiError } from "../api";
+import { ApiError, noteDuoRequired } from "../api";
 
 const REPLYING_MS = 20_000;
 /** A remount of the same ticket (a reload of the pane) within this cancels the leave. */
@@ -149,8 +149,9 @@ export async function postGuarded<T = unknown>(url: string, body: Record<string,
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify(body),
   });
-  const data = (await res.json().catch(() => ({}))) as { error?: string; newer?: HdNewerMessage[] };
+  const data = (await res.json().catch(() => ({}))) as { error?: string; code?: unknown; newer?: HdNewerMessage[] };
   if (res.status === 409 && Array.isArray(data.newer) && data.newer.length) throw new CollisionError(data.error || fallback, data.newer);
+  noteDuoRequired(res.status, data.code); // 1.20.5: a refused Send raises the desk's Duo prompt; the text stays in the box
   if (!res.ok) throw new ApiError(data.error || fallback, res.status);
   return data as T;
 }

@@ -1,4 +1,10 @@
-// PATCH  /api/helpdesk/admin/mailboxes/[id]   { address?, name?, team_id?, send_from?, is_default?: true } → { mailbox }
+// PATCH  /api/helpdesk/admin/mailboxes/[id]   { address?, name?, team_id?, send_address_id?, send_from?, is_default?: true } → { mailbox }
+//          1.20.5: `send_address_id` picks the send-from address replies go out From (an id from
+//          /api/helpdesk/admin/send-addresses, or null = the workspace address). The older `send_from` is still
+//          taken: true = the address itself (added to the send-from list when missing), false = the workspace
+//          address; `send_address_id` wins when both are sent. The mailbox still answers `send_from` (true
+//          exactly when it sends from itself) and `send_from_error`, and now `send_address_id`, `send_address`
+//          and `send_address_name` as well.
 // DELETE /api/helpdesk/admin/mailboxes/[id]   → { ok, moved, moved_to: { id, address } | null }. Its tickets move to the
 //          default address (when the default itself goes, the next one becomes the default first).
 // Helpdesk 1.20.2 (lib/helpdesk/mailboxes). channels.manage (settings.manage covers it), as the

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
-import { getCurrentUser } from "./auth";
+import { currentSession } from "./auth";
 import { MasterKeyError } from "./secretbox";
 import { roleAtLeast } from "./types";
 import type { Role, SessionUser } from "./types";
@@ -55,6 +55,27 @@ export async function crossOriginRejection(): Promise<NextResponse | null> {
   return null;
 }
 
+/** The `code` on a 401 that means "signed in, but the Duo check is owed" (1.20.5). The client sends the person to the Duo step. */
+export const MFA_REQUIRED = "mfa_required";
+
+/**
+ * The signed-in user behind an API request, or the 401 to return. Every
+ * session-reading API guard starts with this.
+ *
+ * 1.20.5: a session that still owes the Duo check (lib/duo-policy) gets a
+ * 401 carrying `code: "mfa_required"` rather than the plain one, so a client
+ * can tell "confirm with Duo" from "sign in". Scope "desk" is for the
+ * agent-side desk API, which the "when opening the desk" rule also covers.
+ */
+export async function apiSession(scope: "app" | "desk" = "app"): Promise<SessionUser | NextResponse> {
+  const s = await currentSession();
+  if (!s) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  if (scope === "desk" ? s.duo.desk : s.duo.signIn) {
+    return NextResponse.json({ error: "Confirm with Duo to continue.", code: MFA_REQUIRED }, { status: 401 });
+  }
+  return s.user;
+}
+
 /**
  * Guard for API route handlers. Returns either the authenticated user or a
  * ready-to-return NextResponse (401/403/503). Usage:
@@ -80,8 +101,8 @@ export async function apiGuard(
 ): Promise<SessionUser | NextResponse> {
   const cross = await crossOriginRejection();
   if (cross) return cross;
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  const user = await apiSession();
+  if (user instanceof NextResponse) return user;
 
   const { legacyAuthzEnforcement } = await import("./authz");
   const legacyAllowed = roleAtLeast(user.role, min);
@@ -147,8 +168,8 @@ export async function sectionApiGuard(
 ): Promise<SessionUser | NextResponse> {
   const cross = await crossOriginRejection();
   if (cross) return cross;
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  const user = await apiSession();
+  if (user instanceof NextResponse) return user;
   const { canAccessSection } = await import("./section-access");
   if (!(await canAccessSection(user, section))) {
     return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });

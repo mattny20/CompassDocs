@@ -1,6 +1,10 @@
-// GET  /api/helpdesk/admin/mailboxes   → { mailboxes: HdMailboxView[], teams: [{ id, name }], mail_ready, transport_from }
-// POST /api/helpdesk/admin/mailboxes   { address, name, team_id?: number | null, send_from?: boolean, is_default?: boolean }
+// GET  /api/helpdesk/admin/mailboxes   → { mailboxes: HdMailboxView[], teams: [{ id, name }], mail_ready, transport_from,
+//          send_addresses: HdSendAddressView[], send_address_limit } (the last two from 1.20.5: the send-from
+//          addresses the page's second list and the dialog's picker show, lib/helpdesk/send-addresses)
+// POST /api/helpdesk/admin/mailboxes   { address, name, team_id?: number | null, send_address_id?: number | null,
+//          send_from?: boolean, is_default?: boolean }
 //        → 201 { mailbox }. 400 with the form's sentence, 409 when the address is already listed.
+//          `send_address_id` / `send_from`: as on PATCH (the [id] route).
 // Helpdesk 1.20.2 (lib/helpdesk/mailboxes): the help addresses on Desk settings → Email. The
 // same desk capabilities as that page's other email fields: channels.manage (settings.manage
 // covers it). Audited (helpdesk.mailbox.created). Saving the first address ticks the setup
@@ -12,6 +16,8 @@ import { readJson } from "@/lib/helpdesk/access";
 import { hq } from "@/lib/helpdesk/db-core";
 import { helpdeskMailReady } from "@/lib/helpdesk/email";
 import { HdMailboxError, createMailbox, mailboxViews } from "@/lib/helpdesk/mailboxes";
+import { SEND_ADDRESS_LIMITS } from "@/lib/helpdesk/mailboxes-shared";
+import { sendAddressViews } from "@/lib/helpdesk/send-addresses";
 import { hdAnyCapGate, hdCan } from "@/lib/helpdesk/roles";
 import type { HdCap } from "@/lib/helpdesk/roles";
 import { badRequest } from "@/lib/helpdesk/routes";
@@ -35,14 +41,15 @@ async function transportFrom(): Promise<string> {
 export async function GET() {
   const gate = await hdAnyCapGate(CAPS);
   if (gate instanceof NextResponse) return gate;
-  const [mailboxes, teams, mail_ready, transport_from] = await Promise.all([
+  const [mailboxes, send_addresses, teams, mail_ready, transport_from] = await Promise.all([
     mailboxViews(),
+    sendAddressViews(),
     // The dialog's team choice: names only (the Teams page needs teams.manage; this page does not).
     hq<{ id: number; name: string }>("SELECT id, name FROM hd_teams ORDER BY position, id"),
     helpdeskMailReady().catch(() => false),
     transportFrom(),
   ]);
-  return NextResponse.json({ mailboxes, teams, mail_ready, transport_from });
+  return NextResponse.json({ mailboxes, teams, mail_ready, transport_from, send_addresses, send_address_limit: SEND_ADDRESS_LIMITS.addresses });
 }
 
 export async function POST(req: Request) {

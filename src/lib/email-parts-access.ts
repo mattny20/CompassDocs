@@ -16,8 +16,7 @@
 
 import "server-only";
 import { NextResponse } from "next/server";
-import { crossOriginRejection } from "./api-auth";
-import { getCurrentUser } from "./auth";
+import { apiSession, crossOriginRejection } from "./api-auth";
 import { userHolds } from "./access";
 import { featureEnabled } from "./ee";
 import type { SessionUser } from "./types";
@@ -49,8 +48,8 @@ export const FORBIDDEN = () => NextResponse.json({ error: "You don't have permis
 export async function emailTemplatesGate(need: "any" | "manage" = "any"): Promise<EmailTemplatesAccess | NextResponse> {
   const cross = await crossOriginRejection();
   if (cross) return cross;
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  const user = await apiSession();
+  if (user instanceof NextResponse) return user;
   let access: EmailTemplatesAccess;
   try {
     const manage = await userHolds(user, "integration.email_template_manage", { legacyMin: "admin" });

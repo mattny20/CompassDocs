@@ -435,7 +435,8 @@ export async function applyRule(rule: HdAutomation, t: HdTicketRow): Promise<boo
         const msg = e instanceof Error ? e.message : String(e);
         logEvent("warn", "helpdesk.automation_patch_refused", { automation: rule.id, error: msg });
         const next = { ...left };
-        if ((await import("./checklists-shared")).isChecklistBlock(msg)) delete next.status;
+        // 1.20.5: a "Before you solve" requirement set refuses the solve the same way (lib/helpdesk/solve-requirements).
+        if ((await import("./checklists-shared")).isChecklistBlock(msg) || (await import("./solve-requirements-shared")).isSolveRequirementBlock(msg)) delete next.status;
         else {
           delete next.assignee_id;
           delete next.team_id;

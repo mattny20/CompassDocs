@@ -4,6 +4,70 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.20.5] - 2026-11-13
+
+Three additions: send-from addresses for the desk's email, a Duo approval on
+top of sign-in, and "Before you solve" requirements on tickets.
+
+### Added
+- **Desk email: send-from addresses.** Desk settings → Email has a second
+  list, "Send-from addresses": add as many addresses as your mail provider
+  lets you send from, each with an optional From name and its own Send test.
+  Editing a help address now has "Send replies from", which picks one of
+  them or the workspace address. Replies about that address's tickets go out
+  From the pick; the Reply-To stays the help address, so answers still
+  thread onto the ticket.
+- **A refused send-from address does not hold mail back.** When the mail
+  provider refuses an address, the reply goes out from the workspace
+  address, the refusal shows on both lists until a test passes, and it is
+  written to the audit log.
+- **Duo sign-in check (Enterprise, with single sign-on).** Settings → Single
+  sign-on has a new card for a Duo Universal Prompt application. Ask for a
+  Duo approval after every sign-in (password or SSO), or only when someone
+  opens the desk, with a number of hours a desk approval lasts (12 by
+  default). Which methods people may use (Duo Push only, say) is set in
+  Duo's own policy.
+- **Break-glass accounts skip Duo.** Name the accounts that sign in without
+  it; each of their sign-ins is written to the audit log.
+- **You choose what happens when Duo cannot be reached:** people are stopped
+  with a message (the default), or let in with a line in the audit log.
+- **Duo cannot lock you out by mistake.** A rule only turns on after you
+  pass a Duo approval yourself against the saved details, changing the
+  details turns the rules off, and `COMPASSDOCS_DUO_DISABLED=1` on the
+  server switches the check off in an emergency.
+- **Before you solve.** Desk settings → Before you solve lets an admin say
+  what a ticket needs before it can be solved: things on the ticket (an
+  owner, a team, a category, a tag, a linked asset, time logged, a reply
+  sent) and closing fields of your own, such as a resolution code or a root
+  cause. A set applies to every ticket or to chosen teams and request types.
+- **One dialog when the agent solves.** Solve, the `e` key, the status menu
+  and "Send and set Solved" open a dialog with only what is missing; filling
+  it in solves the ticket. Answers show in the ticket's side panel as Solve
+  details, and are in the API (`solve_details`), the `ticket.solved` webhook
+  and the Claude connector.
+- **The same rule for every way of solving.** Macros and the API are refused
+  with what is missing (409, `code: "solve_requirements"`), bulk edits skip
+  the ticket and say why, and an automation's status change is dropped.
+
+### Changed
+- **The audit entry for a refused sender is now
+  `helpdesk.send_address.refused`** (it was
+  `helpdesk.mailbox.send_from_failed`), and a help address's audit details
+  name its `send_address`.
+- **API tokens, the Claude connector, SCIM, webhooks, inbound email and the
+  customer portal are never asked for Duo.**
+
+### Upgrading
+- **Nothing to run.** Help addresses that send from themselves keep doing
+  so: each gets a send-from address equal to itself on the first start.
+  Solving is unchanged until you add a requirement set, and sign-in is
+  unchanged until you set Duo up.
+- **Schema:** new tables `hd_send_addresses`, `hd_solve_requirement_sets`,
+  `hd_ticket_solve_answers` and `duo_states`; a column on `hd_mailboxes` and
+  three on `sessions`. All are added on start.
+- **The Duo check needs an Enterprise licence with single sign-on.** No new
+  enterprise image content is needed beyond the 1.20.5 build.
+
 ## [1.20.4] - 2026-11-11
 
 One-click setup for Microsoft Intune. The desk can now create Intune's app

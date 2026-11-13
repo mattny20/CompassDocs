@@ -22,15 +22,28 @@
 //         → Ticket + { messages: [Message] }  Public replies and status lines always; internal
 //           notes (and replies held for review, with review_state) only if the role can add
 //           internal notes in the ticket's team.
-//   PATCH /tickets/{number}  { status?, priority?, team_id?, assignee_id?, tags? }
+//   PATCH /tickets/{number}  { status?, priority?, team_id?, assignee_id?, tags?, solve_answers? }
 //         Each change needs the desk capability for it (Change status, Change priority,
 //         Transfer to another team, Assign within their teams / Assign to anyone); tags need
 //         only that the token works the ticket. → { ticket: Ticket, changed: [...] }
+//         1.20.5: solve_answers ({ "<closing field key>": value }, or "<set id>:<key>" for one
+//         requirement set) goes with a status that solves the ticket and is stored with it;
+//         it is ignored on any other change. See "Before you solve" below.
 //   POST  /tickets/{number}/notes  { body }          (Add internal notes) → 201 { message }
-//   POST  /tickets/{number}/replies  { body, status? }
+//   POST  /tickets/{number}/replies  { body, status?, solve_answers? }
 //         A public reply to the requester (Reply to the requester, or Reply after review: then
 //         it is held for a lead, held: true, and nothing is sent yet). status sets the status
 //         in the same step (Change status). → 201 { message, held, status }
+//
+//   Before you solve (1.20.5, Desk settings → Before you solve): a ticket that a requirement
+//   set matches is solved only once what the set asks for is there. A PATCH or reply that
+//   would solve it without that answers 409 { error, code: "solve_requirements", missing:
+//   [{ kind: "ticket_field", field, label } | { kind: "closing_field", set_id, set_name, key,
+//   label }] } and changes nothing (the reply is not sent). Set the ticket fields first (an
+//   owner, a team, tags) or in the same PATCH, and send the closing fields as solve_answers:
+//   text as a string, a choice as its option value, a number, a date "YYYY-MM-DD", a tick as
+//   true, a person as their user id. A bad answer is 400. GET /tickets/{number} and the PATCH
+//   answer carry solve_details: [{ set, key, label, value, text }], the answers kept so far.
 //   GET   /approvals → { approvals: [...] }  pending approvals on requests in the token's queues
 //   GET   /reports/summary?from=YYYY-MM-DD&to=YYYY-MM-DD&team=<id>
 //         The Claude connector's hd_report numbers. Every team needs All reports; team=<id>
@@ -40,7 +53,8 @@
 // all); 402 when the helpdesk isn't licensed; 404 for a ticket that doesn't exist, that the
 // token can't work, or that is in the recycle bin (the same sentence, so numbers reveal
 // nothing); 403 only for a ticket the token can work but a change its role may not make;
-// 409 for a merged ticket, a workflow task's missing hand-off or required checklist items;
+// 409 for a merged ticket, a workflow task's missing hand-off, required checklist items or a
+// "Before you solve" requirement (code "solve_requirements");
 // 429 over 120 calls a minute per token (Retry-After), or 30 failed token checks a minute
 // from one address (only failed checks count; a valid token is never refused for them).
 // ---------------------------------------------------------------------------
@@ -190,7 +204,8 @@ export async function apiV1(req: Request, route: string, handler: (ctx: ApiCtx) 
   try {
     out = await handler({ req, p, user: p.user, origin: originOf(req) });
   } catch (e) {
-    if (e instanceof HdTicketError) out = { status: e.status, body: { error: e.message } };
+    // 1.20.5: a "Before you solve" refusal also carries its code and what is missing (e.extra).
+    if (e instanceof HdTicketError) out = { status: e.status, body: { error: e.message, ...e.extra } };
     else if (e instanceof BodyError) out = json(e.status, e.message);
     else {
       logEvent("error", "helpdesk.api.failed", { route, error: e instanceof Error ? e.message : String(e) });
@@ -430,11 +445,16 @@ export async function getTicketRoute(ctx: ApiCtx, number: string): Promise<ApiOu
   return {
     status: 200,
     ticket: ref(t),
-    body: { ...ticketFull(t, ctx.origin), internal_notes_included: notes, messages: messages.map((m) => messageOut(m, notes)) },
+    body: { ...ticketFull(t, ctx.origin), solve_details: await solveDetails(t.id), internal_notes_included: notes, messages: messages.map((m) => messageOut(m, notes)) },
   };
 }
 
-const PATCH_KEYS = ["status", "priority", "team_id", "assignee_id", "tags"] as const;
+/** 1.20.5 (additive): the "Before you solve" answers kept on the ticket (lib/helpdesk/solve-requirements); [] when none. */
+async function solveDetails(ticketId: number) {
+  return (await import("./solve-requirements")).solveDetailsOut(ticketId);
+}
+
+const PATCH_KEYS = ["status", "priority", "team_id", "assignee_id", "tags", "solve_answers"] as const;
 
 export async function patchTicketRoute(ctx: ApiCtx, number: string): Promise<ApiOut> {
   const t = await workTicket(ctx.user, number);
@@ -442,7 +462,9 @@ export async function patchTicketRoute(ctx: ApiCtx, number: string): Promise<Api
   const b = await readBody(ctx.req, 16 * 1024);
   const unknown = Object.keys(b).filter((k) => !(PATCH_KEYS as readonly string[]).includes(k));
   if (unknown.length) return json(400, `Only ${PATCH_KEYS.join(", ")} can be changed here (not ${unknown.join(", ")}).`);
-  if (!Object.keys(b).length) return json(400, `Say what to change: ${PATCH_KEYS.join(", ")}.`);
+  const solveAnswers = b.solve_answers;
+  delete b.solve_answers;
+  if (!Object.keys(b).length) return json(400, `Say what to change: ${PATCH_KEYS.filter((k) => k !== "solve_answers").join(", ")}.`);
   const patch = validateTicketPatch(b);
   const { patchRefusal } = await import("./patch-caps");
   const refused = await patchRefusal(ctx.user as never, t, patch);
@@ -457,7 +479,7 @@ export async function patchTicketRoute(ctx: ApiCtx, number: string): Promise<Api
     const missing = await validateTaskSolve(t.id);
     if (missing) return { status: 409, body: missing, ticket: ref(t) };
   }
-  const r = await updateTicket(t.id, patch, { id: ctx.user.id, name: ctx.user.name, role: ctx.user.role, via: "api" }, { origin: ctx.origin });
+  const r = await updateTicket(t.id, patch, { id: ctx.user.id, name: ctx.user.name, role: ctx.user.role, via: "api" }, { origin: ctx.origin }, { solveAnswers });
   if (!r) return NO_TICKET(number);
   if (r.changed.includes("assignee_id")) {
     const { recordManualAssignment } = await import("./assignment/engine");
@@ -466,7 +488,7 @@ export async function patchTicketRoute(ctx: ApiCtx, number: string): Promise<Api
   return {
     status: 200,
     ticket: ref(r.ticket),
-    body: { ticket: ticketFull(r.ticket, ctx.origin), changed: r.changed },
+    body: { ticket: { ...ticketFull(r.ticket, ctx.origin), solve_details: await solveDetails(r.ticket.id) }, changed: r.changed },
     audit: { action: "helpdesk.ticket.updated", details: { number: t.number, changed: r.changed } },
   };
 }
@@ -523,9 +545,17 @@ export async function addReplyRoute(ctx: ApiCtx, number: string): Promise<ApiOut
     const held = await checklists.checklistSolveRefusal(t.id);
     if (held) return { status: 409, body: held, ticket: ref(t) };
   }
+  // 1.20.5: "Before you solve" requirement sets refuse it before the reply is sent, unless the reply will be held for review.
+  const solveReqs = await import("./solve-requirements");
+  if (solveReqs.solvesForRequirements(t.status, thenStatus)) {
+    const { prepareReply } = await import("./review");
+    const willHold = (await prepareReply({ id: ctx.user.id }, t, { kind: "public", asRequester: false })).review_state === "pending";
+    const needs = willHold ? null : await solveReqs.solveRequirementRefusal(t.id, { answers: b.solve_answers, replyPending: true });
+    if (needs) return { status: needs.status, body: { error: needs.error, code: needs.code, missing: needs.missing }, ticket: ref(t) };
+  }
   const res = await addMessage(
     t.id,
-    { kind: "public", body, author: { id: ctx.user.id, name: ctx.user.name, email: "" }, via: "api", asRequester: false, then_status: thenStatus },
+    { kind: "public", body, author: { id: ctx.user.id, name: ctx.user.name, email: "" }, via: "api", asRequester: false, then_status: thenStatus, solve: { answers: b.solve_answers } },
     { origin: ctx.origin, noAutoFollow: true }
   );
   if (!res) return NO_TICKET(number);

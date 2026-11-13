@@ -4,6 +4,22 @@
 // uses. Errors carry the server's own sentence (STYLEGUIDE §Feedback:
 // never fail silently, prefer the server's `error`).
 
+/** Fired on `window` when a desk request is refused for want of a Duo approval (1.20.5). */
+export const DUO_REQUIRED_EVENT = "compass:duo-required";
+
+/**
+ * 1.20.5: a desk request was refused because the Duo approval ran out
+ * (lib/api-auth MFA_REQUIRED). Tell the desk's prompt (DuoDeskPrompt), which
+ * offers Duo in a second tab so this page, and whatever is typed on it,
+ * stays as it is. Called by parse() below and by the composer's guarded
+ * send (presence/presence.ts postGuarded), which reads its response itself.
+ */
+export function noteDuoRequired(status: number, code: unknown): void {
+  if (status === 401 && code === "mfa_required" && typeof window !== "undefined") {
+    window.dispatchEvent(new Event(DUO_REQUIRED_EVENT));
+  }
+}
+
 export class ApiError extends Error {
   status: number;
   /** The server's machine-readable `code`, when it sends one (e.g. "agent_limit"). */
@@ -19,6 +35,7 @@ async function parse(res: Response, fallback: string): Promise<unknown> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const { error: msg, code } = (data ?? {}) as { error?: string; code?: unknown };
+    noteDuoRequired(res.status, code);
     throw new ApiError(msg || fallback, res.status, typeof code === "string" ? code : undefined);
   }
   return data;

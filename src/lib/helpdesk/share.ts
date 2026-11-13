@@ -397,6 +397,8 @@ export async function ticketPrintView(
     else if (open && ticket.resolve_due) details.push(["Resolve due", at(ticket.resolve_due)]);
     else if (ticket.solved_at) details.push(["Solved", at(ticket.solved_at)]);
     if (ticket.tags?.length) details.push(["Tags", ticket.tags.join(", ")]);
+    // 1.20.5: the "Before you solve" answers, as the side panel's Solve details lists them (lib/helpdesk/solve-requirements).
+    for (const d of await (await import("./solve-requirements")).ticketSolveDetails(ticket.id)) if (d.text) details.push([d.label, d.text]);
   }
 
   let checklists: HdTicketPrint["checklists"] = null;

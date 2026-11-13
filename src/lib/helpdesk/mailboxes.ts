@@ -7,10 +7,18 @@
 //     ticket's mailbox (hd_tickets.mailbox_id) and, when nothing else picks
 //     a team, its team.
 //   - Mail to the requester and the people copied goes out under the
-//     ticket's mailbox (lib/helpdesk/email): its name, its address when
-//     "send from this address" is on, and its address plus the ticket's
-//     token as Reply-To. A ticket with no mailbox of its own uses its
-//     team's, else the default. Agent-only notices are unchanged.
+//     ticket's mailbox (lib/helpdesk/email): its name, From the send-from
+//     address it picked (1.20.5, lib/helpdesk/send-addresses; none = the
+//     workspace address), and its address plus the ticket's token as
+//     Reply-To whatever the From is. A ticket with no mailbox of its own
+//     uses its team's, else the default. Agent-only notices are unchanged.
+//   - 1.20.5: the "send from this address" switch (send_from) became that
+//     pick. The column stays, mirrored from the pick (true exactly when the
+//     picked send-from address is the mailbox's own address), and a write
+//     of `send_from` is still taken: true = its own address (added to the
+//     send-from list when missing), false = the workspace address. A
+//     mailbox that sends from its own address keeps doing so when its
+//     address is changed without a pick in the same write.
 //   - Upgrade: the single address of 1.20.1 (helpdesk_settings
 //     .inbound_address / email_from_name) becomes the default mailbox the
 //     first time this module is asked (mailboxesReady, once per process).
@@ -33,9 +41,19 @@ import { hq, hqOne, withTx } from "./db-core";
 import type { HdQueryable } from "./db-core";
 import { HD_SETTINGS_KEY, getHelpdeskSettings } from "./settings";
 import {
+  WORKSPACE_ADDRESS_LABEL,
+  adoptLegacySendFrom,
+  ensureSendAddress,
+  lockSendAddresses,
+  mirrorSendFrom,
+  resetSendAddressesReadyForTests,
+  sendAddressesReady,
+} from "./send-addresses";
+import {
   MAILBOX_LIMITS,
   cleanMailboxAddress,
   cleanMailboxName,
+  effectiveFromName,
   isOwnMailboxAddress,
   mailboxAddressProblem,
   mailboxForRecipients,
@@ -47,8 +65,16 @@ import type { HdMailbox, HdMailboxOption, HdMailboxView, HdTicketMailbox, Mailbo
 
 export type { HdMailbox, HdMailboxOption, HdMailboxView, HdTicketMailbox } from "./mailboxes-shared";
 
-const COLS = "id, address, name, team_id, send_from, send_from_error, send_from_error_at, is_default, position, created_at, updated_at";
-const ORDER = "ORDER BY position, id";
+// 1.20.5: a mailbox reads with the send-from address it picked. send_from and
+// send_from_error(_at) are worked out from the pick here; the columns of the
+// same name are its mirror for a 1.20.4 binary (lib/helpdesk/send-addresses).
+const COLS = `m.id, m.address, m.name, m.team_id, m.send_address_id, s.address AS send_address, s.name AS send_address_name,
+       (s.id IS NOT NULL AND lower(s.address) = lower(m.address)) AS send_from,
+       COALESCE(s.last_error, '') AS send_from_error, s.last_error_at AS send_from_error_at,
+       m.is_default, m.position, m.created_at, m.updated_at`;
+const FROM = "FROM hd_mailboxes m LEFT JOIN hd_send_addresses s ON s.id = m.send_address_id";
+const SELECT = `SELECT ${COLS} ${FROM}`;
+const ORDER = "ORDER BY m.position, m.id";
 
 export class HdMailboxError extends Error {
   constructor(message: string, public status = 400) {
@@ -83,37 +109,42 @@ export async function seedMailboxFromSettings(): Promise<HdMailbox | null> {
   return withTx(async (client) => {
     const has = await client.query("SELECT 1 FROM hd_mailboxes LIMIT 1");
     if (has.rowCount) return null;
-    const row = (
-      await hq<HdMailbox>(
+    const made = (
+      await hq<{ id: number }>(
         `INSERT INTO hd_mailboxes (address, name, is_default) VALUES ($1, $2, true)
-         ON CONFLICT DO NOTHING RETURNING ${COLS}`,
+         ON CONFLICT DO NOTHING RETURNING id`,
         [address, cleanMailboxName(s.email_from_name) || "Helpdesk"],
         client
       )
     )[0];
-    return row ?? null;
+    return made ? ((await getMailbox(made.id, client)) ?? null) : null;
   });
 }
 
-/** Wait for the schema and run the upgrade seed. Once per process (a failure is retried on the next call). */
+/**
+ * Wait for the schema and run the upgrade seeds: the 1.20.1 address, then
+ * (1.20.5) the send-from address of every mailbox that sent from itself.
+ * Once per process (a failure is retried on the next call).
+ */
 export function mailboxesReady(): Promise<void> {
   if (!readyPromise) {
-    readyPromise = seedMailboxFromSettings().then(
-      (made) => {
+    readyPromise = seedMailboxFromSettings()
+      .then((made) => {
         if (made) logEvent("info", "helpdesk.mailbox_seeded", { mailbox: made.id });
-      },
-      (e) => {
+        return sendAddressesReady();
+      })
+      .catch((e) => {
         readyPromise = null;
         throw e;
-      }
-    );
+      });
   }
   return readyPromise;
 }
 
-/** Tests: run the upgrade seed again on the next read. */
+/** Tests: run the upgrade seeds again on the next read. */
 export function resetMailboxesReadyForTests(): void {
   readyPromise = null;
+  resetSendAddressesReadyForTests();
 }
 
 // --- Reads -----------------------------------------------------------------------
@@ -121,22 +152,22 @@ export function resetMailboxesReadyForTests(): void {
 /** Every mailbox, in list order. With `client` the read stays on it (and the seed is the caller's business). */
 export async function listMailboxes(client?: HdQueryable): Promise<HdMailbox[]> {
   if (!client) await mailboxesReady();
-  return hq<HdMailbox>(`SELECT ${COLS} FROM hd_mailboxes ${ORDER}`, [], client);
+  return hq<HdMailbox>(`${SELECT} ${ORDER}`, [], client);
 }
 
 export async function getMailbox(id: number, client?: HdQueryable): Promise<HdMailbox | undefined> {
   if (!client) await mailboxesReady();
-  return hqOne<HdMailbox>(`SELECT ${COLS} FROM hd_mailboxes WHERE id = $1`, [id], client);
+  return hqOne<HdMailbox>(`${SELECT} WHERE m.id = $1`, [id], client);
 }
 
 /** The Email settings page's list: each mailbox with its team's name and how many tickets carry it. */
 export async function mailboxViews(): Promise<HdMailboxView[]> {
   await mailboxesReady();
   return hq<HdMailboxView>(
-    `SELECT ${COLS.split(", ").map((c) => `m.${c}`).join(", ")}, tm.name AS team_name,
+    `SELECT ${COLS}, tm.name AS team_name,
             (SELECT count(*)::int FROM hd_tickets t WHERE t.mailbox_id = m.id) AS tickets
-       FROM hd_mailboxes m LEFT JOIN hd_teams tm ON tm.id = m.team_id
-      ORDER BY m.position, m.id`
+       ${FROM} LEFT JOIN hd_teams tm ON tm.id = m.team_id
+      ${ORDER}`
   );
 }
 
@@ -168,7 +199,7 @@ export function mailboxInScope(m: { is_default: boolean; team_id: number | null 
 export async function mailboxOptionsFor(user: DeskUser): Promise<{ options: HdMailboxOption[]; total: number }> {
   const [boxes, scope] = await Promise.all([listMailboxes(), mailboxScope(user)]);
   return {
-    options: boxes.filter((m) => mailboxInScope(m, scope)).map((m) => ({ id: m.id, address: m.address, name: m.name, is_default: m.is_default, send_from: m.send_from })),
+    options: boxes.filter((m) => mailboxInScope(m, scope)).map((m) => ({ id: m.id, address: m.address, name: m.name, is_default: m.is_default, send_from: m.send_from, send_address: m.send_address })),
     total: boxes.length,
   };
 }
@@ -225,13 +256,16 @@ export async function mailboxForInbound(email: MailboxRecipientSource): Promise<
 export interface OutboundIdentity {
   /** The mailbox; null = the 1.20.1 settings stood in (none is listed). */
   mailboxId: number | null;
-  /** The From name. */
+  /** The From name: the picked send-from address's own name when it has one, else the mailbox's. */
   name: string;
   /** The address replies come back to (plus the ticket's token); '' = none set. */
   address: string;
-  /** Send From `address` itself, not the workspace transport's address. */
+  /** A send-from address is picked: send From `fromAddress`, not the workspace transport's address. */
   sendFrom: boolean;
-  /** The last mail From `address` was refused (cleared by the next one accepted). */
+  /** 1.20.5: the picked send-from address (lib/helpdesk/send-addresses), when sendFrom. */
+  sendAddressId?: number;
+  fromAddress?: string;
+  /** The last mail From `fromAddress` was refused (cleared by the next one accepted). */
   sendFromFailing?: boolean;
 }
 
@@ -250,7 +284,16 @@ export async function outboundIdentity(ticketId?: number | null): Promise<Outbou
   if (ticketId) {
     const t = await hqOne<{ mailbox_id: number | null; team_id: number | null }>("SELECT mailbox_id, team_id FROM hd_tickets WHERE id = $1", [ticketId]);
     const m = mailboxForTicket(boxes, t ?? {})!;
-    return { mailboxId: m.id, name: m.name, address: m.address, sendFrom: m.send_from, sendFromFailing: m.send_from_error !== "" };
+    if (!m.send_address_id || !m.send_address) return { mailboxId: m.id, name: m.name, address: m.address, sendFrom: false };
+    return {
+      mailboxId: m.id,
+      name: effectiveFromName(m.name, m.send_address_name),
+      address: m.address,
+      sendFrom: true,
+      sendAddressId: m.send_address_id,
+      fromAddress: m.send_address,
+      sendFromFailing: m.send_from_error !== "",
+    };
   }
   const def = boxes.find((m) => m.is_default) ?? boxes[0];
   return { mailboxId: def.id, name: def.name, address: def.address, sendFrom: false };
@@ -261,36 +304,6 @@ export async function ticketMailbox(ticket: { mailbox_id?: number | null; team_i
   const boxes = await listMailboxes();
   const m = mailboxForTicket(boxes, ticket);
   return m ? { id: m.id, address: m.address, name: m.name, own: m.id === ticket.mailbox_id } : null;
-}
-
-/**
- * Sending From a mailbox's address was refused and the mail went out from
- * the workspace address instead. Recorded on the mailbox; logged and
- * audited only when this starts a failure streak (the stored error was
- * empty), so a provider that refuses every mail writes one audit row.
- */
-export async function recordSendFromFailure(mailboxId: number, error: string): Promise<boolean> {
-  const text = error.replace(/\s+/g, " ").trim().slice(0, MAILBOX_LIMITS.error) || "The mail provider refused the address.";
-  const first = await hqOne<{ address: string }>(
-    "UPDATE hd_mailboxes SET send_from_error = $2, send_from_error_at = now() WHERE id = $1 AND send_from_error = '' RETURNING address",
-    [mailboxId, text]
-  );
-  if (!first) return false;
-  logEvent("warn", "helpdesk.mailbox_send_from_failed", { mailbox: mailboxId, address: first.address, error: text });
-  await audit({
-    actor: { name: "helpdesk email" },
-    action: "helpdesk.mailbox.send_from_failed",
-    targetType: "helpdesk_mailbox",
-    targetId: mailboxId,
-    targetLabel: first.address,
-    details: { address: first.address, error: text, sent_from: "workspace address" },
-  }).catch(() => {});
-  return true;
-}
-
-/** A mail From the mailbox's address was accepted: the failure streak is over. */
-export async function clearSendFromFailure(mailboxId: number): Promise<void> {
-  await hq("UPDATE hd_mailboxes SET send_from_error = '', send_from_error_at = NULL WHERE id = $1 AND send_from_error <> ''", [mailboxId]);
 }
 
 // --- The 1.20.1 settings, kept in step ------------------------------------------------
@@ -307,7 +320,7 @@ export async function clearSendFromFailure(mailboxId: number): Promise<void> {
  * puts two changes of the default in order.
  */
 async function mirrorDefaultToSettings(client: HdQueryable): Promise<void> {
-  const boxes = await hq<{ address: string; name: string; is_default: boolean }>(`SELECT address, name, is_default FROM hd_mailboxes ${ORDER}`, [], client);
+  const boxes = await hq<{ address: string; name: string; is_default: boolean }>(`SELECT m.address, m.name, m.is_default FROM hd_mailboxes m ${ORDER}`, [], client);
   const def = boxes.find((m) => m.is_default) ?? boxes[0];
   const read = async () => (await client.query<{ value: string }>("SELECT value FROM settings WHERE key = $1 FOR UPDATE", [HD_SETTINGS_KEY])).rows[0];
   let row = await read();
@@ -338,13 +351,17 @@ async function mirrorDefaultToSettings(client: HdQueryable): Promise<void> {
  * only while it is the only one. A value that is not empty and not an
  * address changes nothing here: it never counts as "cleared" (the settings
  * API refuses it with 400 before it is stored). No audit of its own: the
- * settings write is audited.
+ * settings write is audited. 1.20.5: a default that sends from its own
+ * address still does after its address changed here (the new address is
+ * added to the send-from list when missing).
  */
 export async function syncDefaultMailboxFromSettings(next: { inbound_address: string; email_from_name: string }, changed: readonly string[]): Promise<void> {
   if (!changed.includes("inbound_address") && !changed.includes("email_from_name")) return;
   await mailboxesReady().catch(() => {});
   await withTx(async (client) => {
-    const boxes = await hq<HdMailbox>(`SELECT ${COLS} FROM hd_mailboxes ${ORDER} FOR UPDATE`, [], client);
+    await lockSendAddresses(client);
+    await adoptLegacySendFrom(client);
+    const boxes = await hq<HdMailbox>(`${SELECT} ${ORDER}`, [], client);
     const def = boxes.find((m) => m.is_default);
     const name = cleanMailboxName(next.email_from_name) || "Helpdesk";
     const typed = (next.inbound_address ?? "").trim();
@@ -363,7 +380,8 @@ export async function syncDefaultMailboxFromSettings(next: { inbound_address: st
         await client.query("UPDATE hd_mailboxes SET is_default = false WHERE is_default");
         await client.query("UPDATE hd_mailboxes SET is_default = true, updated_at = now() WHERE id = $1", [listed.id]);
       } else if (!listed && def) {
-        await client.query("UPDATE hd_mailboxes SET address = $2, send_from_error = '', send_from_error_at = NULL, updated_at = now() WHERE id = $1", [def.id, address]);
+        const pick = def.send_from ? await ensureSendAddress(client, address) : def.send_address_id;
+        await client.query("UPDATE hd_mailboxes SET address = $2, send_address_id = $3, updated_at = now() WHERE id = $1", [def.id, address, pick]);
       } else if (!listed) {
         await client.query("INSERT INTO hd_mailboxes (address, name, is_default) VALUES ($1, $2, true) ON CONFLICT DO NOTHING", [address, name]);
         return;
@@ -373,6 +391,7 @@ export async function syncDefaultMailboxFromSettings(next: { inbound_address: st
       const target = (await hq<{ id: number }>("SELECT id FROM hd_mailboxes WHERE is_default", [], client))[0];
       if (target) await client.query("UPDATE hd_mailboxes SET name = $2, updated_at = now() WHERE id = $1", [target.id, name]);
     }
+    await mirrorSendFrom(client);
   });
 }
 
@@ -382,6 +401,9 @@ export interface MailboxInput {
   address?: unknown;
   name?: unknown;
   team_id?: unknown;
+  /** 1.20.5: the id of the send-from address replies go out From; null = the workspace address. */
+  send_address_id?: unknown;
+  /** Up to 1.20.4, still taken: true = send from the address itself, false = the workspace address. `send_address_id` wins when both are sent. */
   send_from?: unknown;
   is_default?: unknown;
 }
@@ -390,6 +412,7 @@ interface CleanInput {
   address?: string;
   name?: string;
   team_id?: number | null;
+  send_address_id?: number | null;
   send_from?: boolean;
   is_default?: boolean;
 }
@@ -418,6 +441,14 @@ export function validateMailboxInput(raw: MailboxInput, mode: "create" | "update
       out.team_id = n;
     }
   }
+  if (raw.send_address_id !== undefined) {
+    if (raw.send_address_id === null || raw.send_address_id === "") out.send_address_id = null;
+    else {
+      const n = Number(raw.send_address_id);
+      if (!Number.isInteger(n) || n <= 0) throw new HdMailboxError("send_address_id must be a send-from address's id or null.");
+      out.send_address_id = n;
+    }
+  }
   for (const k of ["send_from", "is_default"] as const) {
     if (raw[k] === undefined) continue;
     if (typeof raw[k] !== "boolean") throw new HdMailboxError(`${k} is true or false.`);
@@ -440,6 +471,24 @@ async function teamName(client: HdQueryable, id: number | null | undefined): Pro
 
 const clash = (e: unknown) => (e as { code?: string }).code === "23505";
 
+/**
+ * The send-from address a write picks (1.20.5): `send_address_id` when it
+ * is sent (null = the workspace address; an id that is not on the list is
+ * refused), else the old `send_from` (true = the mailbox's own address,
+ * added to the list when missing; false = the workspace address).
+ * Undefined when the write says nothing about it.
+ */
+async function pickedSendAddress(client: HdQueryable, input: CleanInput, ownAddress: string): Promise<number | null | undefined> {
+  if (input.send_address_id !== undefined) {
+    if (input.send_address_id === null) return null;
+    const found = await hq("SELECT 1 FROM hd_send_addresses WHERE id = $1", [input.send_address_id], client);
+    if (!found.length) throw new HdMailboxError("That send-from address is no longer on the list. Pick another one.");
+    return input.send_address_id;
+  }
+  if (input.send_from === undefined) return undefined;
+  return input.send_from ? ensureSendAddress(client, ownAddress) : null;
+}
+
 /** Add an address. The first one is the default whatever was asked. Audited (helpdesk.mailbox.created). */
 export async function createMailbox(raw: MailboxInput, by: MailboxActor): Promise<HdMailbox> {
   const input = validateMailboxInput(raw, "create");
@@ -448,23 +497,27 @@ export async function createMailbox(raw: MailboxInput, by: MailboxActor): Promis
   let row: HdMailbox;
   try {
     row = await withTx(async (client) => {
-      const boxes = await hq<{ id: number; address: string; is_default: boolean; position: number }>("SELECT id, address, is_default, position FROM hd_mailboxes ORDER BY position, id FOR UPDATE", [], client);
+      await lockSendAddresses(client);
+      await adoptLegacySendFrom(client);
+      const boxes = await hq<{ id: number; address: string; is_default: boolean; position: number }>("SELECT id, address, is_default, position FROM hd_mailboxes ORDER BY position, id", [], client);
       if (boxes.length >= MAILBOX_LIMITS.mailboxes) throw new HdMailboxError(`Up to ${MAILBOX_LIMITS.mailboxes} addresses.`);
       if (matchMailbox(boxes, input.address!)) throw new HdMailboxError("That address is already listed.", 409);
       team = await teamName(client, input.team_id);
       const makeDefault = input.is_default === true || !boxes.some((b) => b.is_default);
       if (makeDefault) await client.query("UPDATE hd_mailboxes SET is_default = false WHERE is_default");
       const position = boxes.reduce((n, b) => Math.max(n, b.position), -1) + 1;
+      const pick = (await pickedSendAddress(client, input, input.address!)) ?? null;
       const made = (
-        await hq<HdMailbox>(
-          `INSERT INTO hd_mailboxes (address, name, team_id, send_from, is_default, position)
-           VALUES ($1, $2, $3, $4, $5, $6) RETURNING ${COLS}`,
-          [input.address, input.name, input.team_id ?? null, input.send_from === true, makeDefault, position],
+        await hq<{ id: number }>(
+          `INSERT INTO hd_mailboxes (address, name, team_id, send_address_id, is_default, position)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+          [input.address, input.name, input.team_id ?? null, pick, makeDefault, position],
           client
         )
       )[0];
+      await mirrorSendFrom(client);
       await mirrorDefaultToSettings(client);
-      return made;
+      return (await getMailbox(made.id, client))!;
     });
   } catch (e) {
     if (clash(e)) throw new HdMailboxError("That address is already listed.", 409);
@@ -476,7 +529,7 @@ export async function createMailbox(raw: MailboxInput, by: MailboxActor): Promis
     targetType: "helpdesk_mailbox",
     targetId: row.id,
     targetLabel: row.address,
-    details: { address: row.address, name: row.name, team: team ?? "No team (use routing)", send_from: row.send_from, is_default: row.is_default },
+    details: { address: row.address, name: row.name, team: team ?? "No team (use routing)", send_address: row.send_address ?? WORKSPACE_ADDRESS_LABEL, is_default: row.is_default },
     ip: by.ip ?? null,
   });
   return row;
@@ -485,7 +538,8 @@ export async function createMailbox(raw: MailboxInput, by: MailboxActor): Promis
 /**
  * Edit an address. Making it the default takes the default from the other;
  * the default can't be switched off here (make another one the default).
- * Audited (helpdesk.mailbox.updated, the changed fields from → to).
+ * Audited (helpdesk.mailbox.updated, the changed fields from → to; the
+ * send-from pick as `send_address`, by address).
  */
 export async function updateMailbox(id: number, raw: MailboxInput, by: MailboxActor): Promise<HdMailbox | undefined> {
   const input = validateMailboxInput(raw, "update");
@@ -494,7 +548,9 @@ export async function updateMailbox(id: number, raw: MailboxInput, by: MailboxAc
   let row: HdMailbox | undefined;
   try {
     row = await withTx(async (client) => {
-      const boxes = await hq<HdMailbox>(`SELECT ${COLS} FROM hd_mailboxes ${ORDER} FOR UPDATE`, [], client);
+      await lockSendAddresses(client);
+      await adoptLegacySendFrom(client);
+      const boxes = await hq<HdMailbox>(`${SELECT} ${ORDER}`, [], client);
       const before = boxes.find((b) => b.id === id);
       if (!before) return undefined;
       const sets: string[] = [];
@@ -519,9 +575,13 @@ export async function updateMailbox(id: number, raw: MailboxInput, by: MailboxAc
         set("team_id", input.team_id);
         changes.team = { from: from ?? "No team (use routing)", to: to ?? "No team (use routing)" };
       }
-      if (input.send_from !== undefined && input.send_from !== before.send_from) {
-        set("send_from", input.send_from);
-        changes.send_from = { from: before.send_from, to: input.send_from };
+      // The pick: what the write says, else a mailbox that sent from its own address follows its new address.
+      let pick = await pickedSendAddress(client, input, input.address ?? before.address);
+      if (pick === undefined && changes.address && before.send_from) pick = await ensureSendAddress(client, input.address!);
+      if (pick !== undefined && pick !== before.send_address_id) {
+        const to = pick === null ? null : (await hq<{ address: string }>("SELECT address FROM hd_send_addresses WHERE id = $1", [pick], client))[0]?.address;
+        set("send_address_id", pick);
+        changes.send_address = { from: before.send_address ?? WORKSPACE_ADDRESS_LABEL, to: to ?? WORKSPACE_ADDRESS_LABEL };
       }
       if (input.is_default !== undefined && input.is_default !== before.is_default) {
         if (!input.is_default) throw new HdMailboxError("Make another address the default instead: one address is always the default.");
@@ -530,12 +590,11 @@ export async function updateMailbox(id: number, raw: MailboxInput, by: MailboxAc
         changes.is_default = { from: false, to: true };
       }
       if (!sets.length) return before;
-      // A changed address or sending choice starts with a clean slate.
-      if (changes.address || changes.send_from) sets.push("send_from_error = ''", "send_from_error_at = NULL");
       sets.push("updated_at = now()");
-      const saved = (await hq<HdMailbox>(`UPDATE hd_mailboxes SET ${sets.join(", ")} WHERE id = $1 RETURNING ${COLS}`, params, client))[0];
+      await client.query(`UPDATE hd_mailboxes SET ${sets.join(", ")} WHERE id = $1`, params);
+      await mirrorSendFrom(client);
       await mirrorDefaultToSettings(client);
-      return saved;
+      return getMailbox(id, client);
     });
   } catch (e) {
     if (clash(e)) throw new HdMailboxError("That address is already listed.", 409);
@@ -570,7 +629,7 @@ export async function mailboxTicketCount(id: number): Promise<number> {
 export async function deleteMailbox(id: number, by: MailboxActor): Promise<{ mailbox: HdMailbox; moved: number; moved_to: HdMailbox | null } | undefined> {
   await mailboxesReady();
   const out = await withTx(async (client) => {
-    const boxes = await hq<HdMailbox>(`SELECT ${COLS} FROM hd_mailboxes ${ORDER} FOR UPDATE`, [], client);
+    const boxes = await hq<HdMailbox>(`${SELECT} ${ORDER} FOR UPDATE OF m`, [], client);
     const gone = boxes.find((b) => b.id === id);
     if (!gone) return undefined;
     const rest = boxes.filter((b) => b.id !== id);

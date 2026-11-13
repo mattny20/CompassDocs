@@ -6,14 +6,18 @@
 //                provider's routing and every mail client's reply). 1.20.2:
 //                the address is the ticket's mailbox (lib/helpdesk/mailboxes)
 //   From         1.20.2: mail to the requester and the people copied goes
-//                out under the ticket's mailbox: its name, and its address
-//                when "send from this address" is on (else the workspace
-//                transport's address). No envelope sender is set, so the
-//                SMTP MAIL FROM follows the From header and SPF alignment
-//                holds either way. A provider that refuses the mailbox's
-//                address gets the same mail from the workspace address
-//                under the mailbox's name; the refusal is recorded on the
-//                mailbox and audited once. Agent-only notices keep the
+//                out under the ticket's mailbox. 1.20.5: From the send-from
+//                address the mailbox picked (lib/helpdesk/send-addresses),
+//                else the workspace transport's address; under the
+//                send-from address's own name when it has one, else the
+//                mailbox's. Reply-To does not follow the From: it is always
+//                the mailbox's address plus the token, so answers come back
+//                into the desk. No envelope sender is set, so the SMTP MAIL
+//                FROM follows the From header and SPF alignment holds
+//                either way. A provider that refuses the send-from address
+//                gets the same mail from the workspace address under the
+//                same name; the refusal is recorded on the send-from
+//                address and audited once. Agent-only notices keep the
 //                workspace address under the default mailbox's name.
 //   Subject      "… [#1047 ref:<token>]" through the template's
 //                {{thread_ref}}, appended when an override dropped it
@@ -42,6 +46,7 @@ import { getAppSettings } from "../settings-store";
 import { getUserById } from "../db";
 import { logEvent } from "../log";
 import { hq, hqOne } from "./db-core";
+import { cleanMailboxAddress, cleanMailboxName, effectiveFromName } from "./mailboxes-shared";
 import { getHelpdeskSettings } from "./settings";
 import { HD_PRIORITY_LABEL } from "./types";
 import type { HdPriority } from "./types";
@@ -280,19 +285,22 @@ export function isSenderRejection(e: unknown): boolean {
 }
 
 /**
- * Hand one mail to the transport under a mailbox's own address when it
- * sends from it. A permanent refusal of that address (isSenderRejection)
- * sends the same mail from the workspace address (mail.from) and records
- * the refusal on the mailbox; a refusal of that too throws, as any failed
- * send does. Any other failure throws as it is, with no second send: the
- * first one may have gone through, and the address is not to blame.
+ * Hand one mail to the transport From the send-from address its mailbox
+ * picked (1.20.5; `mail.from` is the workspace address under the same
+ * name). A permanent refusal of that address (isSenderRejection) sends the
+ * same mail from the workspace address and records the refusal on the
+ * send-from address; a refusal of that too throws, as any failed send does.
+ * Any other failure throws as it is, with no second send: the first one may
+ * have gone through, and the address is not to blame.
  */
 async function sendAsMailbox(
   transport: { send: HelpdeskTransport; from: string },
   mail: HelpdeskOutgoingMail,
-  who: { mailboxId: number | null; name: string; address: string; sendFrom: boolean; sendFromFailing?: boolean }
+  who: { name: string; address: string; sendFrom: boolean; sendAddressId?: number; fromAddress?: string; sendFromFailing?: boolean }
 ): Promise<void> {
-  const own = who.sendFrom && who.mailboxId && who.address && who.address !== bareAddress(transport.from) ? fromWithName(who.address, who.name) : null;
+  // The stored address went through cleanMailboxAddress when it was saved; it is checked again before it becomes a header.
+  const picked = who.sendFrom && who.sendAddressId ? cleanMailboxAddress(who.fromAddress) : null;
+  const own = picked && picked !== bareAddress(transport.from) ? fromWithName(picked, who.name) : null;
   if (!own) {
     await transport.send(mail);
     return;
@@ -302,46 +310,80 @@ async function sendAsMailbox(
   } catch (e) {
     if (!isSenderRejection(e)) throw e;
     await transport.send(mail);
-    await (await import("./mailboxes")).recordSendFromFailure(who.mailboxId!, providerError(e)).catch(() => {});
+    await (await import("./send-addresses")).recordSendAddressFailure(who.sendAddressId!, providerError(e), who.address).catch(() => {});
     return;
   }
-  if (who.sendFromFailing) await (await import("./mailboxes")).clearSendFromFailure(who.mailboxId!).catch(() => {});
+  if (who.sendFromFailing) await (await import("./send-addresses")).clearSendAddressFailure(who.sendAddressId!).catch(() => {});
 }
 
+const escHtml = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** One test mail, no fallback: the provider's refusal is the answer, in its own words. */
+async function sendTestMail(
+  transport: { send: HelpdeskTransport; from: string },
+  m: { to: string; from: string; shown: string; replyTo?: string; subject: string; line: string }
+): Promise<{ ok: boolean; from: string; error?: string; senderRejected?: boolean }> {
+  try {
+    await transport.send({
+      to: m.to,
+      from: m.from,
+      ...(m.replyTo ? { replyTo: m.replyTo } : {}),
+      subject: m.subject,
+      text: `${m.line}\n\nIf it reached you, the address is set up. Nothing was added to the desk.`,
+      html: `<p>${escHtml(m.line)}</p><p>If it reached you, the address is set up. Nothing was added to the desk.</p>`,
+      headers: { "Auto-Submitted": "auto-generated", "X-CompassDocs-Helpdesk": "1" },
+    });
+    return { ok: true, from: m.shown };
+  } catch (e) {
+    return { ok: false, from: m.shown, error: providerError(e), senderRejected: isSenderRejection(e) };
+  }
+}
+
+const NO_MAIL = "Outgoing mail isn't set up yet. Add your mail server in Settings, Notifications, Email first.";
+
 /**
- * The Email settings page's "Send test" for one address: a short mail to
- * `to` exactly as a reply would leave (From the address when it sends from
- * it, else the workspace address under its name; Reply-To the address).
- * No fallback here: the provider's refusal is the answer, in its own words.
- * `senderRejected` says the failure was a refusal of the From address
- * (isSenderRejection), the only kind that is kept on the mailbox.
+ * The Email settings page's "Send test" for one help address: a short mail
+ * to `to` exactly as a reply would leave (From the send-from address it
+ * picked, else the workspace address; under the name a reply carries;
+ * Reply-To the help address). No fallback here: the provider's refusal is
+ * the answer, in its own words. `senderRejected` says the failure was a
+ * refusal of the From address (isSenderRejection), the only kind that is
+ * kept on the send-from address.
  */
 export async function sendMailboxTestMail(
-  box: { id: number; address: string; name: string; send_from: boolean },
+  box: { id: number; address: string; name: string; send_address?: string | null; send_address_name?: string | null },
   to: string
 ): Promise<{ ok: boolean; from: string; error?: string; senderRejected?: boolean }> {
   const transport = await smtpTransport().catch(() => null);
-  if (!transport) return { ok: false, from: "", error: "Outgoing mail isn't set up yet. Add your mail server in Settings, Notifications, Email first." };
-  const from = box.send_from ? fromWithName(box.address, box.name) : fromWithName(transport.from, box.name);
-  const shown = box.send_from ? box.address : bareAddress(transport.from);
-  const line = box.send_from
-    ? `This test was sent from ${box.address}. Replies about tickets on this address go out the same way.`
-    : `This test was sent from ${shown} under the name "${box.name}". Replies about tickets on ${box.address} go out the same way, and answers come back to ${box.address}.`;
-  const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  try {
-    await transport.send({
-      to,
-      from,
-      replyTo: box.address,
-      subject: `Test from ${box.address}`,
-      text: `${line}\n\nIf it reached you, the address is set up. Nothing was added to the desk.`,
-      html: `<p>${esc(line)}</p><p>If it reached you, the address is set up. Nothing was added to the desk.</p>`,
-      headers: { "Auto-Submitted": "auto-generated", "X-CompassDocs-Helpdesk": "1" },
-    });
-    return { ok: true, from: shown };
-  } catch (e) {
-    return { ok: false, from: shown, error: providerError(e), senderRejected: isSenderRejection(e) };
-  }
+  if (!transport) return { ok: false, from: "", error: NO_MAIL };
+  const picked = cleanMailboxAddress(box.send_address);
+  const name = effectiveFromName(box.name, picked ? box.send_address_name : null);
+  const shown = picked ?? bareAddress(transport.from);
+  const line =
+    picked === box.address
+      ? `This test was sent from ${box.address}. Replies about tickets on this address go out the same way.`
+      : `This test was sent from ${shown} under the name "${name}". Replies about tickets on ${box.address} go out the same way, and answers come back to ${box.address}.`;
+  return sendTestMail(transport, { to, from: fromWithName(picked ?? transport.from, name), shown, replyTo: box.address, subject: `Test from ${box.address}`, line });
+}
+
+/**
+ * 1.20.5: "Send a test" for one send-from address: a short mail to `to`
+ * From that address, under its own name (`fallbackName`, the name of a help
+ * address that sends from it, when it has none). It tells whether the mail
+ * provider allows the address. No Reply-To, no fallback.
+ */
+export async function sendSendAddressTestMail(
+  sender: { address: string; name: string },
+  to: string,
+  fallbackName = ""
+): Promise<{ ok: boolean; from: string; error?: string; senderRejected?: boolean }> {
+  const transport = await smtpTransport().catch(() => null);
+  if (!transport) return { ok: false, from: "", error: NO_MAIL };
+  const address = cleanMailboxAddress(sender.address);
+  if (!address) return { ok: false, from: "", error: "That is not an email address." };
+  const name = cleanMailboxName(sender.name) || cleanMailboxName(fallbackName);
+  const line = `This test was sent from ${address} through your workspace mail server. Your mail provider accepted the address, so help addresses can send replies from it.`;
+  return sendTestMail(transport, { to, from: name ? fromWithName(address, name) : address, shown: address, subject: `Test from ${address}`, line });
 }
 
 // --- Sending ---------------------------------------------------------------------

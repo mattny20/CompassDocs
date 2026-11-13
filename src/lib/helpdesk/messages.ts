@@ -19,6 +19,7 @@ import { afterMessageAdded } from "./events";
 import type { HdHookContext } from "./events";
 import { assertNotMergedTx, getTicketRow, HdTicketError, TICKET_LIMITS, updateTicket } from "./tickets";
 import { isChecklistBlock, solvesForChecklists } from "./checklists-shared";
+import { SOLVE_BLOCK_CODE } from "./solve-requirements-shared";
 import type { HdAttachment, HdMessage, HdMessageKind, HdMessageVia, HdReviewState, HdStatus } from "./types";
 
 export const MESSAGE_LIMITS = { body: TICKET_LIMITS.body, page: 1000 } as const;
@@ -58,6 +59,12 @@ export interface AddMessageInput {
   email_message_id?: string | null;
   /** Agents only: the status to set in the same step ("send and mark solved"). */
   then_status?: HdStatus;
+  /**
+   * 1.20.5 ("Before you solve", lib/helpdesk/solve-requirements): what goes with a then_status that solves: the closing
+   * answers, and the ticket fields the dialog set (already checked against the agent's capabilities by the route). Applied
+   * in the status change's own transaction; ignored when the status doesn't change.
+   */
+  solve?: { answers?: unknown; fields?: import("./solve-requirements").SolveFieldPatch };
 }
 
 export interface AddMessageResult {
@@ -66,7 +73,7 @@ export interface AddMessageResult {
   status: HdStatus;
   /** A newbie's public reply held for review (review_state 'pending'): not sent yet. */
   held: boolean;
-  /** 1.19.2: then_status was refused for required checklist items after the reply was stored (it was still sent); the sentence. */
+  /** 1.19.2: then_status was refused for required checklist items after the reply was stored (it was still sent); the sentence. 1.20.5: or for a "Before you solve" requirement. */
   status_unchanged?: string;
 }
 
@@ -92,6 +99,11 @@ export async function addMessage(ticketId: number, input: AddMessageInput, ctx: 
     reviewState = (await prepareReply({ id: input.author.id }, pre, { kind: input.kind, asRequester })).review_state;
   }
   const held = reviewState === "pending";
+  // 1.20.5: the switched-on "Before you solve" sets, read before the transaction (cached; lib/helpdesk/solve-requirements).
+  const solveSets =
+    !held && !asRequester && (input.then_status === "solved" || input.then_status === "closed")
+      ? await (await import("./solve-requirements")).solveSetsSnapshot()
+      : null;
   const res = await withTx(async (client) => {
     const t = await getTicketRow(ticketId, client, true);
     if (!t) return undefined;
@@ -104,6 +116,22 @@ export async function addMessage(ticketId: number, input: AddMessageInput, ctx: 
         const err = new HdTicketError(blocked.error, 409);
         err.messageUnsent = true;
         throw err;
+      }
+      // 1.20.5: and so is one a "Before you solve" requirement set would refuse. A public reply counts as the reply it requires.
+      if (solveSets?.sets.length) {
+        const needs = await (await import("./solve-requirements")).solveRequirementRefusal(ticketId, {
+          client,
+          snapshot: solveSets,
+          answers: input.solve?.answers,
+          patch: input.solve?.fields,
+          replyPending: input.kind === "public",
+        });
+        if (needs) {
+          const err = new HdTicketError(needs.error, needs.status);
+          err.extra = { code: needs.code, missing: needs.missing };
+          err.messageUnsent = true;
+          throw err;
+        }
       }
     }
     const ins = await hq<HdMessage>(
@@ -145,13 +173,18 @@ export async function addMessage(ticketId: number, input: AddMessageInput, ctx: 
     reopened = status === "solved";
     status = r?.ticket.status ?? status;
   } else if (!held && !asRequester && input.then_status && input.then_status !== status) {
+    // 1.20.5: a solve carries the dialog's ticket fields and closing answers into the same transaction as the status.
+    const solves = solvesForChecklists(status, input.then_status);
+    const withFields = solves && !!input.solve?.fields && Object.keys(input.solve.fields).length > 0;
     try {
-      const r = await updateTicket(ticketId, { status: input.then_status }, actor, ctx);
+      const r = await updateTicket(ticketId, { ...(solves ? input.solve?.fields : undefined), status: input.then_status }, actor, ctx, solves ? { solveAnswers: input.solve?.answers } : {});
       status = r?.ticket.status ?? status;
     } catch (e) {
       // 1.19.2: a required item unticked since the check above. The reply is stored, so it is
       // still sent (the hooks below); the status stays and the caller is told (agent W3).
-      if (!(e instanceof HdTicketError) || !isChecklistBlock(e.message)) throw e;
+      // 1.20.5: the same for a "Before you solve" requirement that changed since the check.
+      // A ticket field the dialog set that is refused now (the owner left the team meanwhile) is told the same way.
+      if (!(e instanceof HdTicketError) || !(isChecklistBlock(e.message) || e.extra?.code === SOLVE_BLOCK_CODE || withFields)) throw e;
       statusUnchanged = e.message;
     }
   } else if (!held && !asRequester && input.kind === "public" && status === "new") {

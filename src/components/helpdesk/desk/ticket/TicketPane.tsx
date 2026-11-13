@@ -64,6 +64,9 @@ import { useShareMenu } from "../share/ShareActions";
 import { revealChecklists, TicketChecklists } from "../checklists/TicketChecklists";
 import { askMaintenanceOnSolve, logMaintenanceAfterSolve, SolveMaintenanceHost, type MaintenancePlan } from "../assets/SolveMaintenance";
 import { isChecklistBlock } from "@/lib/helpdesk/checklists-shared";
+// 1.20.5: "Before you solve" (lib/helpdesk/solve-requirements): the dialog a requirement set opens before a solve.
+import { isSolveRequirementBlock } from "@/lib/helpdesk/solve-requirements-shared";
+import { askBeforeYouSolve, BeforeYouSolveHost, type SolveExtras } from "../solve/BeforeYouSolve";
 import { BinnedTicketPane } from "../recycle-bin/BinnedTicketPane";
 import { DeleteTicketsDialog } from "../recycle-bin/DeleteTicketsDialog";
 
@@ -120,9 +123,30 @@ export function TicketPane({ number }: { number: number }) {
       }
       // A team that records time asks for it before a solve (1.19.1, agent V8); cancelling keeps it open.
       if (p.status === "solved" && !(await askTimeOnSolve(number, me.id))) return false;
+      // 1.20.5: a "Before you solve" requirement set asks for what the ticket still needs; cancelling keeps it open.
+      // What the dialog collects goes in this same PATCH, so it is saved only if the ticket is solved.
+      const withExtras = (extra: SolveExtras | null) => (extra ? { ...p, ...extra.solve_fields, solve_answers: extra.solve_answers } : p);
+      let body: typeof p & { solve_answers?: unknown } = p;
+      if (p.status === "solved") {
+        const extra = await askBeforeYouSolve(number, { applies: d?.before_solve === true, subject: d?.ticket.subject });
+        if (extra === false) return false;
+        body = withExtras(extra);
+      }
       setBusy(true);
       try {
-        const r = await sendJson(`/api/helpdesk/tickets/${number}`, "PATCH", p, "Couldn't update the ticket.");
+        let r: unknown;
+        try {
+          r = await sendJson(`/api/helpdesk/tickets/${number}`, "PATCH", body, "Couldn't update the ticket.");
+        } catch (e) {
+          // A set switched on since this ticket was loaded: the server said what it needs, so ask now and try once more.
+          if (!(e instanceof ApiError && p.status === "solved" && body === p && isSolveRequirementBlock(e.message))) throw e;
+          setBusy(false);
+          const extra = await askBeforeYouSolve(number, { force: true, subject: d?.ticket.subject });
+          if (extra === false) return false;
+          if (!extra) throw e;
+          setBusy(true);
+          r = await sendJson(`/api/helpdesk/tickets/${number}`, "PATCH", withExtras(extra), "Couldn't update the ticket.");
+        }
         // The route may answer with the detail, the ticket, or nothing useful.
         const t = itemOf<Partial<HdTicketDetail>>(r, "detail");
         if (t && "ticket" in t && t.messages) setD(t as HdTicketDetail);
@@ -144,7 +168,7 @@ export function TicketPane({ number }: { number: number }) {
         setBusy(false);
       }
     },
-    [number, load, refreshQueue, d?.parent, d?.ticket.subject, me.id]
+    [number, load, refreshQueue, d?.parent, d?.ticket.subject, d?.before_solve, me.id]
   );
 
   // Claude in the desk (1.20.0): the panel works on this ticket while it is open here.
@@ -366,6 +390,7 @@ export function TicketPane({ number }: { number: number }) {
                 automated={t.automated === 1}
                 latestMessageId={latestMessageId(d.messages)}
                 onNewer={() => void load(true)}
+                beforeSolve={d.before_solve === true}
               />
             ) : (
               <p className="notice-warn rounded-lg border px-3 py-2 text-sm">You can read this ticket but not work it: it belongs to a team you're not in.</p>
@@ -373,6 +398,8 @@ export function TicketPane({ number }: { number: number }) {
           </div>
           {/* The solve flow's "Log a maintenance record" dialog (1.19.3, assets/SolveMaintenance). */}
           <SolveMaintenanceHost />
+          {/* The solve flow's "Before you solve" dialog (1.20.5, solve/BeforeYouSolve). */}
+          <BeforeYouSolveHost onChanged={() => void load(true)} />
           <SidePanel
             d={d}
             onPatch={patch}

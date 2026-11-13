@@ -260,6 +260,10 @@ async function emit(event: HdWebhookEvent, input: HdWebhookEventInput[HdWebhookE
     body.approval = { id: a.id, step: a.title ?? "Approval", decision: a.decision, decided_by: { name: a.decided_by_name }, decided_at: a.decided_at, note: a.note || null };
   } else if (event === "ticket.updated") {
     body.changes = [...new Set((input as HdWebhookEventInput["ticket.updated"]).changed)];
+  } else if (event === "ticket.solved") {
+    // 1.20.5 (additive): the "Before you solve" answers kept on the ticket, [{ set, key, label, value, text }]; [] when
+    // none (lib/helpdesk/solve-requirements). They are what an agent of the hook's teams reads on the ticket.
+    body.solve_details = await (await import("./solve-requirements")).solveDetailsOut(t.id).catch(() => []);
   }
 
   const eventId = `evt_${randomUUID()}`;

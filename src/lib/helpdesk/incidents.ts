@@ -668,7 +668,8 @@ export interface SolveResult {
 /**
  * Why `user` can't solve `t` the way the PATCH route would (access, the
  * merged lock, Change status in its team, a workflow task's hand-off,
- * required checklist items), or null. Asked before any write.
+ * required checklist items, a "Before you solve" requirement), or null.
+ * Asked before any write.
  */
 async function solveRefusal(user: IncidentActor, t: HdTicket): Promise<string | null> {
   if (!(await canWorkTicket(user, t))) return "Not in your queues.";
@@ -684,6 +685,9 @@ async function solveRefusal(user: IncidentActor, t: HdTicket): Promise<string | 
   const { checklistSolveRefusal } = await import("./checklists");
   const blocked = await checklistSolveRefusal(t.id);
   if (blocked) return blocked.error;
+  // 1.20.5: a "Before you solve" requirement set with something missing refuses it too (lib/helpdesk/solve-requirements).
+  const needs = await (await import("./solve-requirements")).solveRequirementRefusal(t.id);
+  if (needs) return needs.error;
   return null;
 }
 

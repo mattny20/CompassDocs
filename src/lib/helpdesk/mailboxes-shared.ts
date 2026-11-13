@@ -3,6 +3,9 @@
 // was sent to. No database, no server-only imports (the Email settings page
 // and the ticket side panel read the types and limits).
 //
+// 1.20.5: the send-from address shapes and rules live here too
+// (lib/helpdesk/send-addresses is the server half).
+//
 // One address matches another when the part before any plus tag and the
 // domain are equal, whatever the case: help@x.com, Help@X.com and
 // help+hd-<token>@x.com are all the mailbox help@x.com.
@@ -11,13 +14,22 @@ export interface HdMailbox {
   id: number;
   /** Lower-cased, no plus tag. */
   address: string;
-  /** The From name of mail about its tickets. */
+  /** The From name of mail about its tickets (a send-from address with a name of its own replaces it). */
   name: string;
   /** Where new tickets on this address start when nothing else picks a team; null = use routing. */
   team_id: number | null;
-  /** Replies go out From this address (the workspace mail provider must allow it). */
+  /** 1.20.5: the send-from address replies go out From (lib/helpdesk/send-addresses); null = the workspace address. */
+  send_address_id: number | null;
+  /** 1.20.5: that address, and its own From name ('' = this mailbox's name). Null when none is picked. */
+  send_address: string | null;
+  send_address_name: string | null;
+  /**
+   * True exactly when the picked send-from address is this address itself.
+   * Up to 1.20.4 this was the choice ("replies go out From this address");
+   * it is still read and written for those clients.
+   */
   send_from: boolean;
-  /** The provider's refusal the last time sending From this address failed; '' = none. */
+  /** The provider's refusal the last time sending From the picked address failed; '' = none. */
   send_from_error: string;
   send_from_error_at: string | null;
   is_default: boolean;
@@ -43,10 +55,48 @@ export interface HdTicketMailbox {
 /** An entry of the ticket's "Answer from" choice. */
 export interface HdMailboxOption extends HdTicketMailbox {
   is_default: boolean;
+  /** True when replies go out From this address itself (kept from 1.20.2). */
   send_from: boolean;
+  /** 1.20.5: the address replies go out From; null = the workspace address. */
+  send_address: string | null;
+}
+
+/** 1.20.5: a send-from address (lib/helpdesk/send-addresses). */
+export interface HdSendAddress {
+  id: number;
+  /** Lower-cased, no plus tag. */
+  address: string;
+  /** Its own From name; '' = the name of the help address that sends from it. */
+  name: string;
+  /** The provider's refusal the last time a mail From it was turned down; '' = none. */
+  last_error: string;
+  last_error_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A send-from address as the Email settings page lists it: with the help addresses that picked it. */
+export interface HdSendAddressView extends HdSendAddress {
+  used_by: { id: number; address: string }[];
+}
+
+/**
+ * The From name of a mail: the send-from address's own name when it has
+ * one, else the help address's name (what requesters saw before 1.20.5).
+ */
+export function effectiveFromName(mailboxName: string, sendAddressName: string | null | undefined): string {
+  return (sendAddressName ?? "").trim() || mailboxName;
 }
 
 export const MAILBOX_LIMITS = { address: 200, name: 80, mailboxes: 50, error: 500 } as const;
+
+/**
+ * 1.20.5: how many send-from addresses an admin may list. "As many as I
+ * want" in practice: the cap only keeps the list and every picker bounded.
+ * An address made by the upgrade or by the old `send_from: true` write is
+ * not counted against it (at most one per help address).
+ */
+export const SEND_ADDRESS_LIMITS = { addresses: 200 } as const;
 
 const ADDRESS_RE = /^[a-z0-9.!#$%&'*/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 
@@ -69,6 +119,16 @@ export function mailboxAddressProblem(raw: string): string {
   if (!a) return "Enter the address people write to.";
   if (a.length > MAILBOX_LIMITS.address) return `Keep the address under ${MAILBOX_LIMITS.address} characters.`;
   if (a.includes("+")) return "Leave out the + tag: the desk adds its own to each ticket's reply address.";
+  if (!cleanMailboxAddress(a)) return "That is not an email address.";
+  return "";
+}
+
+/** Why a send-from address typed into the form is refused ('' = fine). The API answers the same sentences. */
+export function sendAddressProblem(raw: string): string {
+  const a = raw.trim();
+  if (!a) return "Enter the address to send from.";
+  if (a.length > MAILBOX_LIMITS.address) return `Keep the address under ${MAILBOX_LIMITS.address} characters.`;
+  if (a.includes("+")) return "Leave out the + tag: a send-from address is a plain address.";
   if (!cleanMailboxAddress(a)) return "That is not an email address.";
   return "";
 }

@@ -12,6 +12,7 @@ import {
   Clock,
   LifeBuoy,
   ListChecks,
+  ClipboardCheck,
   List,
   Mail,
   ShieldCheck,
@@ -54,6 +55,8 @@ const NEED: Record<string, string[]> = {
   "/desk/settings/canned": ["macros.manage_all", "macros.manage_team", "macros.manage_personal"],
   // Checklists (1.19.2, agent W3): the configuration capabilities (lib/helpdesk/checklists-caps).
   "/desk/settings/checklists": [...CHECKLIST_MANAGE_CAPS],
+  // "Before you solve" requirement sets (1.20.5, lib/helpdesk/solve-requirements).
+  "/desk/settings/before-you-solve": ["settings.manage"],
   "/desk/settings/csat": ["csat.manage"],
   "/desk/settings/assignment": ["agents.manage_team", "automations.manage"],
   "/desk/settings/contact-cards": ["settings.manage"],
@@ -98,6 +101,7 @@ const HELPDESK: SettingsNavItem[] = [
   { href: "/desk/settings/macros", label: "Macros", icon: Zap },
   { href: "/desk/settings/canned", label: "Canned responses", icon: MessageSquareText },
   { href: "/desk/settings/checklists", label: "Checklists", icon: ListChecks },
+  { href: "/desk/settings/before-you-solve", label: "Before you solve", icon: ClipboardCheck },
   { href: "/desk/settings/csat", label: "Satisfaction", icon: Star },
   { href: "/desk/settings/import", label: "Import", icon: Upload },
   { href: "/desk/settings/retention", label: "Retention and privacy", icon: Shield },
