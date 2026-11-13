@@ -35,6 +35,9 @@ import { HD_SHARE_SCHEMA } from "./helpdesk/share-schema";
 import { HD_CLAUDE_SCHEMA } from "./helpdesk/claude-schema";
 import { HD_MAILBOXES_SCHEMA } from "./helpdesk/mailboxes-schema";
 import { HD_SOLVE_REQUIREMENTS_SCHEMA } from "./helpdesk/solve-requirements-schema";
+import { HD_CATEGORIES_SCHEMA } from "./helpdesk/categories-schema";
+import { HD_DESK_CALENDAR_SCHEMA } from "./helpdesk/desk-calendar-schema";
+import { HD_CUSTOM_FIELDS_SCHEMA } from "./helpdesk/custom-fields-schema";
 import { createHash, randomBytes } from "node:crypto";
 import { SEED_SPACES, SEED_DOCS } from "./seed-data";
 import { hashPassword } from "./password";
@@ -2381,6 +2384,12 @@ const SCHEMA_SQL = `
   ${HD_MAILBOXES_SCHEMA}
   -- "Before you solve" requirement sets and a ticket's answers (1.20.5, lib/helpdesk/solve-requirements-schema; after hd_tickets).
   ${HD_SOLVE_REQUIREMENTS_SCHEMA}
+  -- Managed categories and sub-categories: hd_categories, hd_tickets.subcategory, hd_request_types.subcategory (1.20.6, lib/helpdesk/categories-schema; after hd_tickets, hd_request_types).
+  ${HD_CATEGORIES_SCHEMA}
+  -- The event calendar: a ticket's event, reminders sent, feed links (1.20.6, lib/helpdesk/desk-calendar-schema; after hd_tickets, hd_request_types).
+  ${HD_DESK_CALENDAR_SCHEMA}
+  -- Custom fields per team and a ticket's values (1.20.6, lib/helpdesk/custom-fields-schema; after hd_tickets, hd_solve_requirement_sets).
+  ${HD_CUSTOM_FIELDS_SCHEMA}
   --- end Helpdesk 1.19.0 ---------------------------------------------------
   ${EMAIL_PARTS_SCHEMA}
   ${NOTIFY_POLICY_SCHEMA}

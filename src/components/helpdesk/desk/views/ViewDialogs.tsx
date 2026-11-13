@@ -17,6 +17,8 @@ import { Modal } from "@/components/Modal";
 import { Button, iconButtonClass } from "@/components/Button";
 import { Field, FormError, Select, TextInput } from "@/components/form";
 import { useDeskMailboxes } from "../mailboxes";
+import { splitCategoryLabel } from "@/lib/helpdesk/categories-shared";
+import { CategoryFields } from "../categories/CategoryFields";
 import { RadioCards } from "@/components/PolicyFields";
 import { toast } from "@/components/Toasts";
 import { HD_PRIORITIES, HD_PRIORITY_LABEL, HD_STATUSES, HD_STATUS_LABEL } from "@/lib/helpdesk/types";
@@ -231,7 +233,7 @@ function RenameViewDialog({ sv, view, onClose }: { sv: SavedViews; view: HdSaved
 
 // --- The filter form --------------------------------------------------------------
 
-const FORM_KEYS = new Set(["view", "q", "status", "status_group", "priority", "team", "assignee", "tag", "created_within", "mailbox"]);
+const FORM_KEYS = new Set(["view", "q", "status", "status_group", "priority", "team", "assignee", "tag", "created_within", "mailbox", "category", "subcategory"]);
 const CREATED = [
   { value: "", label: "Any time" },
   { value: "1", label: "Today" },
@@ -251,6 +253,16 @@ interface Form {
   created: string;
   /** 1.20.2: a help address (lib/helpdesk/mailboxes); '' = any. */
   mailbox: string;
+  /** 1.20.6: a category and a sub-category from the admin's list (lib/helpdesk/categories); '' = any. */
+  category: string;
+  subcategory: string;
+}
+
+function categoryOf(f: HdViewFilters): { category: string; subcategory: string } {
+  const pair = splitCategoryLabel(f.subcategory && f.subcategory !== "none" ? f.subcategory : "");
+  if (pair.subcategory) return pair;
+  const category = f.category && f.category !== "none" ? f.category : "";
+  return { category, subcategory: category ? pair.category : "" };
 }
 
 function formFrom(f: HdViewFilters): Form {
@@ -271,6 +283,8 @@ function formFrom(f: HdViewFilters): Form {
     tag: f.tag ?? "",
     created: f.created_within ?? "",
     mailbox: f.mailbox ?? "",
+    // A report's drill-down may carry "Category › Sub-category" as one value.
+    ...categoryOf(f),
   };
 }
 
@@ -285,6 +299,8 @@ function filtersFrom(form: Form, extra: HdViewFilters): HdViewFilters {
   if (form.tag.trim()) out.tag = form.tag.trim();
   if (form.created) out.created_within = form.created;
   if (form.mailbox) out.mailbox = form.mailbox;
+  if (form.category) out.category = form.category;
+  if (form.category && form.subcategory) out.subcategory = form.subcategory;
   return out;
 }
 
@@ -310,7 +326,10 @@ function FilterDialog({
   // 1.20.2: the Address choice, offered while more than one help address is listed (or one is already chosen).
   const mailboxes = useDeskMailboxes();
   const [form, setForm] = useState<Form>(() => formFrom(initial));
-  const [extra, setExtra] = useState<HdViewFilters>(() => Object.fromEntries(Object.entries(initial).filter(([k]) => !FORM_KEYS.has(k))));
+  // What the form has no control for stays as it came (1.20.6: "none", a report's "no category", among them).
+  const [extra, setExtra] = useState<HdViewFilters>(() =>
+    Object.fromEntries(Object.entries(initial).filter(([k, v]) => !FORM_KEYS.has(k) || ((k === "category" || k === "subcategory") && v === "none")))
+  );
   const [busy, setBusy] = useState(false);
   const set = (k: keyof Form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const filters = useMemo(() => filtersFrom(form, extra), [form, extra]);
@@ -416,6 +435,14 @@ function FilterDialog({
               </Select>
             </Field>
           )}
+          {/* 1.20.6: by category, then a sub-category of it, from the desk admin's list. */}
+          <CategoryFields
+            value={{ category: form.category, subcategory: form.subcategory }}
+            onChange={(next) => setForm((prev) => ({ ...prev, ...next }))}
+            none="Any category"
+            noneSub="Any sub-category"
+            testid="filter"
+          />
         </div>
         {extraText && (
           <p className="mt-3 text-xs text-slate-500">

@@ -56,7 +56,9 @@ export type HdAgentEvent =
   | "approval_needed"
   | "task_assigned"
   | "reopened"
-  | "followed_update";
+  | "followed_update"
+  // 1.20.6 (lib/helpdesk/desk-calendar-reminders).
+  | "event_reminder";
 
 export interface HdAgentPayload {
   ticketNumber: number;

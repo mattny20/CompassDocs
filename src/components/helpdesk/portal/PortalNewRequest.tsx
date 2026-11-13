@@ -232,7 +232,7 @@ function FormFieldInput({ field: f, value, error, onChange }: { field: HdFormFie
         </Select>
       ) : (
         <TextInput
-          type={f.type === "date" ? "date" : f.type === "number" ? "number" : "text"}
+          type={f.type === "date" ? "date" : f.type === "datetime" ? "datetime-local" : f.type === "number" ? "number" : "text"}
           value={v}
           maxLength={f.type === "text" ? 500 : undefined}
           onChange={(e) => onChange(e.target.value)}

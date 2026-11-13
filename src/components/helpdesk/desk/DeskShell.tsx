@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, ExternalLink, Inbox, LifeBuoy, Menu, Settings, Stamp, Workflow } from "lucide-react";
+import { BarChart3, CalendarDays, ExternalLink, Inbox, LifeBuoy, Menu, Settings, Stamp, Workflow } from "lucide-react";
 import { Popover } from "@/components/Popover";
 import { iconButtonClass } from "@/components/Button";
 import { railIconClass, railRowClass } from "@/components/RailLink";
@@ -60,6 +60,14 @@ function destinations(caps: DeskCaps, counts: HdCounts | null): Dest[] {
       label: "Tickets",
       icon: <Inbox className="h-5 w-5" aria-hidden />,
       match: (p) => p === "/desk" || p.startsWith("/desk/tickets"),
+    });
+  // 1.20.6: the events on tickets (lib/helpdesk/desk-calendar). Agents, as the queue.
+  if (caps.agent)
+    out.push({
+      href: "/desk/calendar",
+      label: "Calendar",
+      icon: <CalendarDays className="h-5 w-5" aria-hidden />,
+      match: (p) => p.startsWith("/desk/calendar"),
     });
   out.push({
     href: "/desk/approvals",

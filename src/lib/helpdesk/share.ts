@@ -54,6 +54,7 @@ import { listCcs, listFollowers } from "./ccs";
 import { othersPresent } from "./presence";
 import { deliverAgentNotification } from "./notify-prefs";
 import { HD_PRIORITY_LABEL, HD_SOURCE_LABEL, HD_STATUS_LABEL, type HdTicket } from "./types";
+import { categoryLabel } from "./categories-shared";
 import {
   HD_SHARE_BINNED,
   HD_SHARE_EVENT,
@@ -396,9 +397,13 @@ export async function ticketPrintView(
     if (open && ticket.first_reply_due && !ticket.first_replied_at) details.push(["Reply due", at(ticket.first_reply_due)]);
     else if (open && ticket.resolve_due) details.push(["Resolve due", at(ticket.resolve_due)]);
     else if (ticket.solved_at) details.push(["Solved", at(ticket.solved_at)]);
+    // 1.20.6: the category and its sub-category as one value ("Hardware › Laptop"), when the ticket has one.
+    if (ticket.category) details.push(["Category", categoryLabel(ticket.category, ticket.subcategory)]);
     if (ticket.tags?.length) details.push(["Tags", ticket.tags.join(", ")]);
     // 1.20.5: the "Before you solve" answers, as the side panel's Solve details lists them (lib/helpdesk/solve-requirements).
     for (const d of await (await import("./solve-requirements")).ticketSolveDetails(ticket.id)) if (d.text) details.push([d.label, d.text]);
+    // 1.20.6: the custom fields of the ticket's team that are filled in, as the side panel lists them (lib/helpdesk/custom-fields).
+    details.push(...(await (await import("./custom-fields")).customFieldPrintRows(ticket)));
   }
 
   let checklists: HdTicketPrint["checklists"] = null;

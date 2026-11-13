@@ -2,11 +2,13 @@
 // caller: { teams, agents, request_types, workflows, tags, categories, can: { export,
 // share_everyone, set_default, manage_shared }, timezone, scope }
 // Helpdesk 1.19.0 reports (agent K). Teams and agents are those of the
-// caller's report scope; tags and categories those seen on its tickets in
-// the last year.
+// caller's report scope; tags those seen on its tickets in the last year.
+// 1.20.6: categories are the desk admin's list (lib/helpdesk/categories), in
+// its order, archived ones included (old tickets still carry them).
 
 import { NextResponse } from "next/server";
 import { hq } from "@/lib/helpdesk/db-core";
+import { categoryTree } from "@/lib/helpdesk/categories";
 import { reportScope } from "@/lib/helpdesk/analytics/engine";
 import { reportTimezone } from "@/lib/helpdesk/analytics/hours";
 import { dashboardRights } from "@/lib/helpdesk/analytics/store";
@@ -40,11 +42,7 @@ export async function GET() {
           WHERE t.created_at > now() - interval '365 days' AND t.deleted_at IS NULL AND ${ticketScope} AND $1::int[] IS NOT NULL AND $2::int IS NOT NULL ORDER BY 1 LIMIT 200`,
         p
       ),
-      hq<{ v: string }>(
-        `SELECT DISTINCT t.category AS v FROM hd_tickets t
-          WHERE t.category <> '' AND t.created_at > now() - interval '365 days' AND t.deleted_at IS NULL AND ${ticketScope} AND $1::int[] IS NOT NULL AND $2::int IS NOT NULL ORDER BY 1 LIMIT 200`,
-        p
-      ),
+      categoryTree().then((list) => list.map((c) => ({ v: c.name }))),
     ]);
     // Automated tickets (alerts, API: agent P's hd_tickets.automated) offer the "Include alerts" toggle.
     const auto = await hq<{ yes: boolean }>(

@@ -30,6 +30,7 @@ export const HD_FORM_FIELD_TYPES: readonly HdFormFieldType[] = [
   "text",
   "textarea",
   "date",
+  "datetime",
   "number",
   "user",
   "select",
@@ -68,6 +69,7 @@ const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ICON_RE = /^[a-z0-9-]*$/;
 const DEFAULT_FROM_RE = /^directory:[a-z0-9_]+$/;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DATETIME_RE = /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/;
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -79,6 +81,13 @@ export function isIsoDate(v: unknown): v is string {
   if (!m) return false;
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
   return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
+}
+
+/** 1.20.6: a date and time as the clock reads it, "YYYY-MM-DDTHH:MM" (no zone: lib/helpdesk/desk-calendar reads it in the requester's). */
+export function isLocalDateTime(v: unknown): v is string {
+  if (typeof v !== "string") return false;
+  const m = DATETIME_RE.exec(v);
+  return !!m && isIsoDate(m[1]);
 }
 
 const hasOptions = (t: HdFormFieldType) => t === "choice" || t === "select";
@@ -178,6 +187,10 @@ export async function validateAnswers(form: HdFormField[], raw: unknown, client?
         if (!isIsoDate(v)) return { ok: false, error: `"${f.label}" must be a date.` };
         out[f.key] = v;
         break;
+      case "datetime":
+        if (!isLocalDateTime(v)) return { ok: false, error: `"${f.label}" must be a date and time.` };
+        out[f.key] = v.slice(0, 16);
+        break;
       case "number": {
         const n = typeof v === "number" ? v : typeof v === "string" ? Number(v.trim()) : NaN;
         if (!Number.isFinite(n) || Math.abs(n) > 1e12) return { ok: false, error: `"${f.label}" must be a number.` };
@@ -226,6 +239,7 @@ export function answerText(field: HdFormField, value: unknown, names?: Map<numbe
     return o ? (o.hint ? `${o.label} · ${o.hint}` : o.label) : String(value);
   }
   if (field.type === "user") return names?.get(Number(value)) ?? `Person #${value}`;
+  if (field.type === "datetime") return String(value).replace("T", " ");
   return String(value);
 }
 
@@ -255,6 +269,8 @@ export interface RequestTypeInput {
   icon: string;
   team_id: number | null;
   category: string;
+  /** 1.20.6: a sub-category of `category` (lib/helpdesk/categories); '' or left out = none. */
+  subcategory?: string;
   form: HdFormField[];
   workflow_id: number | null;
   sla_priority: HdPriority;
@@ -263,6 +279,8 @@ export interface RequestTypeInput {
   active: number;
   position: number;
   eta_label: string;
+  /** 1.20.6 "Goes on the calendar" (lib/helpdesk/desk-calendar). */
+  calendar: import("./desk-calendar-shared").HdRequestTypeCalendar;
 }
 
 const optId = (v: unknown): number | null | "bad" => {
@@ -297,8 +315,12 @@ export async function validateRequestTypeInput(
   if (description.length > REQUEST_TYPE_LIMITS.description) return { ok: false, error: `The description is longer than ${REQUEST_TYPE_LIMITS.description} characters.` };
   const icon = str(pick("icon", base?.icon ?? ""));
   if (icon.length > REQUEST_TYPE_LIMITS.icon || !ICON_RE.test(icon)) return { ok: false, error: "The icon is a lucide icon name, like monitor or key." };
-  const category = str(pick("category", base?.category ?? ""));
+  let category = str(pick("category", base?.category ?? ""));
   if (category.length > REQUEST_TYPE_LIMITS.category) return { ok: false, error: `The category is longer than ${REQUEST_TYPE_LIMITS.category} characters.` };
+  // 1.20.6: the sub-category goes with the category. Left out, it is kept while the category stays and cleared when it changes.
+  const categoryKept = !!base && category.toLowerCase() === base.category.toLowerCase();
+  let subcategory = str(pick("subcategory", categoryKept ? (base?.subcategory ?? "") : ""));
+  if (subcategory.length > REQUEST_TYPE_LIMITS.category) return { ok: false, error: `The sub-category is longer than ${REQUEST_TYPE_LIMITS.category} characters.` };
   const eta = str(pick("eta_label", base?.eta_label ?? ""));
   if (eta.length > REQUEST_TYPE_LIMITS.eta) return { ok: false, error: `The time hint is longer than ${REQUEST_TYPE_LIMITS.eta} characters.` };
 
@@ -326,6 +348,9 @@ export async function validateRequestTypeInput(
 
   const form = validateFormFields(pick("form", base?.form ?? []));
   if (!form.ok) return form;
+  // 1.20.6: "Goes on the calendar" names questions of this form (lib/helpdesk/desk-calendar-shared).
+  const calendar = (await import("./desk-calendar-shared")).checkRequestTypeCalendar(pick("calendar", base?.calendar ?? null), form.value);
+  if (!calendar.ok) return calendar;
 
   // References.
   if (teamId !== null && !(await hqOne("SELECT 1 FROM hd_teams WHERE id = $1", [teamId]))) return { ok: false, error: "That team no longer exists." };
@@ -336,6 +361,15 @@ export async function validateRequestTypeInput(
   }
   const clash = await hqOne<{ id: number }>("SELECT id FROM hd_request_types WHERE slug = $1 AND id <> $2", [slug, base?.id ?? 0]);
   if (clash) return { ok: false, error: "Another request type already uses that address name." };
+  // 1.20.6 (lib/helpdesk/categories): the category its tickets get is one from the admin's list, not archived.
+  // What the type already has is kept as it is, so a save that changes something else never trips on it.
+  if (category || subcategory) {
+    const { checkCategoryPick } = await import("./categories");
+    const picked = await checkCategoryPick({ category, subcategory }, { category: base?.category, subcategory: base?.subcategory });
+    if (!picked.ok) return { ok: false, error: picked.error };
+    category = picked.category;
+    subcategory = picked.subcategory;
+  }
 
   return {
     ok: true,
@@ -346,6 +380,7 @@ export async function validateRequestTypeInput(
       icon,
       team_id: teamId,
       category,
+      subcategory,
       form: form.value,
       workflow_id: workflowId,
       sla_priority: priority,
@@ -354,6 +389,7 @@ export async function validateRequestTypeInput(
       active,
       position,
       eta_label: eta,
+      calendar: calendar.value,
     },
   };
 }
@@ -434,8 +470,8 @@ export async function createRequestType(input: RequestTypeInput): Promise<HdRequ
   const id = await withTx(async (client) => {
     const r = await client.query<{ id: number }>(
       `INSERT INTO hd_request_types
-         (slug, title, description, icon, team_id, category, form, workflow_id, sla_priority, visibility, active, position, eta_label)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13) RETURNING id`,
+         (slug, title, description, icon, team_id, category, form, workflow_id, sla_priority, visibility, active, position, eta_label, subcategory)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
       [
         input.slug,
         input.title,
@@ -450,9 +486,11 @@ export async function createRequestType(input: RequestTypeInput): Promise<HdRequ
         input.active,
         input.position,
         input.eta_label,
+        input.category ? (input.subcategory ?? "") : "",
       ]
     );
     await writeGroups(client, r.rows[0].id, input.group_ids);
+    await (await import("./desk-calendar")).writeRequestTypeCalendarTx(client, r.rows[0].id, input.calendar); // 1.20.6
     return r.rows[0].id;
   });
   return (await getRequestType(id))!;
@@ -463,7 +501,7 @@ export async function updateRequestType(id: number, input: RequestTypeInput): Pr
     const r = await client.query(
       `UPDATE hd_request_types SET slug = $2, title = $3, description = $4, icon = $5, team_id = $6, category = $7,
               form = $8::jsonb, workflow_id = $9, sla_priority = $10, visibility = $11, active = $12, position = $13,
-              eta_label = $14, updated_at = now()
+              eta_label = $14, subcategory = $15, updated_at = now()
         WHERE id = $1`,
       [
         id,
@@ -480,10 +518,12 @@ export async function updateRequestType(id: number, input: RequestTypeInput): Pr
         input.active,
         input.position,
         input.eta_label,
+        input.category ? (input.subcategory ?? "") : "",
       ]
     );
     if (!r.rowCount) return false;
     await writeGroups(client, id, input.group_ids);
+    await (await import("./desk-calendar")).writeRequestTypeCalendarTx(client, id, input.calendar); // 1.20.6
     return true;
   });
   return found ? getRequestType(id) : undefined;

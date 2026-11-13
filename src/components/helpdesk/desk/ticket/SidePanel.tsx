@@ -45,6 +45,9 @@ import { ChecklistsSideCard } from "../checklists/TicketChecklists";
 import { TicketAssetsCard } from "../assets/TicketAssets";
 import { TicketLanguageRow } from "../skills/TicketLanguageRow";
 import { SolveDetailsCard } from "../solve/SolveDetails";
+import { TicketCategoryRows } from "../categories/TicketCategoryRows";
+import { TicketEventCard } from "../calendar/TicketEventCard";
+import { CustomFieldsCard } from "../custom-fields/TicketCustomFields";
 
 interface Agent {
   user_id: number;
@@ -109,12 +112,6 @@ export function SidePanel({
   const canOwner = can && (can$("tickets.assign_any") || can$("tickets.assign_team") || can$("tickets.assign_self"));
   const canMailbox = can && d.can_change_mailbox === true;
 
-  async function editCategory() {
-    const v = await promptDialog({ title: "Category", label: "Category", initial: t.category, required: false, confirmLabel: "Save category" });
-    if (v === null) return;
-    onPatch({ category: v.trim().slice(0, 80) }, "Category saved.");
-  }
-
   async function addTag() {
     const v = await promptDialog({
       title: "Add a tag",
@@ -145,6 +142,9 @@ export function SidePanel({
 
       {/* A workflow task: the request it belongs to (agent M). */}
       <PartOfRequestCard detail={d} />
+
+      {/* The ticket's event: when, where, "Setup complete" (1.20.6, calendar/TicketEventCard). */}
+      <TicketEventCard number={t.number} subject={t.subject} canWork={d.can_work} locked={t.status === "closed" || !!t.merged_into} initial={d.event} refreshKey={t.updated_at} onChanged={onReload} />
 
       {/* Time logged and the agent's timer (1.19.1, agent V8). */}
       {/* Checklists on the ticket and Add a checklist (1.19.2, agent W3). */}
@@ -211,13 +211,8 @@ export function SidePanel({
             )}
           />
         </div>
-        <div className={ROW}>
-          <span className="text-sm text-slate-500">Category</span>
-          <button type="button" disabled={!can} onClick={editCategory} aria-label={`Category: ${t.category || "None"}. Change`} className={VALUE_BTN}>
-            <span className="truncate">{t.category || "None"}</span>
-            {can && <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />}
-          </button>
-        </div>
+        {/* Category and sub-category, picked from the desk admin's list (1.20.6, categories/TicketCategoryRows). */}
+        <TicketCategoryRows category={t.category} subcategory={t.subcategory ?? ""} can={can} onPatch={onPatch} rowClass={ROW} valueClass={VALUE_BTN} />
         {/* The address replies go out under (1.20.2, lib/helpdesk/mailboxes): shown while more than one is listed. */}
         {d.mailboxes && d.mailbox && (
           <div className={ROW}>
@@ -279,6 +274,9 @@ export function SidePanel({
           </ul>
         </div>
       </section>
+
+      {/* The custom fields assigned to the ticket's team, edited in place (1.20.6, custom-fields/TicketCustomFields). */}
+      <CustomFieldsCard d={d} onPatch={onPatch} />
 
       {/* Who owned it, and how they got it (agent N). */}
       {can && <AssignmentHistory ticketNumber={t.number} refreshKey={t.assignee_id} />}
@@ -466,6 +464,7 @@ function answerText(f: HdFormField, v: HdFormAnswers[string]): string {
   if (v === null || v === undefined || v === "") return "";
   if (f.type === "checkbox") return v ? "Yes" : "No";
   if (f.options?.length) return f.options.find((o) => o.value === String(v))?.label ?? String(v);
+  if (f.type === "datetime") return String(v).replace("T", ", "); // 1.20.6: "2026-11-20, 14:00"
   return String(v);
 }
 

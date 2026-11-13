@@ -12,6 +12,7 @@
 // desk can tell it from a checklist's or a task hand-off's 409).
 
 import type { HdFormAnswers, HdFormField } from "./types";
+import type { HdSolveCustomField } from "./custom-fields-shared";
 
 export const SOLVE_REQ_LIMITS = {
   name: 80,
@@ -24,7 +25,8 @@ export const SOLVE_REQ_LIMITS = {
 } as const;
 
 /** What a ticket already carries that a set may require. Kept in the order the dialog lists them. */
-export const SOLVE_TICKET_FIELDS = ["assignee", "team", "category", "tag", "asset", "time", "reply"] as const;
+// 1.20.6: "subcategory", next to the category (lib/helpdesk/categories).
+export const SOLVE_TICKET_FIELDS = ["assignee", "team", "category", "subcategory", "tag", "asset", "time", "reply"] as const;
 export type HdSolveTicketField = (typeof SOLVE_TICKET_FIELDS)[number];
 
 /** As the settings page names each one (a noun phrase the refusal sentence can list). */
@@ -32,6 +34,7 @@ export const SOLVE_TICKET_FIELD_LABEL: Record<HdSolveTicketField, string> = {
   assignee: "An owner",
   team: "A team",
   category: "A category",
+  subcategory: "A sub-category",
   tag: "At least one tag",
   asset: "A linked asset",
   time: "Time logged",
@@ -42,6 +45,7 @@ export const SOLVE_TICKET_FIELD_HELP: Record<HdSolveTicketField, string> = {
   assignee: "Someone owns the ticket.",
   team: "The ticket belongs to a team.",
   category: "The ticket has a category.",
+  subcategory: "The ticket has a sub-category. A ticket whose category has no sub-categories passes.",
   tag: "The ticket has one tag or more.",
   asset: "A device or other asset is linked to the ticket.",
   time: "Someone has logged time on the ticket.",
@@ -61,6 +65,8 @@ export interface HdSolveRequirementSet {
   /** Empty: every request type (and tickets with none). */
   request_type_ids: number[];
   ticket_fields: HdSolveTicketField[];
+  /** 1.20.6: custom fields (lib/helpdesk/custom-fields) that must be filled in, by id. One that isn't assigned to the ticket's team is not asked for. */
+  custom_field_ids: number[];
   /** The closing fields, each required or optional. */
   fields: HdFormField[];
   created_at: string;
@@ -73,6 +79,7 @@ export interface HdSolveRequirementSetInput {
   team_ids: number[];
   request_type_ids: number[];
   ticket_fields: HdSolveTicketField[];
+  custom_field_ids: number[];
   fields: HdFormField[];
 }
 
@@ -92,7 +99,12 @@ export interface HdSolveDetail {
 
 export type HdSolveMissing =
   | { kind: "ticket_field"; field: HdSolveTicketField; label: string }
-  | { kind: "closing_field"; set_id: number; set_name: string; key: string; label: string };
+  /** 1.20.6: a custom field of the ticket's team with no value. */
+  | { kind: "custom_field"; field_id: number; key: string; label: string }
+  | { kind: "closing_field"; set_id: number; set_name: string; key: string; label: string }
+  // 1.20.6 (lib/helpdesk/desk-calendar): the ticket carries an event whose setup is not marked complete. Asked of every
+  // event ticket, with or without a requirement set. `key` names what to send: event.setup_complete (the API, the connector).
+  | { kind: "event_setup"; key: "setup_complete"; label: string };
 
 /** What a solve of this ticket needs now: GET /api/helpdesk/tickets/[number]/solve-requirements. */
 export interface HdSolveCheck {
@@ -102,6 +114,8 @@ export interface HdSolveCheck {
     id: number;
     name: string;
     ticket_fields: { field: HdSolveTicketField; label: string; met: boolean }[];
+    /** 1.20.6: the custom fields the set requires that apply to this ticket, each filled in or not. */
+    custom_fields: HdSolveCustomField[];
     fields: HdFormField[];
   }[];
   /** What a solve would be refused for, in order. Empty: it would go through. */
@@ -115,7 +129,9 @@ export interface HdSolveCheck {
   /** user-type answers' names, keyed like `answers`. */
   answer_names: Record<string, string>;
   /** The ticket as it stands, for the dialog's quick setters. */
-  ticket: { team_id: number | null; team_name: string | null; assignee_id: number | null; category: string; tags: string[] };
+  ticket: { team_id: number | null; team_name: string | null; assignee_id: number | null; category: string; subcategory?: string; tags: string[] };
+  /** 1.20.6: the ticket's event while its setup is not marked complete (the dialog's "Setup complete" tick box names it); else absent. */
+  event_setup?: import("./desk-calendar-shared").HdTicketEvent | null;
 }
 
 /** How a qualified answer key is spelt: "<set id>:<field key>". A bare field key answers every matching set that has it. */
@@ -132,7 +148,7 @@ const lowerFirst = (s: string) => (/^[A-Z][a-z ]/.test(s) ? s.charAt(0).toLowerC
 function listMissing(missing: HdSolveMissing[]): string {
   const names: string[] = [];
   for (const m of missing) {
-    const n = m.kind === "ticket_field" ? lowerFirst(m.label) : m.label;
+    const n = m.kind === "closing_field" ? m.label : lowerFirst(m.label);
     if (!names.includes(n)) names.push(n);
   }
   const shown = names.slice(0, 4);
@@ -210,7 +226,7 @@ function idList(raw: unknown, what: string): Checked<number[]> {
  * those with lib/helpdesk/request-types validateFormFields, so there is one
  * form definition check).
  */
-export function checkSolveSetInput(raw: unknown): Checked<Omit<HdSolveRequirementSetInput, "fields">> {
+export function checkSolveSetInput(raw: unknown): Checked<Omit<HdSolveRequirementSetInput, "fields" | "custom_field_ids">> {
   if (!isObj(raw)) return { ok: false, error: "Send the requirement set as { name, enabled, team_ids, request_type_ids, ticket_fields, fields }." };
   const name = typeof raw.name === "string" ? raw.name.trim().replace(/\s+/g, " ") : "";
   if (!name) return { ok: false, error: "Give the requirement set a name." };
@@ -231,4 +247,9 @@ export function checkSolveSetInput(raw: unknown): Checked<Omit<HdSolveRequiremen
   // Kept in the listed order, whatever order they were sent in.
   fields.sort((a, b) => SOLVE_TICKET_FIELDS.indexOf(a) - SOLVE_TICKET_FIELDS.indexOf(b));
   return { ok: true, value: { name, enabled: raw.enabled === true, team_ids: teams.value, request_type_ids: types.value, ticket_fields: fields } };
+}
+
+/** 1.20.6: the custom fields a set requires (`custom_field_ids`), checked apart so the check above answers what it always has. */
+export function checkSolveCustomFieldIds(raw: unknown): Checked<number[]> {
+  return idList(isObj(raw) ? raw.custom_field_ids : undefined, "Custom fields");
 }

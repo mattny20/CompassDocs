@@ -78,6 +78,8 @@ export interface HdWebhookEventInput {
   "ticket.deleted": { ticketId: number; actor?: HdWebhookActorInput; origin?: string };
   /** The recycle bin (C7): emit right after the ticket is restored (deleted_at cleared). */
   "ticket.restored": { ticketId: number; actor?: HdWebhookActorInput; origin?: string };
+  /** 1.20.6 (lib/helpdesk/desk-calendar): emit after the commit that marked the event's setup complete. */
+  "event.setup_completed": { ticketId: number; actor?: HdWebhookActorInput; origin?: string };
 }
 
 /**
@@ -112,6 +114,8 @@ interface TicketFacts {
   requester_email: string;
   tags: string[];
   category: string;
+  /** 1.20.6: read through to_jsonb, so this works on a database the column has not reached yet. */
+  subcategory: string | null;
   source: string;
   request_type: string | null;
   created_at: string;
@@ -130,7 +134,7 @@ async function ticketFacts(ticketId: number): Promise<TicketFacts | undefined> {
   return hqOne<TicketFacts>(
     `SELECT t.id, t.number, t.subject, t.status, t.priority, t.team_id, tm.name AS team_name,
             t.assignee_id, NULLIF(COALESCE(NULLIF(a.name, ''), a.username), '') AS assignee_name,
-            t.requester_name, t.requester_email, t.tags, t.category, t.source, rt.title AS request_type,
+            t.requester_name, t.requester_email, t.tags, t.category, (to_jsonb(t) ->> 'subcategory') AS subcategory, t.source, rt.title AS request_type,
             t.created_at, t.updated_at, t.solved_at, (to_jsonb(t) ->> 'merged_into')::int AS merged_into,
             (to_jsonb(t) ->> 'deleted_at') AS deleted_at,
             mb.id AS mailbox_id, mb.address AS mailbox_address, mb.name AS mailbox_name
@@ -158,6 +162,8 @@ function ticketOut(t: TicketFacts, origin: string) {
     requester: { name: t.requester_name, email: t.requester_email },
     tags: t.tags ?? [],
     category: t.category || null,
+    // 1.20.6 (additive): a sub-category of `category`; null = none.
+    subcategory: t.subcategory || null,
     request_type: t.request_type,
     source: t.source,
     created_at: t.created_at,
@@ -272,7 +278,14 @@ async function emit(event: HdWebhookEvent, input: HdWebhookEventInput[HdWebhookE
     event,
     created_at: "", // the database clock, stamped by the INSERT below
     actor: await actorOut(input.actor),
-    ticket: ticketOut(t, origin),
+    // 1.20.6 (additive): `ticket.event`, the ticket's event (lib/helpdesk/desk-calendar eventOut); null when it has none.
+    // 1.20.6 (additive): ticket.custom_fields, { "<field key>": value | null } for the fields of the ticket's team; {} when
+    // none (lib/helpdesk/custom-fields). They are what an agent of the hook's teams reads on the ticket, agent-only ones included.
+    ticket: {
+      ...ticketOut(t, origin),
+      event: await (await import("./desk-calendar")).ticketEventOut(t.id),
+      custom_fields: await (await import("./custom-fields")).customFieldsOut({ id: t.id, team_id: t.team_id }).catch(() => ({})),
+    },
     ...body,
   };
   const ids = await hq<{ id: number }>(

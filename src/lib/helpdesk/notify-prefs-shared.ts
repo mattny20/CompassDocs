@@ -26,6 +26,8 @@ export const HD_NOTIFY_EVENTS = [
   "service_down",
   // 1.19.4 (area C6, lib/helpdesk/share): another agent shared a ticket with you.
   "shared_with_me",
+  // 1.20.6 (lib/helpdesk/desk-calendar-reminders): an event on a ticket is coming up, or its setup is late.
+  "event_reminder",
 ] as const;
 export type HdNotifyEvent = (typeof HD_NOTIFY_EVENTS)[number];
 /** The same list under the name the workspace notification policy (lib/notify-policy) imports. */
@@ -137,6 +139,12 @@ export const HD_NOTIFY_EVENT_INFO: Record<HdNotifyEvent, HdNotifyEventInfo> = {
   shared_with_me: {
     label: "Shared with you",
     hint: "Another agent shares a ticket with you, with their message",
+    email: true,
+    defaults: { push: true, email: true, bell: true },
+  },
+  event_reminder: {
+    label: "Event reminders",
+    hint: "An event on a ticket of yours or your team's is coming up, or has started before its setup was marked complete",
     email: true,
     defaults: { push: true, email: true, bell: true },
   },

@@ -241,6 +241,7 @@ after(async () => {
   await pool().query("DELETE FROM hd_attachments WHERE ticket_id = ANY($1)", [all]).catch(() => {});
   await pool().query("DELETE FROM hd_tickets WHERE id = ANY($1)", [all]);
   await pool().query("DELETE FROM hd_automations WHERE id = ANY($1)", [automationIds]);
+  await pool().query("DELETE FROM hd_categories WHERE name LIKE $1", [`${STAMP}%`]);
   await pool().query("DELETE FROM hd_macros WHERE id = ANY($1)", [macroIds]);
   await pool().query("DELETE FROM hd_teams WHERE id = ANY($1)", [[teamId, otherTeamId]]);
   await pool().query("DELETE FROM notifications WHERE user_id = ANY($1)", [userIds]);
@@ -455,6 +456,10 @@ describe("outbound mail", () => {
 
 describe("automations", () => {
   test("conditions and actions on ticket_created", async () => {
+    // 1.20.6: a rule sets a category from the admin's list (lib/helpdesk/categories); this run's own entry.
+    const NETWORK = `${STAMP} Network`;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    await (require("../src/lib/helpdesk/categories") as typeof import("../src/lib/helpdesk/categories")).createCategory({ name: NETWORK }, { id: null });
     const rule = await automations.createAutomation({
       // A keyword no starter rule has: the shared database may hold the
       // starter set's "VPN and network" rule, which moves VPN tickets to its
@@ -462,7 +467,7 @@ describe("automations", () => {
       name: `${STAMP} Tunnel and network`,
       event: "ticket_created",
       conditions: { team_ids: [teamId], keywords: ["tunnel"] },
-      actions: { priority: "high", category: "Network", tags_add: ["vpn"], internal_note: "Check the VPN status page first." },
+      actions: { priority: "high", category: NETWORK, tags_add: ["vpn"], internal_note: "Check the VPN status page first." },
       active: 1,
     });
     automationIds.push(rule.id);
@@ -472,7 +477,7 @@ describe("automations", () => {
     const a = await ticketByNumber(hit.number);
     const b = await ticketByNumber(miss.number);
     assert.equal(a.priority, "high");
-    assert.equal(a.category, "Network");
+    assert.equal(a.category, NETWORK);
     assert.deepEqual(a.tags, ["vpn"]);
     assert.ok((await messagesOf(a.id)).some((m) => m.kind === "internal" && m.body === "Check the VPN status page first."));
     assert.equal(b.priority, "normal");

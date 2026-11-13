@@ -211,7 +211,9 @@ export type HdEmailTemplate =
   | "hd_request_received"
   | "hd_workflow_notify"
   // 1.19.4 (area C6, lib/helpdesk/share).
-  | "hd_shared";
+  | "hd_shared"
+  // 1.20.6 (lib/helpdesk/desk-calendar-reminders).
+  | "hd_event_reminder";
 
 export interface HdAgentNotification {
   ticketNumber?: number | null;
@@ -261,6 +263,7 @@ const PRIVATE_TITLE: Record<HdNotifyEvent, (n: string) => string> = {
   sla_breach: (n) => `${n} missed its SLA target`,
   service_down: () => "A service your team uses changed",
   shared_with_me: (n) => `A ticket was shared with you: ${n}`,
+  event_reminder: (n) => `Event reminder for ${n}`,
 };
 
 /** A same-origin path, or /desk. */

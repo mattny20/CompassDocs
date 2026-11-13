@@ -159,6 +159,8 @@ export const HELPDESK_SWEEPS: HelpdeskSweep[] = [
   { name: "hd_webhooks", run: async (now) => (await import("./helpdesk/webhooks")).webhookSweep(now) },
   // 1.20.0 Claude in the desk: chats with no ticket, idle for 90 days (those on tickets follow the ticket's retention).
   { name: "hd_claude", run: async (now) => void (await (await import("./helpdesk/claude/chats")).pruneClaudeChats(now)) },
+  // 1.20.6 event calendar: reminders before an event's setup is due, and once it has started with setup open (claimed per reminder in hd_event_reminders).
+  { name: "hd_event_reminders", run: async (now) => (await import("./helpdesk/desk-calendar-reminders")).eventReminderSweep(now) },
 ];
 
 export interface HelpdeskSweepResult {

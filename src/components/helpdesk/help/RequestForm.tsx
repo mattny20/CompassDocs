@@ -47,7 +47,7 @@ const TEXT_MAX = 500;
 const TEXTAREA_MAX = 5000;
 
 /** Fields that sit two to a row: one line each. */
-const SHORT: ReadonlySet<HdFormField["type"]> = new Set(["text", "date", "number", "select", "user"]);
+const SHORT: ReadonlySet<HdFormField["type"]> = new Set(["text", "date", "datetime", "number", "select", "user"]);
 
 const STEP_ICON: Record<HdNextStep["kind"], React.ReactNode> = {
   approval: <Stamp />,
@@ -372,6 +372,9 @@ export function FormFieldControl({
         </Select>
       ) : f.type === "date" ? (
         <TextInput ref={ref} type="date" value={str} onChange={(e) => onChange(e.target.value)} />
+      ) : f.type === "datetime" ? (
+        // 1.20.6: a date and time as the person's clock reads it ("2026-11-20T14:00").
+        <TextInput ref={ref} type="datetime-local" value={str} onChange={(e) => onChange(e.target.value)} />
       ) : f.type === "number" ? (
         <TextInput ref={ref} type="number" inputMode="decimal" value={str} onChange={(e) => onChange(e.target.value === "" ? "" : e.target.value)} />
       ) : (

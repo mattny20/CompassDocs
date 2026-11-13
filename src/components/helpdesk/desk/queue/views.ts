@@ -48,6 +48,8 @@ export const DRILL_KEYS = [
   "requester",
   "requester_email",
   "category",
+  // 1.20.6: a sub-category (lib/helpdesk/categories), from the Filter dialog or a report's drill-down.
+  "subcategory",
   "department",
   "office",
   "origin",

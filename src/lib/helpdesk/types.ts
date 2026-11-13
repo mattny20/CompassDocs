@@ -119,7 +119,9 @@ export interface HdTeamWithMembers extends HdTeam {
 
 // --- Request types and forms ---------------------------------------------------
 
-export type HdFormFieldType = "choice" | "text" | "textarea" | "date" | "number" | "user" | "select" | "checkbox";
+// 1.20.6: "datetime" is a date and time as the person's clock reads it ("2026-11-20T14:00"); a request type that goes on
+// the calendar reads its event's start and end from one (lib/helpdesk/desk-calendar).
+export type HdFormFieldType = "choice" | "text" | "textarea" | "date" | "datetime" | "number" | "user" | "select" | "checkbox";
 
 export interface HdFormOption {
   value: string;
@@ -149,6 +151,8 @@ export interface HdRequestType {
   icon: string;
   team_id: number | null;
   category: string;
+  /** 1.20.6 (lib/helpdesk/categories): the sub-category its tickets start with; '' = none. */
+  subcategory?: string;
   form: HdFormField[];
   workflow_id: number | null;
   sla_priority: HdPriority;
@@ -162,6 +166,8 @@ export interface HdRequestType {
   group_ids?: number[];
   /** Joined: team name for display. */
   team_name?: string | null;
+  /** 1.20.6 "Goes on the calendar" (lib/helpdesk/desk-calendar): which questions hold the event's start, end and place. Absent or {}: off. */
+  calendar?: Partial<import("./desk-calendar-shared").HdRequestTypeCalendar>;
 }
 
 // --- Tickets -------------------------------------------------------------------
@@ -186,6 +192,8 @@ export interface HdTicketRow {
   status: HdStatus;
   priority: HdPriority;
   category: string;
+  /** 1.20.6 (lib/helpdesk/categories): a sub-category of `category`, by name; '' = none. */
+  subcategory?: string;
   tags: string[];
   request_type_id: number | null;
   form_answers: HdFormAnswers;
@@ -371,7 +379,10 @@ export type HdAutomationEvent = "ticket_created" | "ticket_updated" | "requester
 
 export interface HdAutomationConditions {
   team_ids?: number[];
+  /** Whole categories, by name (from the admin's list, lib/helpdesk/categories). */
   categories?: string[];
+  /** 1.20.6: single sub-categories. A ticket matches when its category is in `categories` or its pair is here. */
+  subcategories?: { category: string; subcategory: string }[];
   priorities?: HdPriority[];
   request_type_ids?: number[];
   /** Any of these words in the subject or body (case-insensitive). */
@@ -385,6 +396,8 @@ export interface HdAutomationActions {
   priority?: HdPriority;
   status?: HdStatus;
   category?: string;
+  /** 1.20.6: a sub-category of `category`, set with it. */
+  subcategory?: string;
   tags_add?: string[];
   internal_note?: string;
   macro_id?: number;
@@ -708,6 +721,8 @@ export interface HdTicketListRow {
   status: HdStatus;
   priority: HdPriority;
   category: string;
+  /** 1.20.6: a sub-category of `category`; '' = none. */
+  subcategory?: string;
   tags: string[];
   source: HdSource;
   parent_ticket_id: number | null;
@@ -823,8 +838,12 @@ export interface HdTicketDetail {
   can_change_mailbox?: boolean;
   /** 1.20.5 (lib/helpdesk/solve-requirements): the "Before you solve" answers kept on the ticket; absent when there are none. */
   solve_details?: import("./solve-requirements-shared").HdSolveDetail[];
-  /** 1.20.5: a switched-on requirement set matches this ticket, so the desk asks what a solve needs before it solves. */
+  /** 1.20.5: a switched-on requirement set matches this ticket, so the desk asks what a solve needs before it solves. 1.20.6: or its event's setup is not marked complete. */
   before_solve?: boolean;
+  /** 1.20.6 (lib/helpdesk/desk-calendar): the ticket's event; absent when it has none. */
+  event?: import("./desk-calendar-shared").HdTicketEvent;
+  /** 1.20.6 (lib/helpdesk/custom-fields): the custom fields assigned to the ticket's team, each with its value; absent when none applies. */
+  custom_fields?: import("./custom-fields-shared").HdTicketCustomField[];
 }
 
 /** A requester-safe ticket: no internal fields (tags, assignee ids, SLA internals, tokens). */
@@ -870,6 +889,8 @@ export interface HdRequestDetail extends HdRequestSummary {
   can_rate: boolean;
   /** The caller's own pending approval on this request, if any. */
   my_approval: { id: number; title: string } | null;
+  /** 1.20.6 (lib/helpdesk/custom-fields): the Public custom fields that have a value, read-only; absent when there are none. Never an agent-only field. */
+  details?: import("./custom-fields-shared").HdPublicDetail[];
 }
 
 // --- Reports (agent C) ---------------------------------------------------------
@@ -892,6 +913,8 @@ export interface HdReportSummary {
   by_team: { team_id: number | null; name: string; created: number; solved: number; sla_met_percent: number | null }[];
   by_agent: { user_id: number; name: string; solved: number; first_reply_median_minutes: number | null; csat_percent: number | null }[];
   by_category: { category: string; created: number; solved: number }[];
+  /** 1.20.6: the tickets that have a sub-category, by category and sub-category. */
+  by_subcategory?: { category: string; subcategory: string; created: number; solved: number }[];
 }
 
 // --- Web push and notification preferences (agent F) ---------------------------
@@ -934,9 +957,14 @@ export interface HdTicketPatch {
   priority?: HdPriority;
   team_id?: number | null;
   assignee_id?: number | null;
+  /** 1.20.6: must be on the admin's list (lib/helpdesk/categories); '' clears it and the sub-category. */
   category?: string;
+  /** 1.20.6: a sub-category of the ticket's category (or of `category`, sent with it); '' clears it. */
+  subcategory?: string;
   tags?: string[];
   subject?: string;
+  /** 1.20.6 (lib/helpdesk/custom-fields): custom field values by field key; null clears one. Checked against the ticket's team inside updateTicket. */
+  custom_fields?: Record<string, unknown>;
 }
 
 // --- Multi-team workflows (agent B, 1.19.0) ------------------------------------

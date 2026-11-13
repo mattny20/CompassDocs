@@ -12,6 +12,11 @@ COPY . .
 # (see next.config.js). DATABASE_URL is only needed at runtime (DB access is lazy).
 ARG COMPASSDOCS_EE=0
 ENV COMPASSDOCS_EE=$COMPASSDOCS_EE
+# 1.20.6: =1 skips the type check inside `next build` (next.config.js). Only
+# for a build pipeline that runs `npx tsc --noEmit` as its own step, such as
+# the enterprise image build on small build machines. Default: checked here.
+ARG COMPASSDOCS_BUILD_SKIP_TYPECHECK=0
+ENV COMPASSDOCS_BUILD_SKIP_TYPECHECK=$COMPASSDOCS_BUILD_SKIP_TYPECHECK
 RUN npm run build
 
 # --- Runtime stage -------------------------------------------------------------

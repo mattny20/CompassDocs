@@ -67,6 +67,7 @@
 import "server-only";
 import type { PoolClient } from "pg";
 import { claimPeriod, getSetting, setSetting } from "../db";
+import { EVENT_HOLDS_CLOSE_SQL } from "./desk-calendar-schema";
 import { audit } from "../audit";
 import type { AuditActor } from "../audit";
 import { logEvent } from "../log";
@@ -115,9 +116,13 @@ export async function saveRetentionSettings(patch: Partial<HdRetentionSettings>)
 
 // --- What a run would touch (one SQL for the preview and the run) ------------------
 
-/** Solved, not on hold, solved before the cutoff. $1 cutoff, $2 only (int[] | null). Never a ticket in the recycle bin (1.19.4). */
+/**
+ * Solved, not on hold, solved before the cutoff. $1 cutoff, $2 only (int[] | null). Never a ticket in the recycle bin (1.19.4).
+ * 1.20.6: nor one whose event's setup is not marked complete (lib/helpdesk/desk-calendar): it is not closed early.
+ */
 const CLOSE_WHERE = `status = 'solved' AND legal_hold = 0 AND solved_at IS NOT NULL AND solved_at <= $1 AND deleted_at IS NULL
-  AND ($2::int[] IS NULL OR id = ANY($2::int[]))`;
+  AND ($2::int[] IS NULL OR id = ANY($2::int[]))
+  AND ${EVENT_HOLDS_CLOSE_SQL}`;
 
 /**
  * Still to anonymise (unqualified columns of hd_tickets, or of `a`): never
@@ -414,6 +419,10 @@ export async function anonymiseTicketTx(client: PoolClient, ticketId: number, no
   await (await import("./checklists")).anonymiseChecklistsTx(client, ticketId);
   // 1.20.5: "Before you solve" answers: free text and people's names go, as the form answers do; choices stay for reports (lib/helpdesk/solve-requirements).
   await (await import("./solve-requirements")).anonymiseSolveAnswersTx(client, ticketId);
+  // 1.20.6: an event's place is free text (lib/helpdesk/desk-calendar); its times stay.
+  await (await import("./desk-calendar")).anonymiseEventTx(client, ticketId);
+  // 1.20.6: custom field values the same way: free text and people go, choices, numbers, dates and ticks stay (lib/helpdesk/custom-fields).
+  await (await import("./custom-fields")).anonymiseCustomValuesTx(client, ticketId);
   // 1.19.2: an incident's own ticket: its updates, title and their audit copies (agent W1, lib/helpdesk/incidents).
   await (await import("./incidents")).anonymiseIncidentTx(client, ticketId, ANONYMISED_SUBJECT);
   // 1.19.3: which device the requester had is theirs too: the asset links go (lib/helpdesk/assets).
@@ -837,6 +846,8 @@ export interface HdPersonalExport {
     conversation: { from: string; at: string; text: string; files: string[]; from_request?: number }[];
     /** 1.19.3: the assets linked to their own request, tag and name only (lib/helpdesk/assets). */
     assets?: { tag: string; name: string }[];
+    /** 1.20.6: the Public custom fields of their own request that have a value (lib/helpdesk/custom-fields). Never an agent-only field. */
+    details?: { label: string; value: string }[];
   }[];
   /** 1.19.2: major incidents they said affect them ("Me too" in Get help; agent W1, lib/helpdesk/incidents). */
   incidents_affected?: { incident: string; at: string }[];
@@ -872,6 +883,7 @@ export async function personalHelpdeskExport(userId: number): Promise<HdPersonal
     rt_title: string | null;
     rt_form: HdFormField[] | null;
     team_name: string | null;
+    team_id: number | null;
   }>(
     `WITH rel AS (
        SELECT id AS ticket_id, 1 AS rank FROM hd_tickets
@@ -885,7 +897,7 @@ export async function personalHelpdeskExport(userId: number): Promise<HdPersonal
      SELECT t.id, t.number, t.subject, t.status, t.created_at, t.solved_at, t.closed_at, t.form_answers,
             CASE b.rank WHEN 1 THEN 'requester' WHEN 2 THEN 'cc' ELSE 'replied' END AS relation,
             mt.number AS merged_into_number,
-            rt.title AS rt_title, rt.form AS rt_form, tm.name AS team_name
+            rt.title AS rt_title, rt.form AS rt_form, tm.name AS team_name, t.team_id
        FROM best b
        JOIN hd_tickets t ON t.id = b.ticket_id
        LEFT JOIN hd_tickets mt ON mt.id = t.merged_into
@@ -939,6 +951,8 @@ export async function personalHelpdeskExport(userId: number): Promise<HdPersonal
   for (const t of tickets) if (t.relation !== "requester") conversations.set(t.id, conversationOf(t));
   // 1.19.3: assets linked to their own requests (lib/helpdesk/assets).
   const assetsOn = await (await import("./assets")).assetsForExport(own.map((t) => t.id));
+  // 1.20.6: the Public custom fields of their own requests (lib/helpdesk/custom-fields); agent-only fields are never read.
+  const detailsOn = await (await import("./custom-fields")).publicCustomDetailsFor(own.map((t) => ({ id: t.id, team_id: t.team_id })));
   return {
     included: true,
     incidents_affected: incidentsAffected,
@@ -960,6 +974,7 @@ export async function personalHelpdeskExport(userId: number): Promise<HdPersonal
           : (t.rt_form ?? []).map((f) => ({ question: f.label, answer: answerText(f, (t.form_answers ?? {})[f.key]) })).filter((a) => a.answer !== ""),
       conversation: conversations.get(t.id) ?? [],
       ...(t.relation === "requester" && assetsOn.get(t.id)?.length ? { assets: assetsOn.get(t.id) } : {}),
+      ...(t.relation === "requester" && detailsOn.get(t.id)?.length ? { details: detailsOn.get(t.id)!.map((d) => ({ label: d.label, value: d.value })) } : {}),
     })),
   };
 }

@@ -36,6 +36,8 @@ test.describe("before you solve (licensed)", () => {
   const teamName = `E2E Solve ${stamp}`;
   const otherTeamName = `E2E Solve other ${stamp}`;
   const setName = `Closing details ${stamp}`;
+  // 1.20.6: a category is picked from the desk admin's list (Desk settings → Categories); this run's own entry.
+  const NETWORK = `Network ${stamp}`;
   let teamId = 0;
   let otherTeamId = 0;
   const tickets: number[] = [];
@@ -50,6 +52,8 @@ test.describe("before you solve (licensed)", () => {
       const other = await api(page, "/api/helpdesk/admin/teams", { method: "POST", body: { name: otherTeamName, icon: "monitor", members: [] } });
       expect(other.status, JSON.stringify(other.body)).toBe(201);
       otherTeamId = other.body.team.id;
+      const category = await api(page, "/api/helpdesk/admin/categories", { method: "POST", body: { name: NETWORK } });
+      expect(category.status, JSON.stringify(category.body)).toBe(201);
     }
   });
 
@@ -59,7 +63,13 @@ test.describe("before you solve (licensed)", () => {
     // The sets first: one left on would keep asking this team's tickets.
     const list = await api(page, "/api/helpdesk/admin/solve-requirements");
     for (const s of list.body?.sets ?? []) if (String(s.name).includes(stamp)) await api(page, `/api/helpdesk/admin/solve-requirements/${s.id}`, { method: "DELETE" });
-    for (const n of new Set(tickets)) await api(page, `/api/helpdesk/tickets/${n}`, { method: "DELETE" });
+    for (const n of new Set(tickets)) {
+      // A ticket in the recycle bin still has its category: clear it, so the category below is unused.
+      await api(page, `/api/helpdesk/tickets/${n}`, { method: "PATCH", body: { category: "" } });
+      await api(page, `/api/helpdesk/tickets/${n}`, { method: "DELETE" });
+    }
+    const categories = await api(page, "/api/helpdesk/admin/categories");
+    for (const c of categories.body?.categories ?? []) if (String(c.name).includes(stamp)) await api(page, `/api/helpdesk/admin/categories/${c.id}`, { method: "DELETE" });
     if (teamId) await api(page, `/api/helpdesk/admin/teams/${teamId}`, { method: "DELETE" });
     if (otherTeamId) await api(page, `/api/helpdesk/admin/teams/${otherTeamId}`, { method: "DELETE" });
     await page.close();
@@ -163,7 +173,7 @@ test.describe("before you solve (licensed)", () => {
       await expect(dialog).toBeVisible({ timeout: 5_000 });
     }).toPass({ timeout: 60_000 });
     await expect(dialog.getByRole("combobox", { name: "Owner" })).toBeVisible();
-    await expect(dialog.getByRole("textbox", { name: "Category" })).toBeVisible();
+    await expect(dialog.getByRole("combobox", { name: "Category" })).toBeVisible();
     await expect(dialog.getByRole("radiogroup", { name: "Resolution code" })).toBeVisible();
     await expect(dialog.getByRole("textbox", { name: "Root cause" })).toBeVisible();
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/ticket-before-you-solve-1440-light.png`, fullPage: false });
@@ -192,7 +202,7 @@ test.describe("before you solve (licensed)", () => {
     await slow(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Solve", exact: true }).click();
     await expect(dialog.getByText("Pick an owner.")).toBeVisible();
-    await expect(dialog.getByText("Write a category.")).toBeVisible();
+    await expect(dialog.getByText("Pick a category.")).toBeVisible();
     await expect(dialog.getByText("Pick one.")).toBeVisible();
     await expect(dialog.getByText("This is needed.")).toBeVisible();
     expect(await statusOf(page, number)).toBe("new");
@@ -201,7 +211,7 @@ test.describe("before you solve (licensed)", () => {
     const owner = dialog.getByRole("combobox", { name: "Owner" });
     await expect(owner.locator("option", { hasText: "(you)" })).toHaveCount(1, { timeout: 60_000 });
     await owner.selectOption({ label: await owner.locator("option", { hasText: "(you)" }).innerText() });
-    await dialog.getByRole("textbox", { name: "Category" }).fill("Network");
+    await dialog.getByRole("combobox", { name: "Category" }).selectOption({ label: NETWORK });
     await dialog.getByRole("radio", { name: /^Fixed/ }).check();
     await dialog.getByRole("textbox", { name: "Root cause" }).fill("The VPN profile on the laptop had expired.");
     const [solved] = await Promise.all([
@@ -211,7 +221,7 @@ test.describe("before you solve (licensed)", () => {
     expect(solved.status(), JSON.stringify(await solved.json())).toBe(200);
     const sent = solved.request().postDataJSON();
     expect(sent.status).toBe("solved");
-    expect(sent.category).toBe("Network");
+    expect(sent.category).toBe(NETWORK);
     expect(Object.keys(sent.solve_answers).sort()).toEqual([`${setId}:resolution_code`, `${setId}:root_cause`]);
 
     // The desk may move on to the next ticket after a solve: read from a page that stays put.
@@ -219,7 +229,7 @@ test.describe("before you solve (licensed)", () => {
     await probe.goto(`/desk/tickets/${number}`);
     const after = (await api(probe, `/api/helpdesk/tickets/${number}`)).body;
     expect(after.ticket.status).toBe("solved");
-    expect(after.ticket.category).toBe("Network");
+    expect(after.ticket.category).toBe(NETWORK);
     expect(after.ticket.assignee_id).toBeTruthy();
     expect(after.solve_details.map((d: { label: string; text: string }) => [d.label, d.text])).toEqual([
       ["Resolution code", "Fixed"],
@@ -266,7 +276,7 @@ test.describe("before you solve (licensed)", () => {
     const owner = dialog.getByRole("combobox", { name: "Owner" });
     await expect(owner.locator("option", { hasText: "(you)" })).toHaveCount(1, { timeout: 60_000 });
     await owner.selectOption({ label: await owner.locator("option", { hasText: "(you)" }).innerText() });
-    await dialog.getByRole("textbox", { name: "Category" }).fill("Network");
+    await dialog.getByRole("combobox", { name: "Category" }).selectOption({ label: NETWORK });
     await dialog.getByRole("radio", { name: /^Workaround given/ }).check();
     await dialog.getByRole("textbox", { name: "Root cause" }).fill("Idle timeout on the gateway.");
     const [posted] = await Promise.all([
@@ -278,7 +288,7 @@ test.describe("before you solve (licensed)", () => {
     await probe.goto(SETTINGS);
     const after = (await api(probe, `/api/helpdesk/tickets/${number}`)).body;
     expect(after.ticket.status).toBe("solved");
-    expect(after.ticket.category).toBe("Network");
+    expect(after.ticket.category).toBe(NETWORK);
     expect(after.messages.filter((m: { kind: string; body: string }) => m.kind === "public" && m.body === TEXT)).toHaveLength(1);
     expect(after.solve_details.map((d: { text: string }) => d.text)).toEqual(["Workaround given", "Idle timeout on the gateway."]);
 

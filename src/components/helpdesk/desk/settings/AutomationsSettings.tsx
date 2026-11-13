@@ -36,6 +36,9 @@ import {
 } from "@/lib/helpdesk/types";
 import { getJson, listOf, sendJson } from "../api";
 import { useRequestTypes, useTeams } from "../admin-data";
+import { categoryLabel } from "@/lib/helpdesk/categories-shared";
+import { CategoryChecks, type CategoryPairs } from "../categories/CategoryChecks";
+import { CategoryFields } from "../categories/CategoryFields";
 
 const EVENT_FALLBACK: Record<HdAutomationEvent, string> = {
   ticket_created: "A ticket is created",
@@ -110,7 +113,8 @@ export function AutomationsSettings() {
     if (c.team_ids?.length) parts.push(c.team_ids.map(teamName).join(" or "));
     if (c.priorities?.length) parts.push(c.priorities.map((p) => HD_PRIORITY_LABEL[p]).join(" or "));
     if (c.keywords?.length) parts.push(`mentions ${c.keywords.map((k) => `"${k}"`).join(" or ")}`);
-    if (c.categories?.length) parts.push(`category ${c.categories.join(" or ")}`);
+    const cats = [...(c.categories ?? []), ...(c.subcategories ?? []).map((p) => categoryLabel(p.category, p.subcategory))];
+    if (cats.length) parts.push(`category ${cats.join(" or ")}`);
     if (c.sources?.length) parts.push(`from ${c.sources.map((s) => HD_SOURCE_LABEL[s]).join(" or ")}`);
     if (c.request_type_ids?.length) parts.push(c.request_type_ids.map((id) => types?.find((t) => t.id === id)?.title ?? "a request type").join(" or "));
     const x = a.actions ?? {};
@@ -118,7 +122,7 @@ export function AutomationsSettings() {
     if (x.team_id) then.push(`move to ${teamName(x.team_id)}`);
     if (x.priority) then.push(`set ${HD_PRIORITY_LABEL[x.priority]}`);
     if (x.status) then.push(`set ${HD_STATUS_LABEL[x.status]}`);
-    if (x.category) then.push(`category ${x.category}`);
+    if (x.category) then.push(`category ${categoryLabel(x.category, x.subcategory)}`);
     if (x.tags_add?.length) then.push(`tag ${x.tags_add.join(", ")}`);
     if (x.internal_note) then.push("add a note");
     if (x.macro_id) then.push("send a macro");
@@ -220,7 +224,7 @@ function RuleDialog({
   const [event, setEvent] = useState<HdAutomationEvent>("ticket_created");
   const [c, setC] = useState<HdAutomationConditions>({});
   const [keywords, setKeywords] = useState("");
-  const [categories, setCategories] = useState("");
+  const [categories, setCategories] = useState<CategoryPairs>({ categories: [], subcategories: [] });
   const [x, setX] = useState<HdAutomationActions>({});
   const [tags, setTags] = useState("");
   const [macros, setMacros] = useState<HdMacro[]>([]);
@@ -235,7 +239,7 @@ function RuleDialog({
     setEvent(r?.event ?? "ticket_created");
     setC(r?.conditions ?? {});
     setKeywords((r?.conditions?.keywords ?? []).join(", "));
-    setCategories((r?.conditions?.categories ?? []).join(", "));
+    setCategories({ categories: r?.conditions?.categories ?? [], subcategories: r?.conditions?.subcategories ?? [] });
     setX(r?.actions ?? {});
     setTags((r?.actions?.tags_add ?? []).join(", "));
     setTried(false);
@@ -263,7 +267,8 @@ function RuleDialog({
       ...(c.sources?.length ? { sources: c.sources } : {}),
       ...(c.request_type_ids?.length ? { request_type_ids: c.request_type_ids } : {}),
       ...(split(keywords).length ? { keywords: split(keywords) } : {}),
-      ...(split(categories).length ? { categories: split(categories) } : {}),
+      ...(categories.categories.length ? { categories: categories.categories } : {}),
+      ...(categories.subcategories.length ? { subcategories: categories.subcategories } : {}),
     };
     setBusy(true);
     setError("");
@@ -318,9 +323,8 @@ function RuleDialog({
               <Field label="Mentions any of these words" help="In the subject or the first message. Comma-separated.">
                 <TextInput value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="vpn, wifi, network" />
               </Field>
-              <Field label="Category is any of" help="Comma-separated.">
-                <TextInput value={categories} onChange={(e) => setCategories(e.target.value)} />
-              </Field>
+              {/* 1.20.6: ticked from the desk admin's list (Desk settings → Categories), never typed. */}
+              <CategoryChecks label="Category is any of" value={categories} onChange={setCategories} />
             </div>
           </fieldset>
           <fieldset className="rounded-lg border border-slate-200 p-3">
@@ -356,9 +360,15 @@ function RuleDialog({
                   ))}
                 </Select>
               </Field>
-              <Field label="Set the category">
-                <TextInput value={x.category ?? ""} onChange={(e) => setX({ ...x, category: e.target.value || undefined })} maxLength={80} />
-              </Field>
+              {/* 1.20.6: picked from the desk admin's list; the sub-category goes with its category. */}
+              <CategoryFields
+                value={{ category: x.category ?? "", subcategory: x.subcategory ?? "" }}
+                onChange={(next) => setX({ ...x, category: next.category || undefined, subcategory: next.category && next.subcategory ? next.subcategory : undefined })}
+                labels={{ category: "Set the category", subcategory: "Set the sub-category" }}
+                none="Leave as it is"
+                noneSub="Leave as it is"
+                testid="rule"
+              />
               <Field label="Add tags" help="Comma-separated.">
                 <TextInput value={tags} onChange={(e) => setTags(e.target.value)} />
               </Field>

@@ -5,13 +5,16 @@
 //        assignee: <user id>|me|none · requester: <user id> · requester_email
 //        sort: updated|created|due|priority|number
 //        Report drill-downs (lib/helpdesk/analytics drillHref): request_type=<id>,
-//        channel=<channel or source>, tag, category, department, office,
+//        channel=<channel or source>, tag, category, subcategory (1.20.6: a sub-category's name, or
+//        "Category › Sub-category"), department, office,
 //        origin=people|automated, vip=yes|no, integration=<id>|none,
 //        status_group=open, breached=1|now,
 //        created_from/created_to, solved_from/solved_to (YYYY-MM-DD, inclusive),
 //        created_within=<days> (1.19.1). Parsed by lib/helpdesk/ticket-filters.
 // POST /api/helpdesk/tickets  { subject, body?, requester_id?, request_type_id?, answers?, team_id?,
-//        assignee_id?, priority?, category?, tags?, first_message_kind?, attachments? }
+//        assignee_id?, priority?, category?, subcategory?, tags?, first_message_kind?, attachments? }
+//        (1.20.6: category and subcategory are names from the admin's list, lib/helpdesk/categories;
+//        anything else answers 400 { error, code: "category_not_listed" | "subcategory_not_listed", allowed })
 //        an agent's ticket on someone's behalf (source 'desk') → 201 { ticket }
 // Helpdesk 1.19.0 (helpdesk.agent).
 
@@ -105,6 +108,16 @@ export async function POST(req: Request) {
   if (!tags) return badRequest("Up to 20 short tags.");
   const category = textField(b.category, TICKET_LIMITS.category);
   if (category === null) return badRequest("The category is too long.");
+  const subcategory = textField(b.subcategory, TICKET_LIMITS.category);
+  if (subcategory === null) return badRequest("The sub-category is too long.");
+  // 1.20.6 (lib/helpdesk/categories): a category sent with the ticket is one from the admin's list.
+  let picked = { category: "", subcategory: "" };
+  if (category || subcategory) {
+    const { checkCategoryPick } = await import("@/lib/helpdesk/categories");
+    const pick = await checkCategoryPick({ category: category ?? "", subcategory: subcategory ?? "" });
+    if (!pick.ok) return NextResponse.json({ error: pick.error, code: pick.code, allowed: pick.allowed }, { status: 400 });
+    picked = pick;
+  }
   const kind = b.first_message_kind === "internal" ? "internal" : "public";
 
   let assigneeId: number | null = null;
@@ -132,7 +145,8 @@ export async function POST(req: Request) {
       team_id: teamId,
       assignee_id: assigneeId,
       priority: priority as never,
-      category: category ?? "",
+      category: picked.category,
+      subcategory: picked.subcategory,
       tags,
       attachments,
     },

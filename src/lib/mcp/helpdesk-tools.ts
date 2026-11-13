@@ -174,7 +174,7 @@ export const HELPDESK_TOOL_DEFS: HdToolDef[] = [
     name: "hd_queue",
     side: "agent",
     description:
-      "Helpdesk desk: tickets in the person's queues (their teams' and those assigned to them; every team with See every team's tickets). Filter by view, team, status, priority, assignee, requester, tag, missed target or text. Also lists the teams they work, with ids.",
+      "Helpdesk desk: tickets in the person's queues (their teams' and those assigned to them; every team with See every team's tickets). Filter by view, team, status, priority, assignee, requester, tag, category, sub-category, missed target or text. Also lists the teams they work, with ids, and the categories tickets can be given.",
     inputSchema: obj({
       view: { type: "string", description: "mine | unassigned | open (default) | overdue | workflow | waiting | solved_week | all | team:<id>" },
       team: { type: "number", description: "Team id." },
@@ -183,6 +183,8 @@ export const HELPDESK_TOOL_DEFS: HdToolDef[] = [
       assignee: { type: ["string", "number"], description: "A user id, \"me\" or \"none\"." },
       requester: { type: "number", description: "Requester's user id." },
       tag: { type: "string" },
+      category: { type: "string", description: "A category's name (the result lists them), or \"none\" for tickets without one." },
+      subcategory: { type: "string", description: "A sub-category's name; send its category too." },
       breached: { type: "boolean", description: "Only tickets past a running reply or resolution target now." },
       query: { type: "string", description: "Text in the subject, requester or conversation, or a ticket number." },
       limit: { type: "number", description: "1 to 50 (default 25)." },
@@ -192,7 +194,7 @@ export const HELPDESK_TOOL_DEFS: HdToolDef[] = [
     name: "hd_read_ticket",
     side: "agent",
     description:
-      "Helpdesk desk: the full ticket for an agent who works it: fields, reply and resolution targets, the whole conversation including internal notes, form answers, workflow progress and task hand-offs, the requester's contact card (directory visibility applies), agents it can be assigned to, any pending reply drafts, its checklists (required items must be ticked in the desk before it can be solved) and its linked assets (devices from Snipe-IT or Microsoft Intune).",
+      "Helpdesk desk: the full ticket for an agent who works it: fields, reply and resolution targets, the whole conversation including internal notes, form answers, workflow progress and task hand-offs, the requester's contact card (directory visibility applies), agents it can be assigned to, any pending reply drafts, its checklists (required items must be ticked in the desk before it can be solved), its linked assets (devices from Snipe-IT or Microsoft Intune) and the custom fields of its team with their values (custom_fields; set them with hd_update_ticket).",
     inputSchema: obj({ number: NUMBER }, ["number"]),
   },
   {
@@ -220,7 +222,7 @@ export const HELPDESK_TOOL_DEFS: HdToolDef[] = [
     side: "agent",
     write: "update",
     description:
-      "Helpdesk desk: change a ticket's status, priority, team, assignee or tags, each within the person's desk role (Change status, Change priority, Transfer to another team, Take a ticket / Assign within their teams / Assign to anyone). Only when the workspace lets Claude update tickets. Changes show on the timeline \"via Claude\". A workspace may ask for details before a ticket is solved (\"Before you solve\"): hd_read_ticket lists them under before_you_solve; send the closing fields as solve_answers with status solved, after confirming the answers with the person.",
+      "Helpdesk desk: change a ticket's status, priority, team, assignee, tags, category, sub-category or custom fields, each within the person's desk role (Change status, Change priority, Transfer to another team, Take a ticket / Assign within their teams / Assign to anyone). Only when the workspace lets Claude update tickets. Changes show on the timeline \"via Claude\". A workspace may ask for details before a ticket is solved (\"Before you solve\"): hd_read_ticket lists them under before_you_solve; send the closing fields as solve_answers with status solved, after confirming the answers with the person. A category and a sub-category come from the desk admin's list (hd_read_ticket lists it under categories): a name that is not on it is refused, never added.",
     inputSchema: obj(
       {
         number: NUMBER,
@@ -229,10 +231,22 @@ export const HELPDESK_TOOL_DEFS: HdToolDef[] = [
         team_id: { type: ["number", "null"], description: "Team id (hd_queue lists them), or null for no team." },
         assignee_id: { type: ["number", "string", "null"], description: "An agent's user id (hd_read_ticket lists them), \"me\", or null to unassign." },
         tags: { type: "array", items: { type: "string" }, description: "The ticket's full tag list (replaces it)." },
+        category: { type: ["string", "null"], description: "A category from the admin's list, by name (hd_read_ticket lists them); null or \"\" clears it and the sub-category." },
+        subcategory: { type: ["string", "null"], description: "A sub-category of the ticket's category (or of `category`, sent with it), by name; null or \"\" clears it. A new category without one clears it." },
+        custom_fields: {
+          type: "object",
+          description:
+            "Custom field values keyed by field key from hd_read_ticket's custom_fields (text as a string, a choice as its option value, a number, a date YYYY-MM-DD, a date and time YYYY-MM-DDTHH:MM, yes/no as true or false, a person as their user id; null clears one). Only fields of the ticket's team can be set.",
+        },
         solve_answers: {
           type: "object",
           description:
             "With status solved: the \"Before you solve\" closing fields, keyed by field key from hd_read_ticket's before_you_solve.closing_fields (text as a string, a choice as its option value, a number, a date YYYY-MM-DD, a tick as true, a person as their user id). Stored only if the ticket is solved.",
+        },
+        event: {
+          type: ["object", "null"],
+          description:
+            "The ticket's event on the desk's Calendar (hd_read_ticket shows it as event). An object sets or changes it: starts_at and ends_at as date-times with their zone (2026-11-20T14:00:00Z or with an offset), or all_day true with start_date and end_date (YYYY-MM-DD, the last day inclusive); place; setup_minutes (how long before the start setup must be ready). setup_complete true marks the setup done: only after the person confirms it is, because the ticket can't be solved until then. null removes the event.",
         },
       },
       ["number"]
@@ -293,7 +307,8 @@ export const HELPDESK_TOOL_DEFS: HdToolDef[] = [
         description: { type: "string" },
         icon: { type: "string", description: "A lucide icon name, like monitor or key." },
         team_id: { type: ["number", "null"], description: "The team that answers it." },
-        category: { type: "string" },
+        category: { type: "string", description: "A category from the desk admin's list, by name. One that is not on the list is refused." },
+        subcategory: { type: "string", description: "A sub-category of that category, by name." },
         form: { type: "array", items: { type: "object" } },
         workflow_id: { type: ["number", "null"], description: "A workflow to run (hd_list_workflows)." },
         sla_priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
@@ -629,6 +644,8 @@ async function readRequest(user: User, a: Args, ctx: Ctx) {
     current_step: r.current_step,
     progress: r.workflow?.steps ?? null,
     answers: r.answers,
+    // 1.20.6: the Public custom fields that have a value (requestDetail reads no agent-only field).
+    ...(r.details?.length ? { details: r.details.map((d) => ({ label: d.label, value: d.value })) } : {}),
     conversation: r.messages.map((m) => messageOut(m, false)),
     can_reply: r.can_reply,
     ...(r.my_approval ? { waiting_for_your_decision: { step: r.my_approval.title, approve_url: `${ctx.origin}/help/approvals` } } : {}),
@@ -716,6 +733,9 @@ async function queue(user: User, a: Args, ctx: Ctx) {
     f.requester_id = Number(a.requester);
   }
   if (typeof a.tag === "string" && a.tag) f.tag = a.tag.slice(0, 80);
+  // 1.20.6: by category and sub-category (lib/helpdesk/categories); "none" = tickets without one.
+  if (typeof a.category === "string" && a.category) f.category = a.category === "none" ? "" : a.category.slice(0, 80);
+  if (typeof a.subcategory === "string" && a.subcategory) f.subcategory = a.subcategory === "none" ? "" : a.subcategory.slice(0, 80);
   if (a.breached === true) f.breached = "now";
   f.q = String(a.query ?? "").slice(0, TICKET_LIMITS.q);
   f.limit = Math.min(50, Math.max(1, Number(a.limit) || 25));
@@ -734,12 +754,16 @@ async function queue(user: User, a: Args, ctx: Ctx) {
       requester: r.requester_name,
       ...(r.requester_vip ? { vip: true } : {}),
       tags: r.tags,
+      category: r.category || null,
+      subcategory: r.subcategory || null,
       in_workflow: r.in_workflow,
       due: r.due_label || null,
       updated_at: r.updated_at,
       url: `${ctx.origin}/desk/tickets/${r.number}`,
     })),
     teams: teams.map((t) => ({ id: t.id, name: t.name })),
+    // 1.20.6: the categories a ticket can be given, each with its sub-categories (the desk admin's list).
+    categories: (await (await import("../helpdesk/categories")).activeCategories()).map((c) => ({ name: c.name, subcategories: c.subcategories.map((x) => x.name) })),
   });
 }
 
@@ -770,6 +794,9 @@ async function readTicket(user: User, a: Args, ctx: Ctx) {
     assignee: t.assignee_id ? { id: t.assignee_id, name: t.assignee_name } : null,
     tags: t.tags,
     category: t.category,
+    // 1.20.6 (additive): the sub-category, and the admin's list a category and sub-category are picked from.
+    subcategory: t.subcategory ?? "",
+    categories: (await (await import("../helpdesk/categories")).activeCategories()).map((c) => ({ name: c.name, subcategories: c.subcategories.map((x) => x.name) })),
     type: t.request_type_title,
     source: t.source,
     created_at: t.created_at,
@@ -789,6 +816,10 @@ async function readTicket(user: User, a: Args, ctx: Ctx) {
     checklists: await (await import("../helpdesk/checklists")).checklistsForMcp(t.id),
     // 1.20.5: the "Before you solve" answers kept on the ticket, and what a solve would still need (lib/helpdesk/solve-requirements).
     ...(await (await import("../helpdesk/solve-requirements")).solveRequirementsForMcp(t)),
+    // 1.20.6: the ticket's event on the desk's Calendar, or null (lib/helpdesk/desk-calendar). While its setup is not complete the ticket can't be solved.
+    event: await (await import("../helpdesk/desk-calendar")).ticketEventOut(t.id),
+    // 1.20.6: the custom fields of the ticket's team, each with its key, kind, options and value (agents only; lib/helpdesk/custom-fields).
+    custom_fields: await (await import("../helpdesk/custom-fields")).customFieldsForMcp(t),
     // 1.19.3: linked assets from Snipe-IT (agents only; lib/helpdesk/assets).
     assets: await (await import("../helpdesk/assets")).assetsForMcp(t.id),
     conversation: d.messages.map((m) => messageOut(m, true)),
@@ -852,9 +883,12 @@ async function updateTicketTool(user: User, a: Args, ctx: Ctx) {
   if (!found) return refuse(NOT_FOUND(a.number));
   const t = found.t;
   const raw: Record<string, unknown> = {};
-  for (const k of ["status", "priority", "team_id", "assignee_id", "tags"] as const) if (a[k] !== undefined) raw[k] = a[k];
+  // 1.20.6: custom_fields ({ "<field key>": value | null }) are set like tags: by an agent who works the ticket.
+  for (const k of ["status", "priority", "team_id", "assignee_id", "tags", "category", "subcategory", "custom_fields"] as const) if (a[k] !== undefined) raw[k] = a[k];
   if (raw.assignee_id === "me") raw.assignee_id = user.id;
-  if (!Object.keys(raw).length) return refuse("Say what to change: status, priority, team_id, assignee_id or tags.");
+  // 1.20.6: `event` sets, changes or (null) removes the ticket's event (lib/helpdesk/desk-calendar).
+  const hasEvent = a.event !== undefined;
+  if (!Object.keys(raw).length && !hasEvent) return refuse("Say what to change: status, priority, team_id, assignee_id, tags, category, subcategory, custom_fields or event.");
   const patch = validateTicketPatch(raw);
   const session = toSessionUser(user);
   const { patchRefusal } = await import("../helpdesk/patch-caps");
@@ -870,17 +904,40 @@ async function updateTicketTool(user: User, a: Args, ctx: Ctx) {
     const missing = await validateTaskSolve(t.id);
     if (missing) return refuse(`${missing.error} The task's hand-off is entered in the desk (Mark done).`);
   }
+  // 1.20.6: the event first; setup_complete sent with a status that solves is saved in the solve's own transaction.
+  let eventChanged = false;
+  let setupComplete = false;
+  if (hasEvent) {
+    const cal = await import("../helpdesk/desk-calendar");
+    try {
+      const done = await cal.applyEventPatch(t, a.event, { id: user.id, name: user.name || user.username, via: "mcp" }, { origin: ctx.origin, deferSetup: patch.status === "solved" || patch.status === "closed" });
+      eventChanged = done.changed;
+      setupComplete = done.setupDeferred;
+    } catch (e) {
+      if (e instanceof cal.EventError) return refuse(`${e.message} (${e.status})`);
+      throw e;
+    }
+  }
   // 1.20.5: a solve that a "Before you solve" requirement set refuses says what to send (lib/helpdesk/solve-requirements).
   let r: Awaited<ReturnType<typeof updateTicket>>;
   try {
-    r = await updateTicket(t.id, patch, { id: user.id, name: user.name || user.username, role: user.role, via: "mcp" }, { origin: ctx.origin }, { solveAnswers: a.solve_answers ?? undefined });
+    r = Object.keys(patch).length
+      ? await updateTicket(t.id, patch, { id: user.id, name: user.name || user.username, role: user.role, via: "mcp" }, { origin: ctx.origin }, { solveAnswers: a.solve_answers ?? undefined, setupComplete })
+      : await getTicketByNumber(t.number).then((ticket) => (ticket ? { ticket, changed: [], before: t } : undefined));
   } catch (e) {
     if (e instanceof HdTicketError && e.extra?.code === "solve_requirements") {
-      return refuse(`${e.message} (${e.status}) Set the ticket fields first, and send the closing fields as solve_answers with status solved: hd_read_ticket lists them under before_you_solve.`);
+      return refuse(`${e.message} (${e.status}) Set the ticket fields first (custom fields with custom_fields, in the same call or before), and send the closing fields as solve_answers with status solved: hd_read_ticket lists them under before_you_solve. An event's setup is marked with event: { setup_complete: true }, once the person confirms it is done.`);
+    }
+    // 1.20.6: a category or sub-category that is not on the admin's list. The sentence names the allowed values; nothing was changed.
+    if (e instanceof HdTicketError && (e.extra?.code === "category_not_listed" || e.extra?.code === "subcategory_not_listed")) {
+      return refuse(`${e.message} (${e.status}) Nothing was changed. Only the desk admin adds categories (Desk settings, Categories).`);
     }
     throw e;
   }
   if (!r) return refuse(NOT_FOUND(a.number));
+  if (eventChanged || setupComplete) {
+    await auditMcp(user, ctx, "helpdesk.ticket.updated", { type: "helpdesk_ticket", id: t.id, label: ticketLabel(r.ticket) }, { number: t.number, changed: ["event"] });
+  }
   if (r.changed.includes("assignee_id")) {
     const { recordManualAssignment } = await import("../helpdesk/assignment/engine");
     void recordManualAssignment(r.ticket.id, {
@@ -898,7 +955,8 @@ async function updateTicketTool(user: User, a: Args, ctx: Ctx) {
   }
   return toolJson({
     number: r.ticket.number,
-    changed: r.changed,
+    changed: [...r.changed, ...(eventChanged || setupComplete ? ["event"] : [])],
+    event: await (await import("../helpdesk/desk-calendar")).ticketEventOut(r.ticket.id),
     status: r.ticket.status,
     priority: r.ticket.priority,
     team: r.ticket.team_name,
@@ -988,6 +1046,7 @@ async function report(user: User, a: Args) {
     by_team: r.by_team.slice(0, 20),
     by_agent: r.by_agent.slice(0, 20),
     by_category: r.by_category.slice(0, 20),
+    by_subcategory: (r.by_subcategory ?? []).slice(0, 40),
     note: "Times are business minutes in each team's calendar.",
   });
 }
@@ -1059,7 +1118,7 @@ async function draftWorkflow(user: User, a: Args, ctx: Ctx) {
 async function draftRequestType(user: User, a: Args, ctx: Ctx) {
   const { createRequestType, validateRequestTypeInput } = await import("../helpdesk/request-types");
   const input: Record<string, unknown> = {};
-  for (const k of ["title", "description", "icon", "team_id", "category", "form", "workflow_id", "sla_priority", "eta_label"]) {
+  for (const k of ["title", "description", "icon", "team_id", "category", "subcategory", "form", "workflow_id", "sla_priority", "eta_label"]) {
     if (a[k] !== undefined) input[k] = a[k];
   }
   // A draft: switched off, so it is in nobody's Get help until a person turns it on.

@@ -32,6 +32,8 @@ import { EYEBROW_TEXT } from "@/components/Heading";
 import { Modal } from "@/components/Modal";
 import { Field, Select, TextInput } from "@/components/form";
 import { Spinner } from "@/components/Spinner";
+import { useAppSettings } from "@/components/SettingsProvider";
+import { eventWhen } from "@/lib/helpdesk/desk-calendar-shared";
 import type { HdFormAnswers, HdFormField } from "@/lib/helpdesk/types";
 import type { HdAssetOption, HdAssetOptions } from "@/lib/helpdesk/assets-shared";
 import { formatMinutes, parseDuration, TIME_LIMITS } from "@/lib/helpdesk/time-shared";
@@ -42,16 +44,32 @@ import {
   type HdSolveCheck,
   type HdSolveTicketField,
 } from "@/lib/helpdesk/solve-requirements-shared";
+import { customFieldAsFormField, type HdSolveCustomField } from "@/lib/helpdesk/custom-fields-shared";
 import { FormFieldControl, isBlank } from "@/components/helpdesk/help/RequestForm";
 import { getJson, listOf, sendJson } from "../api";
 import { useDeskCounts } from "../counts";
 import { useCan, useDeskMe } from "../me";
 import { checklistsHoldSolve } from "../checklists/TicketChecklists";
+import { findCategory } from "@/lib/helpdesk/categories-shared";
+import { useDeskCategories } from "../categories/categories";
+import { CategoryFields } from "../categories/CategoryFields";
 
 /** What the dialog hands the solve: sent as `solve_answers` and (PATCH: merged into the patch; a reply: `solve_fields`). */
 export interface SolveExtras {
   solve_answers: HdFormAnswers;
-  solve_fields: { assignee_id?: number; team_id?: number; category?: string; tags?: string[] };
+  /**
+   * 1.20.6: `setup_complete` marks the ticket's event setup complete with the solve (lib/helpdesk/desk-calendar);
+   * `custom_fields` are the custom fields a set requires, by field key (lib/helpdesk/custom-fields).
+   */
+  solve_fields: {
+    assignee_id?: number;
+    team_id?: number;
+    category?: string;
+    subcategory?: string;
+    tags?: string[];
+    setup_complete?: boolean;
+    custom_fields?: Record<string, HdFormAnswers[string]>;
+  };
 }
 
 type Ask = {
@@ -77,6 +95,25 @@ export async function askBeforeYouSolve(
   opts: { applies?: boolean; force?: boolean; reply?: boolean; subject?: string } = {}
 ): Promise<SolveExtras | null | false> {
   if ((!opts.applies && !opts.force) || !host) return null;
+  // 1.20.6: one ask at a time. A second press of Solve while the first is
+  // still being checked (or its dialog is open) does nothing, instead of
+  // queueing a second dialog that opened after the first was cancelled.
+  if (asking) return false;
+  asking = true;
+  try {
+    return await askOnce(number, opts);
+  } finally {
+    asking = false;
+  }
+}
+
+let asking = false;
+
+async function askOnce(
+  number: number,
+  opts: { applies?: boolean; force?: boolean; reply?: boolean; subject?: string }
+): Promise<SolveExtras | null | false> {
+  if (!host) return null;
   let check: HdSolveCheck;
   try {
     check = await getJson<HdSolveCheck>(`/api/helpdesk/tickets/${number}/solve-requirements${opts.reply ? "?reply=1" : ""}`);
@@ -118,6 +155,18 @@ interface Agent {
 }
 
 const TAG_RE = /^[\p{L}\p{N} _-]{1,40}$/u;
+/** 1.20.6: a custom field's control key (its own namespace beside the closing fields'). */
+const customKey = (key: string) => `cf_${key}`;
+/**
+ * 1.20.6: a custom field as the request form's control draws it. A yes/no is drawn as a list (Yes, No): a tick box
+ * can't tell "No" from "not answered", and No is an answer.
+ */
+function customControl(f: HdSolveCustomField): HdFormField {
+  if (f.type === "checkbox") {
+    return { key: customKey(f.key), label: f.label, type: "select", required: true, help: f.help || undefined, options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] };
+  }
+  return { ...customFieldAsFormField(f, true), key: customKey(f.key) };
+}
 /** A field key safe in an element id: the set's id keeps two sets' same-named fields apart. */
 const controlKey = (setId: number, key: string) => `s${setId}_${key}`;
 
@@ -135,11 +184,34 @@ function BeforeYouSolveDialog({ ask, onDone, onChanged }: { ask: Ask; onDone: (v
     [check]
   );
   const sets = useMemo(() => check.sets.filter((s) => s.fields.length > 0), [check]);
+  // 1.20.6: the ticket's event waits for "Setup complete" (lib/helpdesk/desk-calendar): a tick box here marks it with the solve.
+  const needsSetup = check.missing.some((m) => m.kind === "event_setup");
+  const [setupDone, setSetupDone] = useState(false);
+  const { timezone: tz, time_format } = useAppSettings();
+  // 1.20.6: the custom fields a matching set requires that have no value yet, each once.
+  const customUnmet = useMemo(() => {
+    const out: HdSolveCustomField[] = [];
+    for (const s of check.sets) for (const f of s.custom_fields ?? []) if (!f.met && !out.some((x) => x.id === f.id)) out.push(f);
+    return out;
+  }, [check]);
+  const [custom, setCustom] = useState<HdFormAnswers>({});
+  const customBad = (f: HdSolveCustomField) => isBlank(custom[f.key]) || (f.type === "number" && Number.isNaN(Number(custom[f.key])));
+  const customError = (f: HdSolveCustomField): string | undefined => {
+    if (!tried) return undefined;
+    if (isBlank(custom[f.key])) return f.type === "choice" || f.type === "select" || f.type === "checkbox" ? "Pick one." : "This is needed.";
+    if (f.type === "number" && Number.isNaN(Number(custom[f.key]))) return "Enter a number.";
+    return undefined;
+  };
 
   const [values, setValues] = useState<HdFormAnswers>(() => ({ ...check.answers }));
   const [assignee, setAssignee] = useState(0);
   const [team, setTeam] = useState(0);
-  const [category, setCategory] = useState("");
+  // 1.20.6: picked from the desk admin's list (categories/CategoryFields). A missing sub-category starts from the ticket's category.
+  const [category, setCategory] = useState(() => (check.missing.some((m) => m.kind === "ticket_field" && m.field === "category") ? "" : check.ticket.category));
+  const [subcategory, setSubcategory] = useState("");
+  const { list: categoryList } = useDeskCategories();
+  /** The chosen category has sub-categories to pick from. */
+  const subsOffered = (findCategory(categoryList ?? [], category)?.subcategories ?? []).some((x) => !x.archived);
   const [tag, setTag] = useState("");
   /** Setters that saved at once: the field → what was done ("Logged 30m"). */
   const [done, setDone] = useState<Partial<Record<HdSolveTicketField, string>>>({});
@@ -177,7 +249,9 @@ function BeforeYouSolveDialog({ ask, onDone, onChanged }: { ask: Ask; onDone: (v
       case "team":
         return team ? undefined : canTeam ? "Pick a team." : "Ask a lead to move the ticket to a team.";
       case "category":
-        return category.trim() ? undefined : "Write a category.";
+        return category.trim() ? undefined : "Pick a category.";
+      case "subcategory":
+        return subcategory.trim() || (category.trim() && !subsOffered) ? undefined : category.trim() ? "Pick a sub-category." : "Pick a category, then a sub-category.";
       case "tag":
         return tag.trim() ? (TAG_RE.test(tag.trim()) ? undefined : "Use up to 40 letters, numbers, spaces or dashes.") : "Add a tag.";
       case "asset":
@@ -206,9 +280,12 @@ function BeforeYouSolveDialog({ ask, onDone, onChanged }: { ask: Ask; onDone: (v
         if (f === "assignee") return !assignee;
         if (f === "team") return !team;
         if (f === "category") return !category.trim();
+        if (f === "subcategory") return !(subcategory.trim() || (category.trim() && !subsOffered));
         if (f === "tag") return !TAG_RE.test(tag.trim());
         return true;
       }) ||
+      (needsSetup && !setupDone) ||
+      customUnmet.some(customBad) ||
       sets.some((s) =>
         s.fields.some((f) => {
           const v = values[solveAnswerKey(s.id, f.key)];
@@ -216,6 +293,11 @@ function BeforeYouSolveDialog({ ask, onDone, onChanged }: { ask: Ask; onDone: (v
         })
       );
     if (bad) {
+      const firstCustom = customUnmet.find(customBad);
+      if (firstCustom) {
+        refs.current.get(customKey(firstCustom.key))?.focus();
+        return;
+      }
       // Focus the first closing field in error; the ticket fields say theirs in place.
       for (const s of sets) {
         const first = s.fields.find((f) => f.required && isBlank(values[solveAnswerKey(s.id, f.key)]));
@@ -229,10 +311,21 @@ function BeforeYouSolveDialog({ ask, onDone, onChanged }: { ask: Ask; onDone: (v
     const solve_fields: SolveExtras["solve_fields"] = {};
     if (unmet.includes("team") && team) solve_fields.team_id = team;
     if (unmet.includes("assignee") && assignee) solve_fields.assignee_id = assignee;
-    if (unmet.includes("category")) solve_fields.category = category.trim();
+    if (unmet.includes("category") || (unmet.includes("subcategory") && category.trim() !== check.ticket.category)) solve_fields.category = category.trim();
+    if (unmet.includes("subcategory") && subcategory.trim()) solve_fields.subcategory = subcategory.trim();
     if (unmet.includes("tag")) {
       const t = tag.trim().toLowerCase();
       solve_fields.tags = check.ticket.tags.includes(t) ? check.ticket.tags : [...check.ticket.tags, t];
+    }
+    if (needsSetup && setupDone) solve_fields.setup_complete = true;
+    // 1.20.6: the custom fields filled in here are stored by the solve itself, like the ticket fields above.
+    if (customUnmet.length) {
+      solve_fields.custom_fields = Object.fromEntries(
+        customUnmet.map((f) => {
+          const v = custom[f.key];
+          return [f.key, f.type === "checkbox" ? v === "yes" : f.type === "number" ? Number(v) : (v ?? null)];
+        })
+      );
     }
     // Only what changed is sent: an answer left as it was keeps who gave it and when.
     const solve_answers: HdFormAnswers = {};
@@ -279,7 +372,7 @@ function BeforeYouSolveDialog({ ask, onDone, onChanged }: { ask: Ask; onDone: (v
           {nothingRequired ? "Nothing here is required. Add what you know, then solve." : "Fill these in to solve the ticket. Nothing is saved if you cancel."}
         </p>
 
-        {unmet.length > 0 && (
+        {(unmet.length > 0 || customUnmet.length > 0) && (
           <section className="mt-4" aria-labelledby={`${titleId}-ticket`}>
             <h3 id={`${titleId}-ticket`} className={EYEBROW_TEXT}>
               On the ticket
@@ -318,11 +411,21 @@ function BeforeYouSolveDialog({ ask, onDone, onChanged }: { ask: Ask; onDone: (v
                   ) : (
                     <CantRow key={f} label="Team" text="This ticket needs a team. Ask a lead to move it." error={fieldError(f)} />
                   )
-                ) : f === "category" ? (
-                  <Field key={f} label="Category" error={fieldError(f)}>
-                    <TextInput value={category} onChange={(e) => setCategory(e.target.value)} maxLength={80} data-testid="bys-category" />
-                  </Field>
-                ) : f === "tag" ? (
+                ) : f === "category" || (f === "subcategory" && !unmet.includes("category")) ? (
+                  // One pair of Selects for both: the category, then a sub-category of it.
+                  <CategoryFields
+                    key={f}
+                    value={{ category, subcategory }}
+                    onChange={(next) => {
+                      setCategory(next.category);
+                      setSubcategory(next.subcategory);
+                    }}
+                    none="Choose…"
+                    noneSub={unmet.includes("subcategory") ? "Choose…" : "None"}
+                    errors={{ category: unmet.includes("category") ? fieldError("category") : undefined, subcategory: unmet.includes("subcategory") ? fieldError("subcategory") : undefined }}
+                    testid="bys"
+                  />
+                ) : f === "subcategory" ? null : f === "tag" ? (
                   <Field key={f} label="Tag" help="A short word that helps you find and report on tickets: vpn, mfa, onboarding." error={fieldError(f)}>
                     <TextInput value={tag} onChange={(e) => setTag(e.target.value)} maxLength={40} autoCapitalize="none" data-testid="bys-tag" />
                   </Field>
@@ -355,7 +458,48 @@ function BeforeYouSolveDialog({ ask, onDone, onChanged }: { ask: Ask; onDone: (v
                   />
                 )
               )}
+              {/* 1.20.6: custom fields a set requires, drawn with the request form's control. */}
+              {customUnmet.map((f) => (
+                <div key={`cf-${f.id}`} data-testid={`bys-custom-${f.key}`}>
+                  <FormFieldControl
+                    field={customControl(f)}
+                    value={custom[f.key]}
+                    onChange={(v) => setCustom((cur) => ({ ...cur, [f.key]: v }))}
+                    error={customError(f)}
+                    refs={refs}
+                    prefilled={false}
+                  />
+                </div>
+              ))}
             </div>
+          </section>
+        )}
+
+        {needsSetup && (
+          <section className="mt-5" aria-labelledby={`${titleId}-event`} data-testid="bys-event">
+            <h3 id={`${titleId}-event`} className={EYEBROW_TEXT}>
+              Event
+            </h3>
+            {check.event_setup && (
+              <p className="mt-2 text-sm text-slate-700">
+                {eventWhen(check.event_setup, tz, time_format === "12h")}
+                {check.event_setup.place ? ` · ${check.event_setup.place}` : ""}
+              </p>
+            )}
+            <label className="mt-2 flex items-start gap-2 text-sm text-slate-800">
+              <input type="checkbox" className="mt-0.5" checked={setupDone} onChange={(e) => setSetupDone(e.target.checked)} data-testid="bys-setup" aria-describedby={`${titleId}-event-help`} />
+              <span>
+                <span className="font-medium">Setup complete</span>
+                <span id={`${titleId}-event-help`} className="block text-xs text-slate-500">
+                  Everything for the event is in place. It is recorded with your name when the ticket is solved.
+                </span>
+              </span>
+            </label>
+            {tried && !setupDone && (
+              <p role="alert" className="mt-1 text-xs text-red-600">
+                Tick this once the setup is done. The ticket can&apos;t be solved before.
+              </p>
+            )}
           </section>
         )}
 
@@ -389,8 +533,9 @@ function BeforeYouSolveDialog({ ask, onDone, onChanged }: { ask: Ask; onDone: (v
           </p>
         )}
 
-        {/* The actions stay in view while a long form scrolls inside the dialog. */}
-        <div className="sticky bottom-0 -mx-5 -mb-5 mt-5 flex flex-wrap justify-end gap-2 rounded-b-xl border-t border-slate-100 bg-surface px-5 py-3 sm:-mx-6 sm:-mb-6 sm:px-6">
+        {/* The actions stay in view while a long form scrolls inside the dialog. 1.20.6: they stick to the dialog's
+            edge (its padding included), so they no longer sit over the last line above them. */}
+        <div className="sticky -bottom-5 -mx-5 -mb-5 mt-5 flex flex-wrap justify-end gap-2 rounded-b-xl border-t border-slate-100 bg-surface px-5 py-3 sm:-bottom-6 sm:-mx-6 sm:-mb-6 sm:px-6">
           <Button variant="secondary" onClick={() => onDone(false)}>
             Cancel
           </Button>

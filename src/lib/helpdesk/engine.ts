@@ -495,6 +495,8 @@ async function evalApproval(c: Ctx, s: HdApprovalStepDef): Promise<"advance" | "
   // Close: the request is solved with the note, the run ends declined, nothing after it starts.
   await setStep(c.client, row, "declined", c.now, { decision: "declined" }, c.rows);
   await sysMsg(c.client, c.ticket.id, `The request was closed because it was declined.`);
+  // 1.20.6: its event will not happen through this request, so it is cancelled rather than left holding it open (lib/helpdesk/desk-calendar).
+  await (await import("./desk-calendar")).cancelEventForDeclineTx(c.client, c.ticket.id, c.now);
   await solveRequest(c);
   await endRun(c, "declined");
   return "ended";
@@ -572,6 +574,8 @@ async function startTask(c: Ctx, t: HdTaskStepDefB, retryRow?: Row): Promise<voi
     team_id: teamId,
     priority: c.ticket.priority,
     category: c.ticket.category,
+    // 1.20.6: a task carries its request's sub-category too (lib/helpdesk/categories).
+    subcategory: c.ticket.subcategory ?? "",
     source: "workflow",
     source_ref: { parent_number: c.ticket.number, run_id: c.run.id, step_key: t.key },
     parent_ticket_id: c.ticket.id,

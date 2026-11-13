@@ -238,6 +238,8 @@ export async function mergeTickets(user: MergeActor, input: MergeInput, ctx: { o
       await (await import("./checklists")).moveChecklistsTx(client, m.id, k.id);
       // 1.19.3: its linked assets too, every one, even past ten (lib/helpdesk/assets moveAssetLinksTx).
       await (await import("./assets")).moveAssetLinksTx(client, m.id, k.id);
+      // 1.20.6: its event too, when the kept ticket has none (lib/helpdesk/desk-calendar moveEventOnMergeTx).
+      await (await import("./desk-calendar")).moveEventOnMergeTx(client, m.id, k.id);
       // 1.19.4: where it lives in Teams or Slack too: desk replies keep reaching that chat (lib/helpdesk/chat/privacy).
       await (await import("./chat/privacy")).moveChatTx(client, m.id, k.id);
       moved.ccs += await moveCcs(m.id, k.id, client);

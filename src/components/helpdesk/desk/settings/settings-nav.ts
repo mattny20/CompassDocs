@@ -9,10 +9,12 @@ import {
   Plug,
   Shuffle,
   CalendarClock,
+  CalendarDays,
   Clock,
   LifeBuoy,
   ListChecks,
   ClipboardCheck,
+  TextCursorInput,
   List,
   Mail,
   ShieldCheck,
@@ -29,6 +31,7 @@ import {
   Link,
   Shield,
   Sparkle,
+  FolderTree,
   type LucideIcon,
 } from "lucide-react";
 import { CHECKLIST_MANAGE_CAPS } from "@/lib/helpdesk/checklists-caps";
@@ -57,6 +60,12 @@ const NEED: Record<string, string[]> = {
   "/desk/settings/checklists": [...CHECKLIST_MANAGE_CAPS],
   // "Before you solve" requirement sets (1.20.5, lib/helpdesk/solve-requirements).
   "/desk/settings/before-you-solve": ["settings.manage"],
+  // Managed categories and sub-categories (1.20.6, lib/helpdesk/categories).
+  "/desk/settings/categories": ["settings.manage"],
+  // The event calendar: reminders and feed links (1.20.6, lib/helpdesk/desk-calendar). Not "Calendars" (business hours).
+  "/desk/settings/event-calendar": ["settings.manage"],
+  // Custom fields per team (1.20.6, lib/helpdesk/custom-fields).
+  "/desk/settings/custom-fields": ["settings.manage"],
   "/desk/settings/csat": ["csat.manage"],
   "/desk/settings/assignment": ["agents.manage_team", "automations.manage"],
   "/desk/settings/contact-cards": ["settings.manage"],
@@ -87,6 +96,7 @@ const HELPDESK: SettingsNavItem[] = [
   { href: "/desk/setup", label: "Setup", icon: LifeBuoy },
   { href: "/desk/settings/teams", label: "Teams", icon: Users },
   { href: "/desk/settings/request-types", label: "Request types", icon: List },
+  { href: "/desk/settings/categories", label: "Categories", icon: FolderTree },
   { href: "/desk/settings/sla", label: "Reply targets", icon: Clock },
   { href: "/desk/settings/calendars", label: "Calendars", icon: CalendarClock },
   { href: "/desk/settings/email", label: "Email", icon: Mail },
@@ -96,12 +106,14 @@ const HELPDESK: SettingsNavItem[] = [
   { href: "/desk/settings/contact-cards", label: "Contact cards", icon: Contact },
   { href: "/desk/settings/automations", label: "Automations", icon: Bot },
   { href: "/desk/settings/recurring", label: "Recurring tickets", icon: Repeat },
+  { href: "/desk/settings/event-calendar", label: "Event calendar", icon: CalendarDays },
   { href: "/desk/settings/shortcuts", label: "Shortcuts", icon: Link },
   { href: "/desk/settings/portal", label: "Customer portal", icon: Globe },
   { href: "/desk/settings/macros", label: "Macros", icon: Zap },
   { href: "/desk/settings/canned", label: "Canned responses", icon: MessageSquareText },
   { href: "/desk/settings/checklists", label: "Checklists", icon: ListChecks },
   { href: "/desk/settings/before-you-solve", label: "Before you solve", icon: ClipboardCheck },
+  { href: "/desk/settings/custom-fields", label: "Custom fields", icon: TextCursorInput },
   { href: "/desk/settings/csat", label: "Satisfaction", icon: Star },
   { href: "/desk/settings/import", label: "Import", icon: Upload },
   { href: "/desk/settings/retention", label: "Retention and privacy", icon: Shield },

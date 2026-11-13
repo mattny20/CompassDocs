@@ -8,7 +8,7 @@
 //   team        <team id> · priority · status · status_group=open
 //   assignee    <user id>|me|none · requester <user id> · requester_email
 //   request_type <id> · channel <channel or source> · mailbox <a help
-//               address, 1.20.2> · tag · category ·
+//               address, 1.20.2> · tag · category · subcategory <1.20.6> ·
 //   department · office ('none' = empty) · origin people|automated ·
 //   vip yes|no · integration <id>|none · breached 1|now
 //   created_from/created_to/solved_from/solved_to  YYYY-MM-DD, inclusive
@@ -21,6 +21,7 @@ import "server-only";
 import { channelSources, helpdeskTimezone, isPriorityValue, isStatus, parseView, TICKET_LIMITS } from "./tickets";
 import type { TicketListFilters } from "./tickets";
 import { cleanMailboxAddress } from "./mailboxes-shared";
+import { splitCategoryLabel } from "./categories-shared";
 import type { HdTicketSort } from "./types";
 
 export const TICKET_SORTS: HdTicketSort[] = ["updated", "created", "due", "priority", "number"];
@@ -40,6 +41,8 @@ export const TICKET_FILTER_KEYS = [
   "mailbox",
   "tag",
   "category",
+  // 1.20.6 (lib/helpdesk/categories): a sub-category's name, or "Category › Sub-category" (Reports' drill-down).
+  "subcategory",
   "department",
   "office",
   "origin",
@@ -132,6 +135,19 @@ export async function parseTicketFilters(p: URLSearchParams): Promise<ParsedTick
     if (k === "tag") {
       if (v && v !== "none") f.tag = v;
     } else f[k] = v === "none" ? "" : v;
+  }
+  // 1.20.6: a sub-category, by name; "Category › Sub-category" names its category too.
+  const sub = p.get("subcategory");
+  if (sub !== null) {
+    if (sub.length > 170) return bad("The subcategory is too long.");
+    if (sub === "none") f.subcategory = "";
+    else if (sub) {
+      const pair = splitCategoryLabel(sub);
+      if (pair.subcategory) {
+        f.category = pair.category;
+        f.subcategory = pair.subcategory;
+      } else f.subcategory = pair.category;
+    }
   }
   const origin = p.get("origin");
   if (origin) {

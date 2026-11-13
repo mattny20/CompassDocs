@@ -4468,8 +4468,9 @@ live in `components/helpdesk/desk/solve`. The words are **ticket**,
   flow's promise-and-host recipe as `SolveMaintenance`) opens before any
   request changes the ticket. Under the subject and one lede sentence:
   an eyebrow **On the ticket** with a `Field` per missing ticket field
-  (a `Select` for Owner and Team, a `TextInput` for Category and Tag, a
-  search plus a hairline list with `sm` secondary **Link** buttons for an
+  (a `Select` for Owner and Team, the `CategoryFields` pair of Selects for
+  Category and Sub-category (1.20.6, §Helpdesk: categories), a `TextInput`
+  for Tag, a search plus a hairline list with `sm` secondary **Link** buttons for an
   asset, an input and a secondary **Log time**), then one eyebrow per set
   with its closing fields drawn by the request form's `FormFieldControl`.
   A setter that saves at once (Link, Log time) says so in its help line
@@ -4478,7 +4479,8 @@ live in `components/helpdesk/desk/solve`. The words are **ticket**,
   a field the role may not change) is a sentence saying what to do.
   Errors are inline after the first submit, and a server refusal is a
   `notice-error` line above the actions. The action row is sticky at the
-  bottom of the dialog's own scroll (`sticky bottom-0`, a top hairline),
+  bottom of the dialog's own scroll (`sticky -bottom-5 sm:-bottom-6`: the
+  dialog's padding, so it meets the edge; a top hairline),
   Cancel then the primary, whose label says what happens: **Solve**, or
   **Send and solve** from the composer. Cancel changes nothing and never
   touches the composer's text.
@@ -4494,6 +4496,156 @@ live in `components/helpdesk/desk/solve`. The words are **ticket**,
   named, up to four).
 - Requesters, CCs and portal customers never see the answers: no
   requester route returns them and their timeline line is internal.
+
+## Helpdesk: categories
+
+Managed categories and sub-categories (1.20.6, `lib/helpdesk/categories`).
+Components live in `components/helpdesk/desk/categories`. The words are
+**category** and **sub-category** (hyphenated, never "subcategory" in
+copy); a pair is written **Category › Sub-category** (`categoryLabel`).
+
+- **A category is picked, never typed.** Nowhere in the desk is there a
+  text box for a category: every place that sets or filters by one reads
+  the admin's list through `useDeskCategories()` and offers it. Archived
+  entries are left out of every picker; a value that is already held and
+  no longer offered stays selectable, marked "(archived)" (a Select) or
+  with the hint "Archived" (a picker menu).
+- **On a ticket** (`TicketCategoryRows`): two rows of the properties card
+  in its own recipe, **Category** and, only while the ticket's category
+  has sub-categories (or the ticket has one), **Sub-category**. Each is a
+  `PickMenu` (§Overlays "A picker menu") with **None** first; a category
+  row's hint says how many sub-categories it has. For people who manage
+  the list the menu ends with a separator and a `role="menuitem"` link
+  **Manage categories** (`Settings`); with no categories at all the menu
+  is one `text-sm text-slate-500` sentence ("No categories yet.") and,
+  for them, **Add categories**. Picking another category clears the
+  sub-category; the toast says what was set.
+- **In a form** (`CategoryFields`: the request type editor, an
+  automation's "Set the category", the queue's Filter dialog, Before you
+  solve): two `Field`s with `Select`s, the second shown only while the
+  chosen category has sub-categories. The caller passes the first
+  option's words ("None", "Leave as it is", "Any category", "Choose…").
+  With no categories the Select is disabled and its help line is "No
+  categories yet." plus the **Add categories** link for people who manage
+  the list ("An admin adds them in Desk settings." for everyone else).
+- **Several at once** (`CategoryChecks`, an automation's "Category is any
+  of"): a fieldset whose legend is the label, over a bordered list
+  (`max-h-56 overflow-y-auto rounded-lg border px-3 py-2`) of native
+  checkboxes: each category in `font-medium`, its sub-categories in a
+  wrapping row indented under it. Ticking a category ticks and disables
+  its sub-categories (the whole covers them); one help line under the
+  list says so. Archived entries are offered here, marked, because old
+  tickets still carry them.
+- **The settings page** (Desk settings → Categories, `FolderTree`): the
+  one primary **New category** in the header; a `CARD_CLASS` section (the
+  rows hang menus, so not `Card padding="none"`) of `divide-y` rows. A
+  category row is the Teams row's shape without the link: a 36px
+  `bg-compass-50` tile with `Folder`, the name in `text-sm
+  font-semibold`, a neutral `sm` **Archived** chip, one `text-xs
+  text-slate-500` facts line ("12 tickets · 2 request types · 1
+  automation", or "Not used yet"), then quiet 28px icon buttons: **Add a
+  sub-category** (`Plus`), **Rename** (`Pencil`) and **More**
+  (`MoreHorizontal`), a `Popover role="menu"` of Move up, Move down,
+  Archive or Restore, Merge into…, Delete (`danger`). Moving is a menu,
+  as in the workflow builder. Sub-categories are a nested list under
+  their category behind a hairline guide (`border-l border-slate-200
+  pl-3`), each with the same facts line, Rename and More. Every change
+  acts at once (a toast, then the list reloads); the page has no Save
+  row. Names are asked for in `promptDialog`s that validate inline (a
+  name the level already has, whatever its case, is refused before
+  anything is sent). A `ListFilter` strip appears once the list passes
+  eight. No categories: `EmptyState` with **New category**.
+- **Delete, archive, merge.** Delete asks with `confirmDialog({ danger })`
+  and is only for an entry nothing uses; on one that is used the dialog
+  says what uses it and its confirm is **Merge into…**. Archive asks with
+  a plain `confirmDialog` that says the tickets keep it. **Merge into…**
+  (`CategoryMergeDialog`) follows the ticket merge dialog (§Helpdesk:
+  merge and bulk edit): the title "Merge Printers into…" with `GitMerge`,
+  a lede with the numbers, one `Select` (a sub-category's targets grouped
+  by category in `optgroup`s, each group led by "Hardware (no
+  sub-category)"), a **What happens** card (`bg-canvas`, eyebrow) listing
+  exactly what the server will do, a `FormError` for a refusal, and a
+  primary that says it: **Merge into Hardware**.
+- **Refusals name the allowed values.** A category that is not on the
+  list is refused with the list in the sentence ('"Printers" is not a
+  category on the list. Categories: Access, Hardware.', cut after thirty
+  with "and N more"); the desk never reaches that path, the API, the
+  Claude connector and rules do.
+## Helpdesk: custom fields
+
+Custom fields per team (1.20.6, `lib/helpdesk/custom-fields`). Components
+live in `components/helpdesk/desk/custom-fields`. The words are **custom
+field**, **Agent only** and **Public**; a field has a **label**, a **kind**
+and a **key**.
+
+- **One set of kinds.** A custom field's kinds are the request form's
+  (`HdFormFieldType`), checked by the same validators. The settings page
+  offers seven and names them for a ticket (`CUSTOM_FIELD_KIND_LABEL`:
+  Short text, Long text, Pick one, Yes / no, Date, Number, A person);
+  never a second list of kinds or a second option editor.
+- **The settings page** (Desk settings → Custom fields,
+  `TextCursorInput`) is a list with a dialog editor (§Helpdesk: the desk,
+  Settings): **New field** in the header, wrapped in `Tooltip` with the
+  limit once it is reached. The list is a `padding="none"` `Card` in the
+  order tickets show the fields. A row: the label in `text-sm
+  font-semibold`, one `sm` chip for who sees it (**Public** `info`,
+  **Agent only** `neutral`), then two `text-xs text-slate-500` lines:
+  kind, options and teams ("Pick one · Laptop, Desktop · IT Support,
+  Facilities"), and the key in `font-mono` with "Filled in on 12
+  tickets". Row actions are quiet 28px icon buttons with `data-tt` and an
+  `aria-label` naming the field: Move up, Move down (`ArrowUp`,
+  `ArrowDown`, saved at once; focus stays on the button), Edit
+  (`Pencil`), Archive (`Archive`, at once, toasted) and Delete (`Trash2`,
+  `hover-danger`). The row wraps (`flex-wrap`, the actions `ml-auto`), so
+  on a phone the actions drop under the text. Archived fields sit in a
+  second card under a `SectionHeading` "Archived", with **Restore**
+  (`ArchiveRestore`) and Delete only.
+- **Delete asks and counts.** `confirmDialog({ danger: true })` says how
+  many tickets hold a value and that archiving keeps them ("3 tickets hold
+  a value for this field. Deleting it removes those values for good. To
+  keep them, archive the field instead.").
+- **The editor** is a `Modal` (`max-w-xl`): the request form's
+  `FormBuilder` in its `single` mode (Label, Kind, Help line, Options; no
+  number, no move or remove, no Required tick, no Add button), one
+  `text-xs` line with the key in `font-mono` ("Key device_type. The API,
+  webhooks and the Claude connector use it. It never changes."), a
+  **Teams** fieldset (a `sm` `Segmented` "All teams" / "Chosen teams",
+  then the bordered checkbox pills of the requirement set editor) and
+  **Who sees it** as `RadioCards` (Agent only, Public, one sentence
+  each). Errors are inline `text-xs text-red-600` after the first save; a
+  server refusal is a `FormError`. While tickets hold a value the Kind
+  list offers only kinds whose values read the same, and the key line says
+  why.
+- **On a ticket** the fields are one `CARD_CLASS` card in the side panel,
+  right under Properties, headed in the eyebrow tier ("Custom fields"),
+  each row the label in `text-xs text-slate-500` over its value (an
+  admin's label may be long, and a date or a serial number is never cut
+  short beside it); the value is the Properties value button with a
+  `ChevronDown`, left-aligned under the label, "None" when empty. A
+  choice and a yes/no are `PickMenu`s with **None** first; text, a number
+  and a date open `promptDialog` (empty clears); a person opens a small
+  `Modal` with the request form's people picker; a long text reads under
+  its label with a quiet `Pencil`. A role that can't work the ticket sees
+  plain values without the chevron. A Public field carries a 14px `Eye`
+  in `text-slate-400` after its label with an `sr-only` "(the requester
+  sees this)", and one `text-xs` line under the rows says what the eye
+  means. No field for the ticket's team: no card. Fields of other teams
+  are simply not shown: never a disabled row, never "not available for
+  this team".
+- **The requester's side** (Get help and the customer portal): a
+  **Details** card in the eyebrow tier, in the "Your answers" recipe,
+  read-only, listing only Public fields that have a value. No value, or
+  no Public field: no card.
+- **Before you solve.** The set editor's "On the ticket" card ends with a
+  `Field` "A custom field" (a `Select`, "Choose a field…"); a picked
+  field joins the hairline list as a ticked row "A custom field:
+  {label}" with one help sentence, and unticking removes it. The dialog
+  draws a missing custom field under **On the ticket** with the request
+  form's `FormFieldControl` (a yes/no as a `Select` of Yes and No, since
+  No is an answer).
+- Every timeline line of a custom field is internal, whatever the
+  field's visibility. Agent-only fields never reach a requester: no
+  requester route, email, portal page or export reads them.
 
 ## Helpdesk: assets
 
@@ -5104,3 +5256,83 @@ addresses 1.20.5 (`lib/helpdesk/send-addresses`).
   Offer it only while it has something to create: Intune's is hidden once
   an app registration of its own is saved, because a second run would
   leave a second app in Entra.
+
+## Helpdesk: the event calendar
+
+1.20.6 (`components/helpdesk/desk/calendar`, `lib/helpdesk/desk-calendar*`).
+The words are **event**, **place**, **setup** and **Setup complete**. The
+desk rail's page is **Calendar** (`CalendarDays`); its settings page is
+**Event calendar**, so it is never mistaken for **Calendars** (business
+hours, `CalendarClock`).
+
+- **The Event block** is a side-panel card in the eyebrow tier, above
+  Time. With no event: one help sentence and a full-width secondary `sm`
+  **Add an event**. With one: the time in `text-sm font-medium`, the place
+  beside a `MapPin`, one `text-xs` line "Ready by 13:30 · 30 minutes
+  before", then a `sm` chip: **Setup not complete** `warn`, **Setup
+  complete** `ok` (with who and when), **Cancelled** `neutral` (the time
+  struck through). **Mark setup complete** is a full-width secondary `sm`
+  button with the sentence "The ticket can't be solved until setup is
+  complete." under it. Change and Remove are quiet icon buttons in the
+  heading row (`aria-label` plus `data-tt`).
+- **The double-booking warning** sits inside the block: a `notice-warn`
+  box, `TriangleAlert`, "Double-booked: Boardroom A", each other ticket as
+  a link with its time, and one closing sentence saying nothing is
+  blocked. It warns; it never stops a save.
+- **The dialog** ("Add an event to #1047") is a `Modal` with an **All day**
+  checkbox, **Starts** / **Ends** (`datetime-local`, or two dates when all
+  day), **Place (optional)** with suggestions, **Setup ready** (a `Select`
+  of lead times) and a summary line that says the zone the times are in.
+- **Before you solve** shows an **Event** eyebrow with the time and place
+  and one checkbox, **Setup complete**, with a help line. It is sent with
+  the solve; the refusal elsewhere is the Before-you-solve sentence
+  ("…this ticket needs: the event setup marked complete.").
+- **The Calendar page** is `PageContainer` + `PageHeader` (Subscribe and
+  Print as secondary actions). One toolbar row: **Today**, previous and
+  next icon buttons, the range as a heading, a `Segmented` Day / Week /
+  Month and the team `Select`. A second, quieter row: **Colour by** (a
+  `Segmented` Team / Status) and **Also show** (bordered checkbox pills,
+  **Due dates** and **Recurring tickets**). The view, team, colour and
+  layers are remembered per person.
+- **Colour** comes from the reports' validated palette
+  (`charts.module.css` `.viz`, composed by `Calendar.module.css`): an item
+  sets `--ev` inline; the block is a tint of it with a solid left edge and
+  slate ink. Colour never stands alone: every item carries its team's
+  short tag ("BS") or its status in words, and the key under the grid
+  spells them out. Setup time before an event is the same hue hatched,
+  labelled "Setup". Due dates and recurring tickets are dashed outlines
+  with a `Clock` or `Repeat` icon and the words "Due", "Reply due" or
+  "Opens". A cancelled event is struck through; a double-booked one gets a
+  `TriangleAlert`, a completed setup a `Check`.
+- **Views.** Day and Week are a time grid (`--hour: 3rem`, whole-day
+  events in a strip above); Month is a seven-column grid with up to three
+  items a day and "2 more", which opens that day. Every item is a link to
+  its ticket, reachable by Tab, with a `data-tt` summary. Under `md` every
+  view is the list fallback: one bordered card per day with rows of time,
+  subject and one facts line. An empty range is the page-tier
+  `EmptyState` ("Nothing on the calendar this week"); an empty day in the
+  list is a `SectionEmpty` line.
+- **Paper** (`/desk/calendar/print`, the `(print)` group, the handbook's
+  sheet and `@page` margin boxes). Day is a portrait **day sheet**: a
+  table of tick box, Time, Event, Place, Owner, Setup by. Week and Month
+  are landscape tables, one column or cell a day. Items are told apart by
+  their words; the left edge prints black and a dotted edge marks a due
+  date or a recurring ticket. No desk chrome, no buttons, no colour that
+  matters.
+- **Event calendar settings** stack two cards. **Reminders**: bordered
+  checkbox pills for the lead times (up to five), a `Toggle` for the late
+  reminder, a `Segmented` for who gets them, a `Toggle` for Microsoft
+  Teams or Slack (disabled with a sentence until one is connected), the
+  default setup time, and its own primary **Save reminders**. **Your
+  calendar feed links**: a hairline list, one row for "All my teams" and
+  one per team, each with **Create link**, or the link's last characters
+  in `code`, **Replace** and a Revoke icon button. A new link opens the
+  shown-once dialog of API tokens (`notice-ok` "Copy the link now. It
+  won't be shown again.", the address in `code`, a primary Copy link, then
+  how to add it in Outlook, Google Calendar and Apple Calendar). Admins
+  also get **Everyone's links**, a table with Revoke.
+- **The request type editor** has a **Goes on the calendar** card after
+  Questions: a `Toggle`, then `Select`s for the Start, End (optional) and
+  Place (optional) questions and the Setup ready lead time. Only questions
+  of a fitting kind are offered ("Date and time" or "Date"; a short answer
+  or pick-one for the place).

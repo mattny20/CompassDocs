@@ -33,6 +33,8 @@ export interface SolveSettingsData {
   request_types: { id: number; title: string; active: number }[];
   /** The ticket fields this install can require (an asset only while an asset source is connected). */
   ticket_fields: HdSolveTicketField[];
+  /** 1.20.6: the custom fields a set may require (lib/helpdesk/custom-fields). */
+  custom_fields: { id: number; key: string; label: string; all_teams: boolean; team_ids: number[]; archived: boolean }[];
 }
 
 /** The page's data, reloadable. */
@@ -57,6 +59,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 function asksFor(s: HdSolveRequirementSet): string {
   const parts: string[] = [];
   if (s.ticket_fields.length) parts.push(plural(s.ticket_fields.length, "ticket field", "ticket fields"));
+  if (s.custom_field_ids?.length) parts.push(plural(s.custom_field_ids.length, "custom field", "custom fields"));
   if (s.fields.length) parts.push(plural(s.fields.length, "closing field", "closing fields"));
   return parts.join(" · ") || "Nothing required yet";
 }

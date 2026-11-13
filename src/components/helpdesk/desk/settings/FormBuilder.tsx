@@ -21,6 +21,8 @@ export const FIELD_TYPE_LABEL: Record<HdFormFieldType, string> = {
   select: "Pick one (list)",
   checkbox: "Yes / no",
   date: "Date",
+  // 1.20.6: a date with a time, for requests that go on the calendar (lib/helpdesk/desk-calendar).
+  datetime: "Date and time",
   number: "Number",
   user: "A person",
 };
@@ -52,6 +54,10 @@ export interface FormBuilderCopy {
   placeholder?: string;
   /** An option's placeholder. */
   optionPlaceholder?: string;
+  /** 1.20.6, with `single`: the label field's own label ("Label"). */
+  label?: string;
+  /** 1.20.6: the kind select's label ("Kind"); left out, "Kind of answer". */
+  kindLabel?: string;
 }
 
 export function FormBuilder({
@@ -59,12 +65,21 @@ export function FormBuilder({
   onChange,
   copy,
   max = 40,
+  single = false,
+  kinds,
 }: {
   form: HdFormField[];
   onChange: (next: HdFormField[]) => void;
   copy?: FormBuilderCopy;
   /** How many the form may hold (the request form's 40 by default). */
   max?: number;
+  /**
+   * 1.20.6 (Desk settings → Custom fields): the form is one field edited on its own, so the builder draws only that
+   * field's label, kind, help line and options: no number, no move or remove, no Required tick and no Add button.
+   */
+  single?: boolean;
+  /** 1.20.6: the kinds offered and what each is called here; left out, every kind as the request form names it. */
+  kinds?: { value: HdFormFieldType; label: string }[];
 }) {
   const Noun = copy?.noun ?? "Question";
   const noun = Noun.toLowerCase();
@@ -83,19 +98,21 @@ export function FormBuilder({
 
   return (
     <div className="space-y-3">
-      {form.length === 0 && <SectionEmpty>{copy?.empty ?? "No extra questions: people write a subject and a description."}</SectionEmpty>}
+      {form.length === 0 && !single && <SectionEmpty>{copy?.empty ?? "No extra questions: people write a subject and a description."}</SectionEmpty>}
       {form.map((f, i) => {
         const n = i + 1;
         const hasOptions = f.type === "choice" || f.type === "select";
         return (
-          <fieldset key={i} className="rounded-lg border border-slate-200 p-3">
+          <fieldset key={i} className={single ? "min-w-0" : "rounded-lg border border-slate-200 p-3"}>
             <legend className="sr-only">{Noun} {n}</legend>
             <div className="flex items-start gap-2">
-              <span className="mt-7 w-5 shrink-0 text-right text-xs tabular-nums text-slate-500" aria-hidden>
-                {n}
-              </span>
+              {!single && (
+                <span className="mt-7 w-5 shrink-0 text-right text-xs tabular-nums text-slate-500" aria-hidden>
+                  {n}
+                </span>
+              )}
               <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
-                <Field label={`${Noun} ${n}`}>
+                <Field label={single ? (copy?.label ?? "Label") : `${Noun} ${n}`}>
                   <TextInput
                     value={f.label}
                     maxLength={200}
@@ -109,7 +126,7 @@ export function FormBuilder({
                     }}
                   />
                 </Field>
-                <Field label="Kind of answer">
+                <Field label={copy?.kindLabel ?? "Kind of answer"}>
                   <Select
                     value={f.type}
                     onChange={(e) => {
@@ -117,9 +134,9 @@ export function FormBuilder({
                       set(i, { type, options: type === "choice" || type === "select" ? f.options?.length ? f.options : [{ value: "option_1", label: "" }] : undefined });
                     }}
                   >
-                    {(Object.keys(FIELD_TYPE_LABEL) as HdFormFieldType[]).map((t) => (
-                      <option key={t} value={t}>
-                        {FIELD_TYPE_LABEL[t]}
+                    {(kinds ?? (Object.keys(FIELD_TYPE_LABEL) as HdFormFieldType[]).map((t) => ({ value: t, label: FIELD_TYPE_LABEL[t] }))).map((k) => (
+                      <option key={k.value} value={k.value}>
+                        {k.label}
                       </option>
                     ))}
                   </Select>
@@ -189,13 +206,15 @@ export function FormBuilder({
                     </Button>
                   </div>
                 )}
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
-                  <input type="checkbox" checked={!!f.required} onChange={(e) => set(i, { required: e.target.checked })} />
-                  Required
-                  <span className="text-xs text-slate-500">· key {f.key}</span>
-                </label>
+                {!single && (
+                  <label className="inline-flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
+                    <input type="checkbox" checked={!!f.required} onChange={(e) => set(i, { required: e.target.checked })} />
+                    Required
+                    <span className="text-xs text-slate-500">· key {f.key}</span>
+                  </label>
+                )}
               </div>
-              <div className="flex shrink-0 flex-col gap-1">
+              <div className={single ? "hidden" : "flex shrink-0 flex-col gap-1"}>
                 <button type="button" disabled={i === 0} onClick={() => move(i, -1)} aria-label={`Move ${noun} ${n} up`} data-tt="Move up" className={iconButtonClass("quiet", "sm")}>
                   <ArrowUp aria-hidden />
                 </button>
@@ -210,9 +229,11 @@ export function FormBuilder({
           </fieldset>
         );
       })}
-      <Button variant="secondary" icon={<Plus />} onClick={add} disabled={form.length >= max}>
-        Add {noun}
-      </Button>
+      {!single && (
+        <Button variant="secondary" icon={<Plus />} onClick={add} disabled={form.length >= max}>
+          Add {noun}
+        </Button>
+      )}
     </div>
   );
 }

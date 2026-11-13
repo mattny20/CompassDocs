@@ -5,6 +5,12 @@ const nextConfig = {
   // Emit a self-contained server (.next/standalone) for small Docker images and
   // easy deploys on Railway / Render / Fly. Vercel ignores this and works too.
   output: "standalone",
+  // 1.20.6: an image build may leave the type check to a separate step
+  // (COMPASSDOCS_BUILD_SKIP_TYPECHECK=1, see the Dockerfile). The check is
+  // the build's memory peak, and on a 7 GB build machine it took the machine
+  // down. Whoever sets this must run `npx tsc --noEmit` themselves, as the
+  // enterprise image build does. Unset, the build checks types as always.
+  typescript: { ignoreBuildErrors: process.env.COMPASSDOCS_BUILD_SKIP_TYPECHECK === "1" },
   // Keep the Postgres driver out of the server bundle (it has optional native
   // deps and dynamic requires); load it from node_modules at runtime. The PDF
   // renderer likewise: it carries its own font and image decoders that do not

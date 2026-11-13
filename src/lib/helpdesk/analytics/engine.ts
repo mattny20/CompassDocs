@@ -443,6 +443,9 @@ function dimSql(d: HdDimension, src: Src, at: string, o: Optional, vip: string):
       return { expr: "t.request_type_id" };
     case "category":
       return { expr: "COALESCE(t.category, '')" };
+    case "subcategory":
+      // 1.20.6: "Category › Sub-category" (lib/helpdesk/categories-shared CATEGORY_SEP); '' = no sub-category.
+      return { expr: "CASE WHEN COALESCE(t.subcategory, '') = '' THEN '' ELSE t.category || ' › ' || t.subcategory END" };
     case "priority":
       return { expr: "t.priority" };
     case "channel":

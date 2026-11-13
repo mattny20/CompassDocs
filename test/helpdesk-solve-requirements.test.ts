@@ -260,6 +260,7 @@ after(async () => {
   await pool().query("DELETE FROM hd_workflow_runs WHERE ticket_id = ANY($1)", [all]);
   await pool().query("DELETE FROM hd_tickets WHERE id = ANY($1)", [all]);
   await pool().query("DELETE FROM hd_request_types WHERE id = ANY($1)", [typeIds]);
+  await pool().query("DELETE FROM hd_categories WHERE name LIKE $1", [`${STAMP}%`]);
   await pool().query("DELETE FROM hd_workflows WHERE id = ANY($1)", [workflowIds]);
   await pool().query("DELETE FROM hd_checklist_templates WHERE name LIKE $1", [`%${STAMP}%`]);
   await pool().query("DELETE FROM hd_macros WHERE title LIKE $1", [`${STAMP}%`]);
@@ -320,7 +321,7 @@ describe("checks (pure)", () => {
   });
 
   test("a set for every ticket (a hand-made snapshot): any ticket is asked, a workflow task never is; an asset only while a source is connected", async () => {
-    const all = { id: 999_999_001, name: "Everything", enabled: true, team_ids: [], request_type_ids: [], ticket_fields: ["assignee", "asset"] as const, fields: [], created_at: "", updated_at: "" };
+    const all = { id: 999_999_001, name: "Everything", enabled: true, team_ids: [], request_type_ids: [], ticket_fields: ["assignee", "asset"] as const, custom_field_ids: [], fields: [], created_at: "", updated_at: "" };
     const facts = { id: 0, team_id: null, request_type_id: null, assignee_id: null, category: "", tags: [], first_replied_at: null, source: "email" };
     const on = await sr.evaluateSolve({ sets: [{ ...all, ticket_fields: [...all.ticket_fields] }], assetsOn: true }, facts);
     assert.deepEqual(on.missing.map((m) => (m.kind === "ticket_field" ? m.field : m.key)), ["assignee", "asset"]);
@@ -417,7 +418,10 @@ describe("ticket fields that must be set", () => {
       const needs = async () => ((await sr.solveRequirementRefusal(t.id))?.missing ?? []).map((m) => (m.kind === "ticket_field" ? m.field : m.key));
       await tickets.updateTicket(t.id, { assignee_id: P.agent.id }, actor());
       assert.deepEqual(await needs(), ["category", "tag", "time", "reply"]);
-      await tickets.updateTicket(t.id, { category: "Network" }, actor());
+      // 1.20.6: a category is one from the admin's list (lib/helpdesk/categories): this run's own entry.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      await (require("../src/lib/helpdesk/categories") as typeof import("../src/lib/helpdesk/categories")).createCategory({ name: `${STAMP} Network` }, { id: null });
+      await tickets.updateTicket(t.id, { category: `${STAMP} Network` }, actor());
       assert.deepEqual(await needs(), ["tag", "time", "reply"]);
       await tickets.updateTicket(t.id, { tags: ["vpn"] }, actor());
       assert.deepEqual(await needs(), ["time", "reply"]);
@@ -462,7 +466,7 @@ describe("ticket fields that must be set", () => {
 
   test("a linked asset: asked while an asset source is connected, met once one is linked", async () => {
     const t = await ticket("Asset");
-    const snap = { sets: [{ id: 999_999_002, name: "Assets", enabled: true, team_ids: [T.A], request_type_ids: [], ticket_fields: ["asset" as const], fields: [], created_at: "", updated_at: "" }], assetsOn: true };
+    const snap = { sets: [{ id: 999_999_002, name: "Assets", enabled: true, team_ids: [T.A], request_type_ids: [], ticket_fields: ["asset" as const], custom_field_ids: [], fields: [], created_at: "", updated_at: "" }], assetsOn: true };
     assert.equal((await sr.solveRequirementRefusal(t.id, { snapshot: snap }))?.error, "Before you solve, this ticket needs: a linked asset.");
     const a = await pool().query("INSERT INTO hd_assets (provider, external_id, tag, name) VALUES ($1, '1', 'MBP-014', 'MacBook Pro 14') RETURNING id", [STAMP]);
     await pool().query("INSERT INTO hd_ticket_assets (ticket_id, asset_id) VALUES ($1, $2)", [t.id, a.rows[0].id]);

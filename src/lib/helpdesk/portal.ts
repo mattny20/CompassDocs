@@ -680,6 +680,8 @@ export interface PortalMessage {
 
 export interface PortalRequestDetail extends PortalRequestRow {
   answers: { label: string; value: string }[];
+  /** 1.20.6 (lib/helpdesk/custom-fields): the Public custom fields that have a value; [] when none. Never an agent-only field. */
+  details: { label: string; value: string }[];
   messages: PortalMessage[];
   /** A closed request takes no reply. */
   can_reply: boolean;
@@ -772,6 +774,8 @@ export async function contactRequestDetail(contact: Pick<PortalContact, "id" | "
     answers: form
       .map((f) => ({ label: f.label, value: answerLine(f, (t.form_answers ?? {})[f.key]) }))
       .filter((a) => a.value !== ""),
+    // 1.20.6: Public custom fields only, and never a person's name (as the answers above leave people out).
+    details: (await (await import("./custom-fields")).publicCustomDetails({ id: t.id, team_id: t.team_id }, { people: false }).catch(() => [])).map((d) => ({ label: d.label, value: d.value })),
     messages: msgs.map((m) => {
       const mine = m.author_id === null && m.author_email.toLowerCase() === mineEmail;
       return {
