@@ -1,5 +1,5 @@
 # --- Build stage ---------------------------------------------------------------
-FROM node:22-alpine AS builder
+FROM node:25-alpine AS builder
 WORKDIR /app
 
 # Install dependencies against the lockfile for reproducible builds.
@@ -20,7 +20,7 @@ ENV COMPASSDOCS_BUILD_SKIP_TYPECHECK=$COMPASSDOCS_BUILD_SKIP_TYPECHECK
 RUN npm run build
 
 # --- Runtime stage -------------------------------------------------------------
-FROM node:22-alpine AS runner
+FROM node:25-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
