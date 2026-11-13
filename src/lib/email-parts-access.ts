@@ -16,7 +16,7 @@
 
 import "server-only";
 import { NextResponse } from "next/server";
-import { apiSession, crossOriginRejection } from "./api-auth";
+import { apiSession, crossOriginRejection, deskDuoRefusal } from "./api-auth";
 import { userHolds } from "./access";
 import { featureEnabled } from "./ee";
 import type { SessionUser } from "./types";
@@ -65,6 +65,13 @@ export async function emailTemplatesGate(need: "any" | "manage" = "any"): Promis
     return NextResponse.json({ error: "Could not evaluate permissions. Try again shortly." }, { status: 503 });
   }
   if (need === "manage" ? !access.manage : !(access.read || access.manage || access.helpdesk)) return FORBIDDEN();
+  // 1.20.5: let in by the helpdesk standing alone, which is a desk-side
+  // right, so the Duo desk rule applies. A template manager or reader is
+  // here by a workspace permission and is not asked.
+  if (!access.read && !access.manage) {
+    const duo = deskDuoRefusal(user);
+    if (duo) return duo;
+  }
   return access;
 }
 

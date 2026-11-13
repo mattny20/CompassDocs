@@ -48,6 +48,7 @@ import "server-only";
 import { hq, hqOne, withTx } from "./db-core";
 import type { HdQueryable } from "./db-core";
 import { mdInline } from "./md-inline";
+import { owesDeskDuo } from "../auth";
 import { agentTeamIds, canUseHelpdesk, canWorkTicket, isAgent } from "./access";
 import { hdCan } from "./roles";
 import { assignable, getTicketById, getTicketByNumber, getTicketRow, HdTicketError, insertTicketTx, updateTicket } from "./tickets";
@@ -140,6 +141,7 @@ function ticketOpen(t: Pick<HdTicketRow, "status" | "merged_into">): boolean {
 
 /** One answer per request for "does this agent work that ticket" (agentTeamIds read once). */
 async function workChecker(user: { id: number; role: Role }): Promise<(t: Pick<HdTicketRow, "team_id" | "assignee_id">) => boolean> {
+  if (owesDeskDuo(user)) return () => false; // 1.20.5: as access canWorkTicket, nothing is worked while the desk's Duo approval is owed
   const teams = await agentTeamIds(user);
   const agent = teams === "all" || (await isAgent(user));
   return (t) => teams === "all" || (agent && (t.assignee_id === user.id || (t.team_id !== null && teams.includes(t.team_id))));

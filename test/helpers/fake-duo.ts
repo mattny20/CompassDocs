@@ -19,6 +19,10 @@
 //   wrong_nonce   the ID token carries another nonce
 //   bad_sig       the ID token is signed with another secret
 //   redirect      health check answers a 302 to another host
+//   all_down      health check AND the token endpoint answer 503
+//   html          health check answers 200 with a page that is not JSON
+//   odd           health check answers 200 with JSON that is not Duo's (an array)
+//   no_nonce      the ID token carries no nonce claim at all
 //
 // GET /__fake/mode?set=<mode> switches it from outside the process (the
 // e2e spec and the manual runs); GET /__fake/log lists what was asked.
@@ -28,7 +32,8 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 
 export type FakeDuoMode =
-  | "allow" | "deny" | "error" | "down" | "refuse" | "token_down" | "wrong_user" | "wrong_nonce" | "bad_sig" | "redirect";
+  | "allow" | "deny" | "error" | "down" | "refuse" | "token_down" | "wrong_user" | "wrong_nonce" | "bad_sig" | "redirect"
+  | "all_down" | "html" | "odd" | "no_nonce";
 
 export interface FakeDuo {
   base: string;
@@ -98,7 +103,13 @@ export async function startFakeDuo(opts: { clientId: string; clientSecret: strin
 
     if (req.method === "POST" && url.pathname === "/oauth/v1/health_check") {
       const body = await form(req);
-      if (duo.mode === "down") return note("503"), json(res, 503, { stat: "FAIL" });
+      if (duo.mode === "down" || duo.mode === "all_down") return note("503"), json(res, 503, { stat: "FAIL" });
+      if (duo.mode === "html") {
+        note("200 html");
+        res.writeHead(200, { "content-type": "text/html" });
+        return res.end("<html><body>Captive portal: sign in to the network</body></html>");
+      }
+      if (duo.mode === "odd") return note("200 odd"), json(res, 200, ["OK"]);
       if (duo.mode === "redirect") {
         note("302");
         res.writeHead(302, { location: "http://example.invalid/oauth/v1/health_check" });
@@ -151,7 +162,7 @@ export async function startFakeDuo(opts: { clientId: string; clientSecret: strin
 
     if (req.method === "POST" && url.pathname === "/oauth/v1/token") {
       const body = await form(req);
-      if (duo.mode === "token_down") return note("503"), json(res, 503, { error: "server_error" });
+      if (duo.mode === "token_down" || duo.mode === "all_down") return note("503"), json(res, 503, { error: "server_error" });
       const code = body.get("code") || "";
       const held = codes.get(code);
       codes.delete(code); // a code works once
@@ -176,7 +187,7 @@ export async function startFakeDuo(opts: { clientId: string; clientSecret: strin
           iat: now,
           auth_time: now,
           preferred_username: duo.mode === "wrong_user" ? "someone.else@example.com" : held.username,
-          nonce: duo.mode === "wrong_nonce" ? "not-the-nonce" : held.nonce,
+          ...(duo.mode === "no_nonce" ? {} : { nonce: duo.mode === "wrong_nonce" ? "not-the-nonce" : held.nonce }),
           auth_result: { result: allow ? "allow" : "deny", status: allow ? "allow" : "deny", status_msg: allow ? "Login Successful" : "Login denied" },
           auth_context: { factor: "duo_push", result: allow ? "success" : "denied", event_type: "authentication" },
         },

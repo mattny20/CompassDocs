@@ -43,7 +43,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = deskPwaViewport;
 
 export default async function DeskLayout({ children }: { children: React.ReactNode }) {
-  const user = await requireUser();
+  // "desk" (1.20.5): the Duo desk rule is asked here whatever path the request claims to be for.
+  const user = await requireUser("desk");
   if (user.must_change_password) {
     const back = safeReturnPath(await currentPagePath());
     redirect(back === "/" ? "/account/password" : `/account/password?next=${encodeURIComponent(back)}`);

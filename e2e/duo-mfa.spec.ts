@@ -6,7 +6,8 @@ import { startFakeDuo, type FakeDuo } from "../test/helpers/fake-duo";
 // The Duo sign-in check (1.20.5) end to end, against a fake Duo on this
 // machine (test/helpers/fake-duo): the settings page's lockout guard, "Test
 // with my account", the sign-in rule sending a password sign-in to the Duo
-// step and on to the page it wanted, a denial, and Duo being down.
+// step and on to the page it wanted, a start with a forged host, a denial,
+// and Duo being down.
 //
 // It runs only on a rig that is licensed for SSO AND was started with the
 // test seam (COMPASSDOCS_DUO_TEST_API_BASE=http://127.0.0.1:PORT, see
@@ -92,6 +93,8 @@ test.describe("Duo sign-in check (licensed rig with the test seam)", () => {
     await card.getByRole("button", { name: "Test with my account" }).click();
     await expect(page.getByText("Duo approved the test. You can turn the rules on now.")).toBeVisible({ timeout: 120_000 });
     await expect(card.getByText("Tested in this session")).toBeVisible();
+    // The test recorded the address it ran on: that, not the request's own Host, is where Duo sends people back.
+    await expect(card.getByText(/Duo sends people back to/)).toContainText(new URL(page.url()).origin);
     await card.getByRole("switch", { name: "At sign-in" }).click();
     await expect(card.getByText("No account skips Duo.")).toBeVisible();
     await card.getByRole("button", { name: "Save", exact: true }).click();
@@ -109,6 +112,10 @@ test.describe("Duo sign-in check (licensed rig with the test seam)", () => {
     expect(gated.body).toEqual({ error: "Confirm with Duo to continue.", code: "mfa_required" });
     await person.goto("/directory");
     await expect(person).toHaveURL(/\/login\/duo\?next=%2Fdirectory/);
+    // A start that claims another host gets no signed Duo link.
+    const forged = await person.request.post("/api/auth/duo/start", { headers: { "x-forwarded-host": "evil.example" }, data: {} });
+    expect(forged.status()).toBe(409);
+    expect(((await forged.json()) as { code: string; redirect?: string }).code).toBe("duo_wrong_address");
 
     duo!.mode = "deny";
     await person.getByRole("button", { name: "Continue with Duo" }).click();

@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { crossOriginRejection } from "@/lib/api-auth";
 import { currentSession } from "@/lib/auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
-import { getAllSettings, markSessionMfa, saveDuoState } from "@/lib/db";
-import { duoPolicyFromSettings } from "@/lib/duo-config";
+import { getAllSettings, markSessionMfa, saveDuoState, sessionSid } from "@/lib/db";
+import { duoPolicyFromSettings, duoReturnOrigin } from "@/lib/duo-config";
 import { DUO_STEP_TTL, DuoRefusedError, DuoUnreachableError, duoAuthorizeUrl, duoHealthCheck, duoUsernameFor, newDuoStep } from "@/lib/duo";
 import { DUO_STEP_DONE, duoConfigured, duoSettingsFrom } from "@/lib/duo-policy";
 import { requestOrigin } from "@/lib/oauth";
@@ -21,9 +21,15 @@ export const dynamic = "force-dynamic";
 // The session here has usually NOT passed Duo yet, so this reads
 // currentSession, not getCurrentUser.
 //
+// Where Duo sends the browser back is NOT taken from this request
+// (lib/duo-config duoReturnOrigin): it is the workspace's custom domain, or
+// the address the admin's test was run on. Asked from any other address,
+// the step does not start.
+//
 // Answers: { redirect } to go on (Duo's prompt, or the page they wanted when
 // nothing is owed or Duo is down and the workspace lets people through);
-// 503 { code: "duo_unreachable" } or 502 { code: "duo_refused" } otherwise.
+// 503 { code: "duo_unreachable" }, 502 { code: "duo_refused" } or
+// 409 { code: "duo_wrong_address" } otherwise.
 export async function POST(req: Request) {
   const cross = await crossOriginRejection();
   if (cross) return cross;
@@ -40,7 +46,7 @@ export async function POST(req: Request) {
   // Nothing is enforced (switched off meanwhile), or this account skips Duo.
   if (!policy || policy.bypass.has(session.user.id)) return NextResponse.json({ redirect: returnTo });
 
-  if (duoStartRateLimited(String(session.user.id))) {
+  if (duoStartRateLimited(session.user.id, sessionSid(session.token))) {
     return NextResponse.json({ error: "Too many tries. Wait a few minutes, then try again." }, { status: 429 });
   }
 
@@ -53,11 +59,25 @@ export async function POST(req: Request) {
     await audit({ actor, action: "auth.duo_unreachable_blocked", details: { stage: "settings", reason: "not_set_up" }, ip });
     return NextResponse.json({ error: "Duo is not set up correctly on this workspace.", code: "duo_refused" }, { status: 502 });
   }
+  const back = duoReturnOrigin(settings, requestOrigin(req), "signin");
+  if (!back.ok) {
+    if (back.reason === "not_tested") {
+      console.error("[duo] a Duo rule is on but no tested address is recorded; run Test with my account again");
+      await audit({ actor, action: "auth.duo_unreachable_blocked", details: { stage: "settings", reason: "no_tested_address" }, ip });
+      return NextResponse.json({ error: "Duo is not set up correctly on this workspace.", code: "duo_refused" }, { status: 502 });
+    }
+    return NextResponse.json(
+      { error: `Duo is set up for ${back.pinned}. Open CompassDocs at that address and sign in there.`, code: "duo_wrong_address" },
+      { status: 409 }
+    );
+  }
+
   try {
     await duoHealthCheck(cfg);
   } catch (e) {
     if (e instanceof DuoUnreachableError && policy.failOpen) {
-      // Duo is down and the workspace chose to let people through. Said once per sign-in, in the audit log.
+      // Duo is down and the workspace chose to let people through, for an
+      // hour (lib/duo-policy DUO_UNREACHABLE_PASS_MS). Said in the audit log each time.
       await markSessionMfa(session.token, "duo_unreachable");
       await audit({ actor, action: "auth.duo_unreachable_allowed", details: { stage: "health_check" }, ip });
       return NextResponse.json({ redirect: returnTo });
@@ -75,8 +95,7 @@ export async function POST(req: Request) {
 
   const step = newDuoStep();
   const username = duoUsernameFor(session.user, cfg.usernameSource);
-  // The same origin the SSO flow uses for its callback (forwarded proto and host, else Host).
-  const redirectUri = `${requestOrigin(req)}/api/auth/duo/callback`;
+  const redirectUri = `${back.origin}/api/auth/duo/callback`;
   await saveDuoState({
     state: step.state,
     token: session.token,

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
-import { currentSession } from "./auth";
+import { currentSession, owesDeskDuo } from "./auth";
 import { MasterKeyError } from "./secretbox";
 import { roleAtLeast } from "./types";
 import type { Role, SessionUser } from "./types";
@@ -70,10 +70,23 @@ export const MFA_REQUIRED = "mfa_required";
 export async function apiSession(scope: "app" | "desk" = "app"): Promise<SessionUser | NextResponse> {
   const s = await currentSession();
   if (!s) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
-  if (scope === "desk" ? s.duo.desk : s.duo.signIn) {
-    return NextResponse.json({ error: "Confirm with Duo to continue.", code: MFA_REQUIRED }, { status: 401 });
-  }
+  if (scope === "desk" ? s.duo.desk : s.duo.signIn) return mfaRequired();
   return s.user;
+}
+
+/** The 401 that says "signed in, but the Duo check is owed". */
+export function mfaRequired(error = "Confirm with Duo to continue."): NextResponse {
+  return NextResponse.json({ error, code: MFA_REQUIRED }, { status: 401 });
+}
+
+/**
+ * For a route outside the desk gates that is about to serve desk-side data
+ * or do a desk-side thing: the `mfa_required` 401 when the session `user`
+ * came from still owes the desk its Duo approval, else null. `user` must be
+ * the object the route's gate returned (lib/auth owesDeskDuo). No query.
+ */
+export function deskDuoRefusal(user: object): NextResponse | null {
+  return owesDeskDuo(user) ? mfaRequired() : null;
 }
 
 /**

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { apiGuard, credentialSaveError } from "@/lib/api-auth";
-import { currentSession } from "@/lib/auth";
+import { apiGuard, credentialSaveError, mfaRequired } from "@/lib/api-auth";
+import { currentSession, duoStandingOf } from "@/lib/auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { listUsers, sessionSid } from "@/lib/db";
-import { duoVerifiedBy, getDuoSettings, saveDuoSettings, type DuoSettingsPatch } from "@/lib/duo-config";
+import { duoVerifiedBy, withDuoSettings, type DuoSettingsPatch } from "@/lib/duo-config";
 import { sameText } from "@/lib/duo-jwt";
 import {
   DUO_BYPASS_MAX,
@@ -13,7 +13,6 @@ import {
   normalizeDuoHost,
   validDuoClientId,
   validDuoClientSecret,
-  type DuoSettings,
 } from "@/lib/duo-policy";
 import { duoView } from "@/lib/duo-view";
 import { featureEnabled } from "@/lib/ee";
@@ -29,8 +28,18 @@ export const dynamic = "force-dynamic";
 //   - a rule ("at sign-in", "when opening the desk") can be switched on only
 //     by an admin who has completed "Test with my account" (a real Duo
 //     approval) in this same session, against the credentials now saved;
-//   - changing the client ID, the secret or the API hostname forgets that
-//     test and switches both rules off until it is run again.
+//   - changing the client ID, the secret, the API hostname or which name is
+//     sent to Duo forgets that test and switches both rules off until it is
+//     run again;
+//   - all of it is decided and written under one lock (lib/duo-config
+//     withDuoSettings), from what is saved at that moment, so two requests
+//     at once cannot leave a rule on beside a configuration nobody tested.
+//
+// And the other way round: while a policy is in force, the settings can only
+// be changed from a session that has passed Duo (or a bypass account). An
+// administrator whose session owes Duo gets `mfa_required`. If Duo itself is
+// what is broken, the way in is a bypass account or the server's
+// COMPASSDOCS_DUO_DISABLED switch.
 
 async function sidOf(): Promise<string> {
   const s = await currentSession();
@@ -51,13 +60,15 @@ export async function PATCH(req: Request) {
   if (!(await featureEnabled("sso"))) {
     return NextResponse.json({ error: "The Duo sign-in check needs an Enterprise licence with SSO." }, { status: 402 });
   }
+  // Owing Duo (the desk rule alone lets an admin reach this page without it): not from this session.
+  if (duoStandingOf(gate).verdict.desk) {
+    return mfaRequired("Confirm with Duo before changing the Duo settings. Open the desk, approve the Duo request, then save again.");
+  }
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body || typeof body !== "object") return bad("Invalid request.");
 
-  const cur = await getDuoSettings();
-  const sid = await sidOf();
+  // The shape of what was sent. Nothing here reads what is saved.
   const patch: DuoSettingsPatch = {};
-
   if (body.client_id !== undefined) {
     const v = String(body.client_id).trim();
     if (v && !validDuoClientId(v)) return bad("The Client ID is 20 letters and digits. Copy it from the Web SDK application in the Duo Admin Panel.");
@@ -83,65 +94,82 @@ export async function PATCH(req: Request) {
     patch.deskHours = n;
   }
   if (body.fail_open !== undefined) patch.failOpen = body.fail_open === true;
+  let active: Set<number> | null = null;
   if (body.bypass_user_ids !== undefined) {
     if (!Array.isArray(body.bypass_user_ids)) return bad("Invalid request.");
-    const known = new Set((await listUsers()).filter((u) => u.status === "active").map((u) => u.id));
     const ids = [...new Set(body.bypass_user_ids.filter((n): n is number => Number.isSafeInteger(n)))];
-    // An account that is already on the list stays even when it is disabled now; a new one must be an active account.
-    if (ids.some((id) => !known.has(id) && !cur.bypassUserIds.includes(id))) return bad("One of those accounts no longer exists or is disabled.");
     if (ids.length > DUO_BYPASS_MAX) return bad(`The bypass list holds at most ${DUO_BYPASS_MAX} accounts.`);
+    active = new Set((await listUsers()).filter((u) => u.status === "active").map((u) => u.id));
     patch.bypassUserIds = ids;
   }
+  const sid = await sidOf();
 
-  const credentialsChanged =
-    (patch.clientId !== undefined && patch.clientId !== cur.clientId) ||
-    (patch.apiHost !== undefined && patch.apiHost !== cur.apiHost) ||
-    (patch.clientSecret !== undefined && !(cur.clientSecret && sameText(patch.clientSecret, cur.clientSecret)));
+  // Decided and written in one go, from what is saved right now.
+  type Outcome = { error: string } | { rulesTurnedOff: boolean; details: Record<string, unknown> };
+  const result: { outcome?: Outcome } = {};
+  const keyErr = await credentialSaveError(async () => {
+    result.outcome = await withDuoSettings<Outcome>(async (tx) => {
+      const cur = await tx.read();
+      // An account that is already on the list stays even when it is disabled now; a new one must be an active account.
+      if (patch.bypassUserIds && patch.bypassUserIds.some((id) => !active!.has(id) && !cur.bypassUserIds.includes(id))) {
+        return { error: "One of those accounts no longer exists or is disabled." };
+      }
+      const secretChanged = patch.clientSecret !== undefined && !(cur.clientSecret && sameText(patch.clientSecret, cur.clientSecret));
+      // What a test vouches for: the three details AND which name is sent to Duo.
+      const configChanged =
+        (patch.clientId !== undefined && patch.clientId !== cur.clientId) ||
+        (patch.apiHost !== undefined && patch.apiHost !== cur.apiHost) ||
+        secretChanged ||
+        (patch.usernameSource !== undefined && patch.usernameSource !== cur.usernameSource);
 
-  const wantSignIn = body.enforce_signin !== undefined ? body.enforce_signin === true : cur.enforceSignIn;
-  const wantDesk = body.enforce_desk !== undefined ? body.enforce_desk === true : cur.enforceDesk;
-  const turningOn = (wantSignIn && !cur.enforceSignIn) || (wantDesk && !cur.enforceDesk);
-  const next: DuoSettings = {
-    ...cur,
-    clientId: patch.clientId ?? cur.clientId,
-    clientSecret: patch.clientSecret ?? cur.clientSecret,
-    apiHost: patch.apiHost ?? cur.apiHost,
-  };
-
-  if (turningOn) {
-    // The lockout guard. Not with unsaved or untested credentials, and not on someone else's test.
-    if (credentialsChanged || !duoConfigured(next)) {
-      return bad("Save the Duo details and run Test with my account first. Then turn this on.");
-    }
-    if (!duoVerifiedBy(cur, sid, gate.id)) {
-      return bad("Run Test with my account first. A rule can be turned on only after you have approved a Duo request yourself, in this session, with the details saved here.");
-    }
-  }
-  // New credentials are untested: nothing may depend on them until they are.
-  const rulesTurnedOff = credentialsChanged && (cur.enforceSignIn || cur.enforceDesk || wantSignIn || wantDesk);
-  patch.enforceSignIn = credentialsChanged ? false : wantSignIn;
-  patch.enforceDesk = credentialsChanged ? false : wantDesk;
-
-  const keyErr = await credentialSaveError(() => saveDuoSettings(patch, { credentialsChanged }));
-  if (keyErr) return keyErr;
-
-  await audit({
-    actor: actorFrom(gate),
-    action: "settings.duo",
-    // Never the secret: only that it changed.
-    details: {
-      api_host: next.apiHost,
-      client_id_changed: patch.clientId !== undefined && patch.clientId !== cur.clientId,
-      secret_changed: patch.clientSecret !== undefined && credentialsChanged,
-      username_source: patch.usernameSource ?? cur.usernameSource,
-      enforce_signin: patch.enforceSignIn,
-      enforce_desk: patch.enforceDesk,
-      desk_hours: patch.deskHours ?? cur.deskHours,
-      fail_open: patch.failOpen ?? cur.failOpen,
-      bypass_user_ids: patch.bypassUserIds ?? cur.bypassUserIds,
-      ...(rulesTurnedOff ? { rules_turned_off: true } : {}),
-    },
-    ip: ipFrom(req),
+      const wantSignIn = body.enforce_signin !== undefined ? body.enforce_signin === true : cur.enforceSignIn;
+      const wantDesk = body.enforce_desk !== undefined ? body.enforce_desk === true : cur.enforceDesk;
+      const turningOn = (wantSignIn && !cur.enforceSignIn) || (wantDesk && !cur.enforceDesk);
+      const next = {
+        clientId: patch.clientId ?? cur.clientId,
+        clientSecret: patch.clientSecret ?? cur.clientSecret,
+        apiHost: patch.apiHost ?? cur.apiHost,
+      };
+      if (turningOn) {
+        // The lockout guard. Not with an unsaved or untested configuration, and not on someone else's test.
+        if (configChanged || !duoConfigured(next)) {
+          return { error: "Save the Duo details and run Test with my account first. Then turn this on." };
+        }
+        if (!duoVerifiedBy(cur, sid, gate.id)) {
+          return {
+            error:
+              "Run Test with my account first. A rule can be turned on only after you have approved a Duo request yourself, in this session, with the details saved here.",
+          };
+        }
+      }
+      // A changed configuration is untested: nothing may depend on it until it is tested.
+      const rulesTurnedOff = configChanged && (cur.enforceSignIn || cur.enforceDesk || wantSignIn || wantDesk);
+      patch.enforceSignIn = configChanged ? false : wantSignIn;
+      patch.enforceDesk = configChanged ? false : wantDesk;
+      await tx.write(patch, { configChanged });
+      return {
+        rulesTurnedOff,
+        // Never the secret: only that it changed.
+        details: {
+          api_host: next.apiHost,
+          client_id_changed: patch.clientId !== undefined && patch.clientId !== cur.clientId,
+          secret_changed: secretChanged,
+          username_source: patch.usernameSource ?? cur.usernameSource,
+          enforce_signin: patch.enforceSignIn,
+          enforce_desk: patch.enforceDesk,
+          desk_hours: patch.deskHours ?? cur.deskHours,
+          fail_open: patch.failOpen ?? cur.failOpen,
+          bypass_user_ids: patch.bypassUserIds ?? cur.bypassUserIds,
+          ...(rulesTurnedOff ? { rules_turned_off: true } : {}),
+        },
+      };
+    });
   });
-  return NextResponse.json({ ok: true, rules_turned_off: rulesTurnedOff, state: await duoView(gate.id, sid) });
+  if (keyErr) return keyErr;
+  const { outcome } = result;
+  if (!outcome) return NextResponse.json({ error: "Could not save." }, { status: 500 });
+  if ("error" in outcome) return bad(outcome.error);
+
+  await audit({ actor: actorFrom(gate), action: "settings.duo", details: outcome.details, ip: ipFrom(req) });
+  return NextResponse.json({ ok: true, rules_turned_off: outcome.rulesTurnedOff, state: await duoView(gate.id, sid) });
 }

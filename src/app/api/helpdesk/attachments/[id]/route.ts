@@ -9,7 +9,8 @@
 
 import { NextResponse } from "next/server";
 import { Readable } from "stream";
-import { canWorkTicket, helpdeskGate, ticketRelation } from "@/lib/helpdesk/access";
+import { mfaRequired } from "@/lib/api-auth";
+import { canWorkTicket, deskDuoBarsTicket, helpdeskGate, ticketRelation } from "@/lib/helpdesk/access";
 import { getAttachmentForDownload } from "@/lib/helpdesk/attachments";
 import { getTicketRow } from "@/lib/helpdesk/tickets";
 import { notFound } from "@/lib/helpdesk/routes";
@@ -35,8 +36,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       // Internal notes' files, files on a reply never sent, and files not
       // yet on a message: agents (and the uploader, for the last two).
       const uploader = att.uploaded_by === gate.id && (att.message_id === null || unsent);
-      if (!(await canWorkTicket(gate, t)) && !uploader) return notFound();
-    } else if (!(await ticketRelation(gate, t))) return notFound();
+      if (!(await canWorkTicket(gate, t)) && !uploader) return (await deskDuoBarsTicket(gate, t)) ? mfaRequired() : notFound();
+    } else if (!(await ticketRelation(gate, t))) return (await deskDuoBarsTicket(gate, t)) ? mfaRequired() : notFound();
   }
   if (!(await uploadExists(att.stored_name))) return notFound();
 

@@ -24,12 +24,12 @@ export const metadata = { title: "Confirm with Duo", robots: { index: false, fol
 // It reads currentSession, not requireUser: the session it is for has not
 // passed yet. Someone with nothing owed is sent on to where they were going.
 
-const PROBLEMS: DuoStepProblem[] = ["denied", "expired", "unreachable", "refused"];
+const PROBLEMS: DuoStepProblem[] = ["denied", "expired", "unreachable", "refused", "limited"];
 
 export default async function DuoStepPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; e?: string; for?: string; done?: string }>;
+  searchParams: Promise<{ next?: string; e?: string; for?: string; done?: string; scope?: string }>;
 }) {
   const params = await searchParams;
   const next = safeReturnPath(params.next);
@@ -38,7 +38,9 @@ export default async function DuoStepPage({
 
   // Asked from inside the desk (a second tab, components/helpdesk/desk/DuoDeskPrompt), or on the way to a desk page.
   const fromDesk = params.for === "desk";
-  const desk = fromDesk || isDeskPath(next);
+  // scope=desk: on the way to a page outside /desk that shows desk-side data (lib/duo-policy duoStepHref).
+  const deskScope = params.scope === "desk";
+  const desk = fromDesk || deskScope || isDeskPath(next);
   const owed = session.duo.signIn || (desk && session.duo.desk);
   if (!owed && !fromDesk) redirect(next);
 
@@ -75,7 +77,7 @@ export default async function DuoStepPage({
         title={down ? "Duo can't be reached" : "Confirm it's you"}
         subtitle={down ? "CompassDocs couldn't reach Duo, so it can't confirm it's you right now. Wait a minute, then try again." : why}
       />
-      <DuoStep next={next} fromDesk={fromDesk} problem={problem} account={session.user.email || session.user.username} />
+      <DuoStep next={next} fromDesk={fromDesk} deskScope={deskScope} problem={problem} account={session.user.email || session.user.username} />
     </>
   );
 }

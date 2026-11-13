@@ -84,6 +84,16 @@ export function DuoSettings({ initial, users }: { initial: DuoView; users: Picke
     return (
       <div>
         {header}
+        {/* A rule is saved as on, but the licence no longer covers it: say that nobody is being asked. */}
+        {(s.enforce_signin || s.enforce_desk) && (
+          <div className="notice-warn mb-4 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm">
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <p>
+              Duo is not being enforced. Your licence no longer includes SSO, so nobody is asked for Duo, whatever is saved here. Your Duo
+              settings are kept and apply again as soon as a valid licence is entered.
+            </p>
+          </div>
+        )}
         <LicenseGate feature="The Duo sign-in check" entitlement="sso" canManage>
           This Enterprise build supports it, but your licence doesn&rsquo;t include it yet. While the licence is missing, no Duo rule is
           enforced.
@@ -92,7 +102,9 @@ export function DuoSettings({ initial, users }: { initial: DuoView; users: Picke
     );
   }
 
-  const detailsChanged = s.client_id !== saved.client_id || s.api_host !== saved.api_host || secret !== "";
+  // What the test vouches for: the three details and which name is sent to Duo.
+  const detailsChanged =
+    s.client_id !== saved.client_id || s.api_host !== saved.api_host || secret !== "" || s.username_source !== saved.username_source;
   const rulesOnSaved = saved.enforce_signin || saved.enforce_desk;
   // A rule can be switched ON only with saved, tested details. Switching one off is always allowed.
   const canTurnOn = saved.configured && saved.tested && !detailsChanged;
@@ -241,7 +253,7 @@ export function DuoSettings({ initial, users }: { initial: DuoView; users: Picke
           <Field
             size="sm"
             label="Name sent to Duo"
-            help="It must match the person's username or a username alias in Duo. An account without an email is sent by its username."
+            help="It must match the person's username or a username alias in Duo. An account without an email is sent by its username. Changing this needs a new test."
           >
             <Select
               value={s.username_source}
@@ -264,7 +276,15 @@ export function DuoSettings({ initial, users }: { initial: DuoView; users: Picke
             {testing ? "Opening Duo…" : "Test with my account"}
           </button>
           {saved.tested && !detailsChanged ? (
-            <Chip tone="ok" size="sm">Tested in this session</Chip>
+            <>
+              <Chip tone="ok" size="sm">Tested in this session</Chip>
+              {saved.return_origin && (
+                <p className="min-w-0 flex-1 basis-64 text-xs text-slate-500">
+                  Duo sends people back to <code className="font-mono">{saved.return_origin}</code>. Everyone must open CompassDocs at that
+                  address.
+                </p>
+              )}
+            </>
           ) : (
             <p className="min-w-0 flex-1 basis-64 text-xs text-slate-500">
               {!saved.configured || dirty
@@ -296,11 +316,11 @@ export function DuoSettings({ initial, users }: { initial: DuoView; users: Picke
             </Field>
           )}
           {detailsChanged && rulesOnSaved && (
-            <p className="text-xs ink-warn">Saving new Duo details turns both rules off until you run the test again.</p>
+            <p className="text-xs ink-warn">Saving these changes turns both rules off until you run the test again.</p>
           )}
           <Toggle
             label="Let people in when Duo can't be reached"
-            help="Off: they see a message and can retry. On: they are let through, and each time is written to the audit log. Bypass accounts get in either way."
+            help="Off: they see a message and can retry. On: they are let through for one hour at a time, and each time is written to the audit log. This is only for Duo not answering at all. If Duo answers and refuses, people are blocked. Bypass accounts get in either way."
             checked={s.fail_open}
             onChange={(next) => setS({ ...s, fail_open: next })}
           />

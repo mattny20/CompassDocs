@@ -24,7 +24,8 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { cache } from "react";
-import { apiSession, crossOriginRejection } from "../api-auth";
+import { apiSession, crossOriginRejection, mfaRequired } from "../api-auth";
+import { owesDeskDuo } from "../auth";
 import { featureEnabled } from "../ee";
 import { userHolds } from "../access";
 import type { Role, SessionUser } from "../types";
@@ -105,6 +106,12 @@ export async function leadTeamIds(userId: number): Promise<number[]> {
  * (canWorkTicket, tickets scopeSql), whatever the matrix says.
  */
 export async function agentTeamIds(user: U): Promise<number[] | "all"> {
+  if (owesDeskDuo(user)) return []; // 1.20.5: no queues until the desk's Duo approval is given (see canWorkTicket)
+  return queuesOf(user);
+}
+
+/** agentTeamIds, whatever the Duo desk rule says. */
+async function queuesOf(user: U): Promise<number[] | "all"> {
   if (await hasAgentAll(user)) return "all";
   if (!(await isAgent(user))) return [];
   if (!(await hdCan(user, "tickets.view_team"))) return [];
@@ -113,13 +120,63 @@ export async function agentTeamIds(user: U): Promise<number[] | "all"> {
 
 type TicketRef = Pick<HdTicketRow, "id" | "requester_id" | "team_id" | "assignee_id">;
 
-/** May this person work (agent view, reply, change fields of) the ticket? */
+/**
+ * May this person work (agent view, reply, change fields of) the ticket?
+ *
+ * 1.20.5: not while their session owes the desk its Duo approval (lib/auth
+ * owesDeskDuo). The agent's relation to a ticket is desk-side wherever it is
+ * used, and it is used well outside the desk's own gates: Get help's view
+ * of a request, attachments, contact cards, incident banners. Refusing it
+ * here closes all of them at once. What is left is what the person holds
+ * without being an agent (their own request, an approval, a CC), so a
+ * requester reading their own request is never asked for Duo.
+ */
 export async function canWorkTicket(user: U, ticket: TicketRef): Promise<boolean> {
-  const teams = await agentTeamIds(user);
+  if (owesDeskDuo(user)) return false;
+  return worksTicket(user, ticket);
+}
+
+async function worksTicket(user: U, ticket: TicketRef): Promise<boolean> {
+  const teams = await queuesOf(user);
   if (teams === "all") return true;
   if (!(await isAgent(user))) return false;
   if (ticket.assignee_id === user.id) return true;
   return ticket.team_id !== null && teams.includes(ticket.team_id);
+}
+
+/**
+ * Is the Duo desk rule the only thing between this person and the ticket
+ * (they would work it as an agent, and their session owes the approval)?
+ * For the routes that answer `mfa_required` rather than "not found" then.
+ */
+export async function deskDuoBarsTicket(user: U, ticket: TicketRef): Promise<boolean> {
+  return owesDeskDuo(user) && (await worksTicket(user, ticket));
+}
+
+/**
+ * Does this person have any standing on the desk side (an agent, a helpdesk
+ * admin, a reports reader), on a licensed helpdesk? The same answer the
+ * desk's layout uses to admit someone. When it cannot be read the answer is
+ * yes: the callers use it to decide whether the Duo desk rule applies.
+ */
+export async function hasDeskSideAccess(user: U): Promise<boolean> {
+  try {
+    const caps = await helpdeskCapabilities(user);
+    return caps.licensed && (caps.agent || caps.admin || caps.reports);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * The `mfa_required` 401 for something that would hand a session the desk
+ * by another door (minting an API token, approving the Claude connector)
+ * while it owes the desk its Duo approval. Null for everyone else: people
+ * with no desk-side standing are never asked.
+ */
+export async function deskDoorRefusal(user: U): Promise<NextResponse | null> {
+  if (!owesDeskDuo(user)) return null;
+  return (await hasDeskSideAccess(user)) ? mfaRequired("Confirm with Duo first. Open the desk, approve the Duo request, then try again.") : null;
 }
 
 /**

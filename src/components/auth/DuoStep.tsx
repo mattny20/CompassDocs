@@ -16,11 +16,12 @@ import { SignOutLink } from "@/components/SignOutLink";
 import { Spinner } from "@/components/Spinner";
 import { IdentifierRow } from "./IdentifierRow";
 
-export type DuoStepProblem = "denied" | "expired" | "unreachable" | "refused";
+export type DuoStepProblem = "denied" | "expired" | "unreachable" | "refused" | "limited";
 
 const PROBLEM_TEXT: Record<Exclude<DuoStepProblem, "unreachable">, string> = {
   denied: "Duo didn't approve that. Try again. If you didn't expect a Duo request, tell an administrator.",
   expired: "That took too long, or it was started in another window. Try again.",
+  limited: "Too many tries. Wait a few minutes, then try again.",
   refused: "Duo isn't set up correctly on this workspace, so it can't confirm it's you. An administrator needs to check the Duo details in Settings.",
 };
 
@@ -28,6 +29,7 @@ export function DuoStep({
   next,
   account,
   fromDesk = false,
+  deskScope = false,
   problem = null,
   done = false,
 }: {
@@ -37,6 +39,8 @@ export function DuoStep({
   account: string;
   /** Opened from inside the desk, in a second tab: finish on "you can close this tab". */
   fromDesk?: boolean;
+  /** Asked for the desk rule on the way to a page outside /desk; kept across a retry. */
+  deskScope?: boolean;
   problem?: DuoStepProblem | null;
   /** Nothing is owed any more (the second tab, after approval). */
   done?: boolean;
@@ -84,7 +88,10 @@ export function DuoStep({
   const here = (code: DuoStepProblem) => {
     const q = new URLSearchParams({ e: code });
     if (fromDesk) q.set("for", "desk");
-    else if (next !== "/") q.set("next", next);
+    else {
+      if (deskScope) q.set("scope", "desk");
+      if (next !== "/") q.set("next", next);
+    }
     return `/login/duo?${q}`;
   };
 

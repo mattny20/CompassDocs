@@ -7,7 +7,9 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { redirect } from "next/navigation";
 import { buttonClass } from "@/components/Button";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, owesDeskDuo } from "@/lib/auth";
+import { duoStepHref } from "@/lib/duo-policy";
+import { hasDeskSideAccess } from "@/lib/helpdesk/access";
 import { getOAuthClient } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
 import { Brand } from "@/components/Brand";
@@ -29,6 +31,14 @@ export default async function AuthorizePage({
       Object.entries(params).filter(([, v]) => v !== undefined) as [string, string][]
     );
     redirect(`/login?next=${encodeURIComponent(`/oauth/authorize?${qs}`)}`);
+  }
+
+  // 1.20.5: someone with desk-side access whose session owes the desk its
+  // Duo approval gives it before approving an app (api/oauth/approve refuses
+  // otherwise), and comes straight back here.
+  if (owesDeskDuo(user) && (await hasDeskSideAccess(user))) {
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined) as [string, string][]);
+    redirect(duoStepHref(`/oauth/authorize?${qs}`, { desk: true }));
   }
 
   const settings = await getAppSettings();

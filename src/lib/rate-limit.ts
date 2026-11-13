@@ -106,10 +106,22 @@ export function deskArtUploadRateLimited(key: string): boolean {
 }
 
 /**
- * Starting the Duo step (1.20.5, /api/auth/duo/start): each start can send a
- * push to someone's phone, so a session cannot ask for more than 10 in five
- * minutes.
+ * Starting the Duo step (1.20.5, /api/auth/duo/start and the admin test):
+ * each start can send a push to someone's phone, so one session cannot ask
+ * for more than 10 in five minutes. Keyed on the session AND the account,
+ * not the account alone: someone else who knows the password must not be
+ * able to use up the real person's (or the admin test's) allowance from
+ * another session.
  */
-export function duoStartRateLimited(key: string): boolean {
-  return limited(`duo-start:${key}`, 10, 5 * 60_000);
+export function duoStartRateLimited(userId: number, sid: string): boolean {
+  return limited(`duo-start:${userId}:${sid}`, 10, 5 * 60_000);
+}
+
+/**
+ * Duo's callback (1.20.5, /api/auth/duo/callback) writes an audit row for
+ * every refusal, so one session gets 20 callbacks in five minutes. Past
+ * that it is turned away before anything is read or written.
+ */
+export function duoCallbackRateLimited(sid: string): boolean {
+  return limited(`duo-callback:${sid}`, 20, 5 * 60_000);
 }

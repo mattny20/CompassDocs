@@ -40,7 +40,13 @@ const CLIENT_ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-b
 export const DUO_STEP_TTL = 300;
 const TIMEOUT_MS = 10_000;
 
-/** Duo could not be reached at all: a network error, a timeout, a 5xx, or an answer that is not Duo's. */
+/**
+ * Duo could not be reached: a network error, a timeout, or a 5xx. Nothing
+ * else. This is the only failure "let people in when Duo can't be reached"
+ * covers, so it is kept narrow: a redirect, an answer that is not JSON and a
+ * 2xx that is not Duo's shape are all refusals (DuoRefusedError), which
+ * always block.
+ */
 export class DuoUnreachableError extends Error {
   constructor(detail: string) {
     super(detail);
@@ -48,7 +54,7 @@ export class DuoUnreachableError extends Error {
   }
 }
 
-/** Duo answered and refused the request (wrong client ID or secret, a code it does not know). */
+/** Something answered and it was not a yes: Duo refusing (wrong client ID or secret, a code it does not know), a redirect, or an answer that is not Duo's. */
 export class DuoRefusedError extends Error {
   constructor(detail: string) {
     super(detail);
@@ -89,17 +95,17 @@ async function post(url: string, form: Record<string, string>): Promise<Record<s
   } catch (e) {
     throw new DuoUnreachableError(e instanceof Error ? e.name : "network error");
   }
-  if (res.status >= 500 || (res.status >= 300 && res.status < 400) || res.status === 0) {
-    throw new DuoUnreachableError(`HTTP ${res.status}`);
-  }
+  if (res.status >= 500) throw new DuoUnreachableError(`HTTP ${res.status}`);
+  // From here on something answered. Whatever it says, it is not "unreachable".
+  if (res.status >= 300 && res.status < 400) throw new DuoRefusedError(`HTTP ${res.status} (a redirect, not followed)`);
   let data: unknown;
   try {
     data = await res.json();
   } catch {
-    throw new DuoUnreachableError(`HTTP ${res.status}, not JSON`);
+    throw new DuoRefusedError(`HTTP ${res.status}, not JSON`);
   }
   if (!res.ok) throw new DuoRefusedError(refusalText(data, res.status));
-  if (!data || typeof data !== "object") throw new DuoUnreachableError("unexpected answer");
+  if (!data || typeof data !== "object" || Array.isArray(data)) throw new DuoRefusedError("an answer that is not Duo's");
   return data as Record<string, unknown>;
 }
 

@@ -17,7 +17,7 @@ import { verifyTotpStep } from "./totp";
 import { openSecret } from "./secretbox";
 import { verifyPassword, verifyNothing, newToken } from "./password";
 import { getSessionTimeoutMinutes, getSecureCookieMode, sessionTimeoutFrom } from "./settings-store";
-import { DUO_NOTHING_OWED, duoStepHref, duoSwitchedOn, isDeskPath, type DuoVerdict } from "./duo-policy";
+import { DUO_NOTHING_OWED, DUO_NO_STANDING, duoStepHref, duoSwitchedOn, isDeskPath, type DuoStanding, type DuoVerdict } from "./duo-policy";
 import { SESSION_TIMEOUT_MAX } from "./settings";
 import { roleAtLeast } from "./types";
 import type { Role, SessionUser, User } from "./types";
@@ -133,10 +133,36 @@ export async function currentSession(): Promise<CurrentSession | null> {
   }
   const user = toSessionUser(session);
   user.newsletter_role = await newsletterLevel(user);
-  const duo = duoSwitchedOn(settings)
-    ? await (await import("./duo-gate")).duoSessionVerdict(settings, session, token)
-    : DUO_NOTHING_OWED;
-  return { user, token, duo };
+  if (!duoSwitchedOn(settings)) return { user, token, duo: DUO_NOTHING_OWED };
+  const standing = await (await import("./duo-gate")).duoSessionStanding(settings, session, token);
+  duoStandings.set(user, standing);
+  return { user, token, duo: standing.verdict };
+}
+
+// What the Duo check says about the session a SessionUser came from, kept
+// beside the object rather than on it (1.20.5). The gates hand that same
+// object to the code they guard, so a later question ("does this person owe
+// the desk its Duo approval?") is answered from here with no second session
+// query. An object that did not come from currentSession (an API token's
+// user, the MCP connector's, a notice's recipient) is not a browser session
+// and has no entry: nothing is owed by it, which is right, because Duo is
+// never asked of those.
+const duoStandings = new WeakMap<object, DuoStanding>();
+
+/** The Duo standing of the session `user` came from (lib/duo-policy DuoStanding). */
+export function duoStandingOf(user: object): DuoStanding {
+  return duoStandings.get(user) ?? DUO_NO_STANDING;
+}
+
+/**
+ * Does the session `user` came from still owe the desk its Duo approval?
+ * Asked wherever desk-side data is reached by a route or page that is not
+ * itself under the desk gates: a ticket read through Get help by someone
+ * who works it as an agent, a desk capability used from Settings, minting
+ * an API token that could then reach the desk.
+ */
+export function owesDeskDuo(user: object): boolean {
+  return duoStandingOf(user).verdict.desk;
 }
 
 /**
@@ -200,18 +226,31 @@ export async function currentPagePath(): Promise<string> {
  * with the page they wanted as `?next=`, so a link to a document that was
  * opened signed-out lands on the document after sign-in, not the dashboard.
  */
-export async function requireUser(): Promise<SessionUser> {
+export async function requireUser(scope: "app" | "desk" = "app"): Promise<SessionUser> {
   const s = await currentSession();
   if (!s) redirect(loginHref(await currentPagePath()));
   // 1.20.5: signed in, but the Duo check is still owed (lib/duo-policy): for
-  // every page, or only for the desk's pages (the "when opening the desk"
-  // rule; the desk's layout, each of its pages and its print page all pass
-  // through here, so the page's own path decides). The step comes back to
-  // this page. The path is read only when something is owed.
-  if (s.duo.signIn || (s.duo.desk && isDeskPath(await currentPagePath()))) {
-    redirect(duoStepHref(await currentPagePath()));
+  // every page, or only for the desk (the "when opening the desk" rule).
+  // The desk's layout and its print page say so themselves (scope "desk"),
+  // which no request header can talk them out of. Each desk page's own call
+  // is caught by its path as well, which src/proxy.ts sets for everything
+  // under /desk. The step comes back to this page. The path is read only
+  // when something is owed.
+  if (s.duo.signIn || (s.duo.desk && (scope === "desk" || isDeskPath(await currentPagePath())))) {
+    redirect(duoStepHref(await currentPagePath(), { desk: scope === "desk" }));
   }
   return s.user;
+}
+
+/**
+ * For a page outside /desk that is about to show desk-side data (1.20.5):
+ * sends a session that owes the desk its Duo approval to the Duo step, and
+ * back here afterwards. Call it only once the page knows the data IS
+ * desk-side for this viewer; a requester reading their own request is
+ * never asked.
+ */
+export async function requireDeskDuo(user: SessionUser): Promise<void> {
+  if (owesDeskDuo(user)) redirect(duoStepHref(await currentPagePath(), { desk: true }));
 }
 
 // requireRole(min) lived here until 1.0. Every page that used it now calls

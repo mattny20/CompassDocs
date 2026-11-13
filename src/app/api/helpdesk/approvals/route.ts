@@ -5,6 +5,7 @@
 // message, never its internal notes (lib/helpdesk/approvals).
 
 import { NextResponse } from "next/server";
+import { deskDuoRefusal } from "@/lib/api-auth";
 import { agentTeamIds, helpdeskGate, isAgent } from "@/lib/helpdesk/access";
 import { countMyPendingApprovals, listDeskApprovals, listMyApprovals } from "@/lib/helpdesk/approvals";
 
@@ -15,6 +16,9 @@ export async function GET(req: Request) {
   if (gate instanceof NextResponse) return gate;
   const state = new URL(req.url).searchParams.get("state") ?? "pending";
   if (state === "desk") {
+    // 1.20.5: the agents' list is desk-side, so the Duo desk rule applies to it.
+    const duo = deskDuoRefusal(gate);
+    if (duo) return duo;
     if (!(await isAgent(gate))) return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });
     return NextResponse.json({ approvals: await listDeskApprovals(gate, await agentTeamIds(gate)) });
   }

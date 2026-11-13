@@ -10,19 +10,20 @@ import "server-only";
 import { audit } from "./audit";
 import { markSessionBypassSeen, type SessionFacts } from "./db";
 import { duoPolicyFromSettings } from "./duo-config";
-import { duoVerdict, type DuoVerdict } from "./duo-policy";
+import { duoStanding, type DuoStanding } from "./duo-policy";
 import type { User } from "./types";
 
-export async function duoSessionVerdict(
+export async function duoSessionStanding(
   settings: Record<string, string>,
   session: User & SessionFacts,
   token: string
-): Promise<DuoVerdict> {
-  const verdict = duoVerdict(duoPolicyFromSettings(settings), {
+): Promise<DuoStanding> {
+  const standing = duoStanding(duoPolicyFromSettings(settings), {
     userId: session.id,
     mfaAt: session.mfa_at,
     mfaMethod: session.mfa_method,
   });
+  const { verdict } = standing;
   // A break-glass account skipping Duo is worth a line in the audit log, once
   // per session (when it is first seen), never once per request.
   if (verdict.bypassed && !session.mfa_bypass_at) {
@@ -40,5 +41,5 @@ export async function duoSessionVerdict(
       /* the note is best effort; the bypass itself does not depend on it */
     }
   }
-  return verdict;
+  return standing;
 }

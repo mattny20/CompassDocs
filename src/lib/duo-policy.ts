@@ -50,6 +50,13 @@ export interface DuoVerified {
   sid: string;
   user_id: number;
   at: string;
+  /**
+   * The address CompassDocs was reached on when the test passed, e.g.
+   * "https://docs.example.com". With no custom domain set, every later Duo
+   * step sends people back to THIS address and no other: the request's own
+   * Host header is never used to build where Duo returns to.
+   */
+  origin: string;
 }
 
 export interface DuoSettings {
@@ -110,7 +117,19 @@ function parseVerified(raw: string | undefined): DuoVerified | null {
   try {
     const v = JSON.parse(raw) as Partial<DuoVerified> | null;
     if (!v || typeof v.rev !== "string" || typeof v.sid !== "string" || !Number.isSafeInteger(v.user_id) || typeof v.at !== "string") return null;
-    return { rev: v.rev, sid: v.sid, user_id: v.user_id as number, at: v.at };
+    return { rev: v.rev, sid: v.sid, user_id: v.user_id as number, at: v.at, origin: cleanOrigin(v.origin) ?? "" };
+  } catch {
+    return null;
+  }
+}
+
+/** An http(s) origin and nothing else ("https://host[:port]"), or null. */
+export function cleanOrigin(raw: unknown): string | null {
+  if (typeof raw !== "string" || raw.length > 300) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    return u.origin === raw ? raw : null;
   } catch {
     return null;
   }
@@ -206,17 +225,52 @@ export interface DuoVerdict {
 
 export const DUO_NOTHING_OWED: DuoVerdict = { signIn: false, desk: false, bypassed: false };
 
+/**
+ * How long a let-through lasts. A session let in while Duo could not be
+ * reached ("duo_unreachable") has not proved anything, so it is good for one
+ * hour, for both rules. After that it owes Duo again, and is let through
+ * again (audited again) only if Duo is still unreachable then.
+ */
+export const DUO_UNREACHABLE_PASS_MS = 3_600_000;
+
 /** The decision table. */
 export function duoVerdict(policy: DuoPolicy | null, session: DuoSessionFacts, now = Date.now()): DuoVerdict {
-  if (!policy) return DUO_NOTHING_OWED;
-  if (policy.bypass.has(session.userId)) return { signIn: false, desk: false, bypassed: true };
+  return duoStanding(policy, session, now).verdict;
+}
+
+/**
+ * The verdict, with what the few callers that ask more need to know (the
+ * self-service email change, the Duo settings route): which rules are in
+ * force for this session, and whether it REALLY passed Duo ("duo", not a
+ * let-through).
+ */
+export interface DuoStanding {
+  verdict: DuoVerdict;
+  /** A policy is in force and this account is not on the bypass list. */
+  enforced: boolean;
+  /** The rules in force (both false when nothing is). */
+  rules: { signIn: boolean; desk: boolean };
+  /** This session holds a real Duo approval. */
+  realDuo: boolean;
+}
+
+export const DUO_NO_STANDING: DuoStanding = { verdict: DUO_NOTHING_OWED, enforced: false, rules: { signIn: false, desk: false }, realDuo: false };
+
+export function duoStanding(policy: DuoPolicy | null, session: DuoSessionFacts, now = Date.now()): DuoStanding {
+  if (!policy) return DUO_NO_STANDING;
+  const rules = { signIn: policy.signIn, desk: policy.desk };
+  if (policy.bypass.has(session.userId)) {
+    return { verdict: { signIn: false, desk: false, bypassed: true }, enforced: false, rules, realDuo: false };
+  }
   const at = session.mfaAt ? new Date(session.mfaAt).getTime() : NaN;
-  const passed = (DUO_PASSED_METHODS as readonly string[]).includes(session.mfaMethod ?? "") && Number.isFinite(at);
-  const signIn = policy.signIn && !passed;
-  // A time in the future (a clock that moved) is not "recent": it fails the age test too.
-  const fresh = passed && now - at <= policy.deskMaxAgeMs && at - now <= 60_000;
+  // A time in the future (a clock that moved) is not "recent": it fails every age test.
+  const sane = Number.isFinite(at) && at - now <= 60_000;
+  const realDuo = session.mfaMethod === "duo" && Number.isFinite(at);
+  const letThrough = session.mfaMethod === "duo_unreachable" && sane && now - at <= DUO_UNREACHABLE_PASS_MS;
+  const signIn = policy.signIn && !realDuo && !letThrough;
+  const fresh = letThrough || (realDuo && sane && now - at <= policy.deskMaxAgeMs);
   const desk = signIn || (policy.desk && !fresh);
-  return { signIn, desk, bypassed: false };
+  return { verdict: { signIn, desk, bypassed: false }, enforced: true, rules, realDuo };
 }
 
 /** Where the Duo step lives. Under /login, which lib/return-to never returns to, so the step cannot loop on itself. */
@@ -241,8 +295,27 @@ export function isDeskPath(path: string | null | undefined): boolean {
   return p === "/desk" || p.startsWith("/desk/");
 }
 
-/** The Duo step, coming back to `returnTo` afterwards when that is a page worth coming back to (lib/return-to). */
-export function duoStepHref(returnTo: string | null | undefined): string {
+/**
+ * The Duo step, coming back to `returnTo` afterwards when that is a page
+ * worth coming back to (lib/return-to). `desk: true` asks for the desk rule
+ * on the way to a page that is not under /desk but shows desk-side data
+ * (Get help's view of a ticket the viewer works as an agent, the OAuth
+ * consent page for someone with desk access).
+ */
+export function duoStepHref(returnTo: string | null | undefined, opts: { desk?: boolean } = {}): string {
   const path = safeReturnPath(returnTo);
-  return path === "/" ? DUO_STEP_PATH : `${DUO_STEP_PATH}?next=${encodeURIComponent(path)}`;
+  const q = new URLSearchParams();
+  if (opts.desk && !isDeskPath(path)) q.set("scope", "desk");
+  if (path !== "/") q.set("next", path);
+  const qs = q.toString();
+  return qs ? `${DUO_STEP_PATH}?${qs}` : DUO_STEP_PATH;
+}
+
+/**
+ * A code Duo's prompt hands back: one run of token characters (letters,
+ * digits and the base64 / URL-safe marks), 8 to 1024 long. Anything else is
+ * not a Duo code and never reaches Duo's token endpoint.
+ */
+export function validDuoCode(raw: string): boolean {
+  return /^[A-Za-z0-9._~+/=-]{8,1024}$/.test(raw);
 }
