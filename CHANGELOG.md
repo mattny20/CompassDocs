@@ -31,10 +31,20 @@ top of sign-in, and "Before you solve" requirements on tickets.
   it; each of their sign-ins is written to the audit log.
 - **You choose what happens when Duo cannot be reached:** people are stopped
   with a message (the default), or let in with a line in the audit log.
+  Being let in covers a real outage only and lasts one hour, then Duo is
+  asked for again.
 - **Duo cannot lock you out by mistake.** A rule only turns on after you
   pass a Duo approval yourself against the saved details, changing the
   details turns the rules off, and `COMPASSDOCS_DUO_DISABLED=1` on the
   server switches the check off in an emergency.
+- **Duo answers on one address.** The approval comes back to your custom
+  domain, or without one to the address "Test with my account" ran on.
+  People who reach CompassDocs on another address are told which one to
+  use.
+- **While a rule is on,** changing the Duo settings or your own email
+  needs a session that has passed Duo (or a bypass account), and a session
+  that still owes the desk its approval cannot create an API token or
+  approve the Claude connector.
 - **Before you solve.** Desk settings → Before you solve lets an admin say
   what a ticket needs before it can be solved: things on the ticket (an
   owner, a team, a category, a tag, a linked asset, time logged, a reply
