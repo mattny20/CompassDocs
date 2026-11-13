@@ -297,8 +297,16 @@ export function isSenderRejection(e: unknown): boolean {
 async function sendAsMailbox(
   transport: { send: HelpdeskTransport; from: string },
   mail: HelpdeskOutgoingMail,
-  who: { name: string; address: string; sendFrom: boolean; sendAddressId?: number; fromAddress?: string; sendFromFailing?: boolean }
+  who: { name: string; address: string; sendFrom: boolean; sendAddressId?: number; fromAddress?: string; sendFromFailing?: boolean; mailboxId?: number | null; m365?: boolean }
 ): Promise<void> {
+  // 1.20.7: a help address on a connected Microsoft 365 mailbox may send its tickets' mail through Microsoft Graph
+  // (lib/helpdesk/m365/send; never an agent's own notice, never when a send-from address is picked). Refused by
+  // Microsoft: the same mail by SMTP from the workspace address. Everyone else: the lines below, as before.
+  if (who.m365 && who.mailboxId && !who.sendFrom && (await (await import("./m365/state")).m365State()).sendVia.has(who.mailboxId)) {
+    const via = await (await import("./m365/send")).sendThroughM365(who.mailboxId, who.address, who.name, mail);
+    if (via === "sent") return;
+    if (via === "refused") return transport.send(mail);
+  }
   // The stored address went through cleanMailboxAddress when it was saved; it is checked again before it becomes a header.
   const picked = who.sendFrom && who.sendAddressId ? cleanMailboxAddress(who.fromAddress) : null;
   const own = picked && picked !== bareAddress(transport.from) ? fromWithName(picked, who.name) : null;
@@ -470,12 +478,13 @@ export async function sendHelpdeskTemplate(
       mail.messageId = ids.messageId;
       mail.references = ids.root;
       mail.headers["In-Reply-To"] = ids.root;
-      if (settings.inbound_secret && who.address) {
+      // 1.20.7: a help address read through Microsoft 365 takes replies with the inbound webhook off too.
+      if ((settings.inbound_secret || (who.mailboxId && (await (await import("./m365/state")).m365State()).linked.has(who.mailboxId))) && who.address) {
         const reply = replyToAddress(who.address, token);
         if (reply) mail.replyTo = reply;
       }
     }
-    await sendAsMailbox(transport, mail, who);
+    await sendAsMailbox(transport, mail, { ...who, m365: Boolean(thread && !note && opts.audience !== "agent") });
     return true;
   } catch (e) {
     logEvent("error", "helpdesk.email_failed", { template: templateKey, error: e instanceof Error ? e.message : String(e) });

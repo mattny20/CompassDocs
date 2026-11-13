@@ -35,6 +35,7 @@ import type { HdSettings } from "@/lib/helpdesk/types";
 import { getJson, sendJson } from "../api";
 import { forgetDeskMailboxes } from "../mailboxes";
 import { useCan } from "../me";
+import { M365AddressChip, M365AddressWarning, M365MailCard, M365MailboxField, m365MailboxAddress, saveM365AddressLink, useM365Mail } from "./M365MailSettings";
 
 type PublicSettings = Omit<HdSettings, "inbound_secret"> & { inbound_enabled: boolean; trust_unverified_senders: boolean };
 interface MailboxData {
@@ -164,8 +165,9 @@ export function EmailSettings() {
   async function sendTest(m: HdMailboxView) {
     setTesting(m.id);
     try {
-      const r = await sendJson<{ ok: boolean; to: string; from: string; error?: string }>(`/api/helpdesk/admin/mailboxes/${m.id}/test`, "POST", {}, "Couldn't send the test.");
-      if (r.ok) toast("ok", `Test sent to ${r.to} from ${r.from}.`);
+      const r = await sendJson<{ ok: boolean; to: string; from: string; error?: string; via?: string }>(`/api/helpdesk/admin/mailboxes/${m.id}/test`, "POST", {}, "Couldn't send the test.");
+      if (r.ok) toast("ok", r.via === "microsoft_365" ? `Test sent to ${r.to} through Microsoft 365 as ${r.from}.` : `Test sent to ${r.to} from ${r.from}.`);
+      else if (r.via === "microsoft_365") toast("error", r.error ?? "Microsoft 365 refused the test.");
       else toast("error", `Your mail provider refused the test from ${r.from || m.address}: ${r.error ?? "no reason given"}`);
     } catch (e) {
       toast("error", (e as Error).message);
@@ -243,6 +245,7 @@ export function EmailSettings() {
                       <span className="min-w-0 break-all text-sm font-medium text-slate-900">{m.address}</span>
                       {m.is_default && <Chip tone="info" size="sm">Default</Chip>}
                       {m.send_from && <Chip tone="accent" size="sm">Sends from this address</Chip>}
+                      <M365AddressChip id={m.id} />
                     </p>
                     <p className="mt-0.5 text-xs text-slate-500 [overflow-wrap:anywhere]">
                       <span className="sr-only">Replies are from </span>
@@ -250,6 +253,7 @@ export function EmailSettings() {
                       {m.tickets > 0 && <> · {m.tickets === 1 ? "1 ticket" : `${m.tickets} tickets`}</>}
                       {m.send_address && !m.send_from && <span data-testid="hd-mailbox-sends-from"> · Sends from {m.send_address}</span>}
                     </p>
+                    <M365AddressWarning id={m.id} workspaceFrom={workspaceFrom} />
                     {m.send_address && m.send_from_error && (
                       <p className="ink-warn mt-1 text-xs [overflow-wrap:anywhere]" data-testid="hd-mailbox-warning">
                         Your mail provider refused mail from {m.send_from ? "this address" : m.send_address}{m.send_from_error_at ? ` on ${fmt.dateTime(m.send_from_error_at)}` : ""}: {m.send_from_error} Replies go out from {workspaceFrom} under this name until a test goes through.
@@ -339,6 +343,9 @@ export function EmailSettings() {
             reply was sent from.
           </p>
         </Card>
+
+        {/* 1.20.7: read the help mailboxes straight from Microsoft 365 (lib/helpdesk/m365). */}
+        <M365MailCard />
 
         <Card title="Webhook" description="One webhook takes the mail for every address. Forward each of your addresses to this webhook.">
           {path ? (
@@ -446,6 +453,11 @@ function AddressDialog({
   // "" = the workspace address, a send-from address's id, or "own" = this address itself (not on the list yet).
   const [sendFrom, setSendFrom] = useState(box?.send_address_id ? String(box.send_address_id) : "");
   const [isDefault, setIsDefault] = useState(box?.is_default ?? first);
+  // 1.20.7: the connected Microsoft 365 mailbox this address lives on ("" = none; null = not chosen here yet, so the saved one shows).
+  const m365 = useM365Mail();
+  const m365Link = box ? m365?.links.find((l) => l.mailbox_id === box.id) : undefined;
+  const [m365Pick, setM365Pick] = useState<string | null>(null);
+  const m365Box = m365Pick ?? (m365Link ? String(m365Link.m365_mailbox_id) : "");
   const [tried, setTried] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -455,7 +467,10 @@ function AddressDialog({
   // The address being typed is offered as its own send-from address until it is on the list.
   const typed = cleanMailboxAddress(address);
   const offerOwn = !!typed && !senders.some((x) => x.address === typed);
-  const pick = sendFrom === "own" && !offerOwn ? (senders.find((x) => x.address === typed)?.id.toString() ?? "") : sendFrom;
+  // "m365" = through Microsoft 365 as the mailbox picked above (shown while the saved choice is that, until another is made).
+  const [sendTouched, setSendTouched] = useState(false);
+  const viaM365 = !!m365Box && (sendFrom === "m365" || (!sendTouched && !!m365Link?.send_via));
+  const pick = viaM365 ? "m365" : sendFrom === "m365" ? "" : sendFrom === "own" && !offerOwn ? (senders.find((x) => x.address === typed)?.id.toString() ?? "") : sendFrom;
   const picked = senders.find((x) => String(x.id) === pick);
 
   async function submit(e: React.FormEvent) {
@@ -469,12 +484,15 @@ function AddressDialog({
         address: address.trim(),
         name: name.trim(),
         team_id: team ? Number(team) : null,
-        ...(pick === "own" ? { send_from: true } : { send_address_id: pick ? Number(pick) : null }),
+        ...(pick === "own" ? { send_from: true } : { send_address_id: pick && pick !== "m365" ? Number(pick) : null }),
         ...(isDefault && !box?.is_default ? { is_default: true } : {}),
       };
+      let id = box?.id;
       if (box) await sendJson(`/api/helpdesk/admin/mailboxes/${box.id}`, "PATCH", body, "Couldn't save the address.");
-      else await sendJson("/api/helpdesk/admin/mailboxes", "POST", body, "Couldn't add the address.");
-      onSaved(box ? "Address saved." : "Address added. Forward it to the webhook below.");
+      else id = (await sendJson<{ mailbox: { id: number } }>("/api/helpdesk/admin/mailboxes", "POST", body, "Couldn't add the address.")).mailbox.id;
+      // 1.20.7: where the address lives, and whether its replies go out through Microsoft 365 (only when something is or was chosen).
+      if (id && (m365Box || m365Link)) await saveM365AddressLink(id, m365Box ? Number(m365Box) : null, pick === "m365");
+      onSaved(box ? "Address saved." : m365Box ? "Address added. Its mail is read from Microsoft 365." : "Address added. Forward it to the webhook below.");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -510,18 +528,29 @@ function AddressDialog({
               ))}
             </Select>
           </Field>
+          <M365MailboxField value={m365Box} onChange={setM365Pick} typed={typed} />
           <Field
             label="Send replies from"
             help={
+              pick === "m365" ? (
+                `Replies go out through Microsoft 365 as ${m365MailboxAddress(m365, m365Box)} and show in its Sent Items. Answers always come back to this help address. If Microsoft refuses a reply, it goes out through your workspace mail server from ${workspaceFrom} instead, and this page says so.`
+              ) : (
               <>
                 {picked?.name ? `Replies will be from "${picked.name}", the name set on that send-from address. ` : ""}
                 Replies go out from the address you pick, through your workspace mail server. Answers always come back to this help address, whatever address the reply was sent
                 from. If your mail provider refuses the address, the reply goes out from {workspaceFrom} instead and this page says so.
                 {senders.length === 0 && " To offer more addresses here, add them under Send-from addresses on this page."}
               </>
+              )
             }
           >
-            <Select value={pick} onChange={(e) => setSendFrom(e.target.value)}>
+            <Select
+              value={pick}
+              onChange={(e) => {
+                setSendTouched(true);
+                setSendFrom(e.target.value);
+              }}
+            >
               <option value="">{transportFrom ? `${WORKSPACE_ADDRESS} (${transportFrom})` : WORKSPACE_ADDRESS}</option>
               {senders.map((x) => (
                 <option key={x.id} value={x.id}>
@@ -529,6 +558,7 @@ function AddressDialog({
                 </option>
               ))}
               {offerOwn && <option value="own">{typed} (adds it to your send-from addresses)</option>}
+              {m365Box && <option value="m365">Microsoft 365, as {m365MailboxAddress(m365, m365Box)}</option>}
             </Select>
           </Field>
           <Toggle

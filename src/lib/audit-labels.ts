@@ -176,6 +176,17 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.send_address.deleted": "Removed a helpdesk send-from address",
   "helpdesk.send_address.tested": "Sent a test from a helpdesk send-from address",
   "helpdesk.send_address.refused": "The mail provider refused a helpdesk send-from address",
+  // The Microsoft 365 mailbox connection (1.20.7, lib/helpdesk/m365).
+  "helpdesk.m365.connection_saved": "Saved the Microsoft 365 mail connection",
+  "helpdesk.m365.connection_removed": "Removed the Microsoft 365 mail connection",
+  "helpdesk.m365.settings_changed": "Changed the Microsoft 365 mail settings",
+  "helpdesk.m365.mailbox_connected": "Connected a Microsoft 365 mailbox",
+  "helpdesk.m365.mailbox_disconnected": "Disconnected a Microsoft 365 mailbox",
+  "helpdesk.m365.address_changed": "Changed a help address's Microsoft 365 mailbox",
+  "helpdesk.m365.access_checked": "Checked what the Microsoft 365 mail app can reach",
+  "helpdesk.m365.subscription_failed": "Microsoft 365 refused mail notifications",
+  "helpdesk.m365.intake_failed": "Could not take in a Microsoft 365 message",
+  "helpdesk.m365.send_refused": "Microsoft 365 refused to send as a mailbox",
   // Customer portal (1.19.1, agent V6, lib/helpdesk/portal).
   "helpdesk.portal.updated": "Changed the customer portal",
   "helpdesk.portal.contact_blocked": "Blocked a customer portal contact",
