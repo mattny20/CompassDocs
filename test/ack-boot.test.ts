@@ -254,7 +254,9 @@ async function assertSchema1101(db: Client, label: string) {
     // daily digest's last day are calendar days read as 'YYYY-MM-DD' text too.
     // 1.19.3: an asset's purchase date and warranty end (lib/helpdesk/assets-shared
     // monthYear and warrantyLabel read them as that text).
-    ["documents.ack_effective_at", "hd_assets.purchase_date", "hd_assets.warranty_end", "hd_holidays.date", "hd_on_call_rotation.starts_on", "hd_ticket_checklist_items.due_date", "notify_digest_state.last_daily_on", "policy_settings.due_at"],
+    // 1.20.6: a whole-day event's first and last day (lib/helpdesk/desk-calendar selects them with
+    // to_char as 'YYYY-MM-DD', so they are that text whatever the parser does).
+    ["documents.ack_effective_at", "hd_assets.purchase_date", "hd_assets.warranty_end", "hd_holidays.date", "hd_on_call_rotation.starts_on", "hd_ticket_checklist_items.due_date", "hd_ticket_events.end_date", "hd_ticket_events.start_date", "notify_digest_state.last_daily_on", "policy_settings.due_at"],
     `${label}: the OID 1082 text parser reaches exactly these columns; a new date column must be read as text on purpose`
   );
   const trigger = await db.query(

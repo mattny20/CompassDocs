@@ -99,7 +99,7 @@ test.describe("custom fields (licensed)", () => {
     await dialog.getByRole("textbox", { name: "Label", exact: true }).fill(deviceLabel);
     await expect(dialog.getByTestId("hd-custom-field-key")).toContainText(deviceKey);
     const kind = dialog.getByLabel("Kind");
-    await expect(kind.locator("option")).toHaveText(["Short text", "Long text", "Pick one", "Yes / no", "Date", "Number", "A person"]);
+    await expect(kind.locator("option")).toHaveText(["Short text", "Long text", "Pick one", "Yes / no", "Date", "Date and time", "Number", "A person"]);
     await kind.selectOption({ label: "Pick one" });
     await dialog.getByRole("textbox", { name: "Option 1 of field 1", exact: true }).fill("Laptop");
     await dialog.getByRole("button", { name: "Add option" }).click();
