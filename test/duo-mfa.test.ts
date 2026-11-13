@@ -185,7 +185,7 @@ describe("HS512 tokens (lib/duo-jwt)", () => {
     assert.equal(check({ ...good, nonce: "n-124" }), "nonce");
     assert.equal(check({ ...good, nonce: 7 }), "nonce");
     // No nonce claim at all: accepted (state and username still bind the attempt).
-    assert.equal(check({ ...good, nonce: undefined }), "");
+    assert.equal(check({ ...good, nonce: undefined }), "accepted");
     assert.equal(check(good, { nonce: "" }), "nonce");
     assert.equal(check({ ...good, preferred_username: "eve@example.com" }), "username");
     assert.equal(check({ ...good, preferred_username: "ADA@example.com" }), "username", "exactly what was sent");
