@@ -322,6 +322,11 @@ export async function insertTicketTx(client: PoolClient, input: CreateTicketInpu
   const dues = policy ? computeDues(createdAt.getTime(), policy, hours) : null;
   const status: HdStatus = input.status ?? (input.assignee_id ? "open" : "new");
   let row: HdTicketRow | undefined;
+  // 1.20.5: the help address this ticket came in on can be removed between
+  // the moment intake matched it and this insert. The ticket is then stored
+  // without one (what removing the address does to its tickets anyway)
+  // rather than lost to a foreign-key error.
+  let mailboxId = input.mailbox_id ?? null;
   for (let attempt = 0; !row; attempt++) {
     try {
       await client.query("SAVEPOINT hd_ticket_insert");
@@ -355,15 +360,21 @@ export async function insertTicketTx(client: PoolClient, input: CreateTicketInpu
           dues?.resolve_due ?? null,
           newTicketReplyToken(),
           createdAt,
-          input.mailbox_id ?? null,
+          mailboxId,
         ]
       );
       await client.query("RELEASE SAVEPOINT hd_ticket_insert");
       row = normalizeRow<HdTicketRow>(res.rows[0]);
     } catch (e) {
       await client.query("ROLLBACK TO SAVEPOINT hd_ticket_insert");
+      const err = e as { code?: string; constraint?: string };
+      // The help address was removed meanwhile: once more, without it.
+      if (err.code === "23503" && err.constraint === "hd_tickets_mailbox_id_fkey" && mailboxId !== null) {
+        mailboxId = null;
+        continue;
+      }
       // A reply-token clash (vanishingly rare) is retried with a new token.
-      if ((e as { code?: string }).code !== "23505" || attempt >= 2) throw e;
+      if (err.code !== "23505" || attempt >= 2) throw e;
     }
   }
   const body = (input.body ?? "").slice(0, TICKET_LIMITS.body);

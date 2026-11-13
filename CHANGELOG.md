@@ -67,6 +67,10 @@ top of sign-in, and "Before you solve" requirements on tickets.
 - **API tokens, the Claude connector, SCIM, webhooks, inbound email and the
   customer portal are never asked for Duo.**
 
+### Fixed
+- **An email is no longer lost when its help address is removed at the
+  same moment it arrives.** The ticket is created without a help address.
+
 ### Upgrading
 - **Nothing to run.** Help addresses that send from themselves keep doing
   so: each gets a send-from address equal to itself on the first start.

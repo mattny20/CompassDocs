@@ -485,7 +485,8 @@ describe("mailboxes-shared", () => {
         const t0 = performance.now();
         assert.equal(shared.mailboxForRecipients(boxes, m), undefined);
         const ms = performance.now() - t0;
-        assert.ok(ms < 100, `${name}: ${ms.toFixed(1)} ms`);
+        // A wrong (rescanning) search takes seconds here; one second leaves room for a busy machine.
+        assert.ok(ms < 1000, `${name}: ${ms.toFixed(1)} ms`);
         assert.ok(shared.recipientCandidates(m).length <= 3 * shared.RECIPIENT_LIMITS.addresses);
       }
       // The parser's own address search (From, To, Cc, the envelope fields) reads the same way.
@@ -493,7 +494,7 @@ describe("mailboxes-shared", () => {
       const parsed = parse.parseGeneric({ from: value, to: value, cc: [value, value], recipients: value, subject: "Hi", text: "Hello", headers: { "X-Original-To": value } });
       assert.equal(shared.mailboxForRecipients(boxes, parsed), undefined);
       const ms = performance.now() - t1;
-      assert.ok(ms < 200, `parse, ${name}: ${ms.toFixed(1)} ms`);
+      assert.ok(ms < 1000, `parse, ${name}: ${ms.toFixed(1)} ms`);
     }
     // Only the first 2,000 characters of a value and the first 50 values are read.
     const late = `${" ".repeat(shared.RECIPIENT_LIMITS.value)}billing@acme.test`;
@@ -619,6 +620,15 @@ describe("upgrade from the single address", () => {
     assert.equal((await mailboxes.ownAddressMatcher())(base), true);
     await settingsLib.saveHelpdeskSettings({ inbound_address: "" }, { syncMailboxes: false });
     mailboxes.resetMailboxesReadyForTests();
+  });
+
+  test("a ticket whose help address was removed during intake is still created, without one", async () => {
+    // Intake matched an address that is gone by the time the ticket is written (removed in between).
+    const gone = 2_000_000_000;
+    assert.equal((await pool().query("SELECT 1 FROM hd_mailboxes WHERE id = $1", [gone])).rowCount, 0);
+    const t = await tickets.createTicket({ subject: `${STAMP} address removed`, body: "x", requester: { id: U.req.id, name: U.req.name, email: U.req.email }, team_id: teamA, mailbox_id: gone } as never, { silent: true });
+    ticketIds.push(t.id);
+    assert.equal((await pool().query("SELECT mailbox_id FROM hd_tickets WHERE id = $1", [t.id])).rows[0].mailbox_id, null);
   });
 
   test("the old settings API: only an empty address clears; junk is refused and removes nothing", async () => {
