@@ -34,6 +34,9 @@ import { askTimeOnSolve } from "../time/TimeCard";
 import { askMaintenanceOnSolve, logMaintenanceAfterSolve, type MaintenancePlan } from "../assets/SolveMaintenance";
 
 import { mergeDraft } from "../claude/draft-fill";
+// 1.20.5: "Before you solve" (lib/helpdesk/solve-requirements).
+import { isSolveRequirementBlock } from "@/lib/helpdesk/solve-requirements-shared";
+import { askBeforeYouSolve, type SolveExtras } from "../solve/BeforeYouSolve";
 
 export type ComposerMode = "public" | "internal";
 
@@ -102,8 +105,10 @@ export const Composer = forwardRef<
     onNewer?: () => void;
     /** People copied on the ticket: the public tab reads "Reply to Daniel + 2 CC" (1.19.1, agent V3). */
     ccCount?: number;
+    /** 1.20.5: a "Before you solve" requirement set matches this ticket (the ticket detail's before_solve). */
+    beforeSolve?: boolean;
   }
->(function Composer({ number, subject, requesterName, agentName, suggestions, onSent, disabled, forReview = false, allowNotes = true, defaultMode = "public", automated = false, latestMessageId, onNewer, ccCount = 0 }, ref) {
+>(function Composer({ number, subject, requesterName, agentName, suggestions, onSent, disabled, forReview = false, allowNotes = true, defaultMode = "public", automated = false, latestMessageId, onNewer, ccCount = 0, beforeSolve = false }, ref) {
   const me = useDeskMe();
   const [mode, setMode] = useState<ComposerMode>(defaultMode);
   useEffect(() => setMode(allowNotes ? defaultMode : "public"), [number, defaultMode, allowNotes]);
@@ -244,8 +249,10 @@ export const Composer = forwardRef<
 
   // 1.19.3: the maintenance record chosen for this send's solve (assets/SolveMaintenance).
   const maintenancePlan = useRef<MaintenancePlan | null>(null);
+  // 1.20.5: what the "Before you solve" dialog collected for this send's solve (solve/BeforeYouSolve).
+  const solveExtras = useRef<SolveExtras | null>(null);
 
-  async function send(then: HdStatus | null, force = false) {
+  async function send(then: HdStatus | null, force = false, askedAgain = false) {
     setThenOpen(false);
     if (!text.trim() || busy || uploading) {
       if (!text.trim()) area.current?.focus();
@@ -263,6 +270,15 @@ export const Composer = forwardRef<
       maintenancePlan.current = plan;
     }
     if (status === "solved" && !force && !(await askTimeOnSolve(number, me.id))) return;
+    // 1.20.5: a "Before you solve" requirement set asks for what the ticket still needs. Cancelling sends nothing and
+    // leaves the text as it is. A public reply counts as the reply a set may require; a reply that waits for review
+    // changes no status, so nothing is asked. A forced resend keeps what was filled in the first time.
+    const publicReply = mode === "public";
+    if (status === "solved" && !force && !askedAgain && !(publicReply && forReview)) {
+      const extra = await askBeforeYouSolve(number, { applies: beforeSolve, reply: publicReply, subject });
+      if (extra === false) return;
+      solveExtras.current = extra;
+    }
     setBusy(true);
     try {
       // The send guard (1.19.1): postGuarded throws CollisionError on a 409 { newer }.
@@ -273,6 +289,7 @@ export const Composer = forwardRef<
           body: text.trim(),
           attachments: files.map((f) => f.id),
           then_status: status ?? undefined,
+          ...(status === "solved" && solveExtras.current ? { solve_answers: solveExtras.current.solve_answers, solve_fields: solveExtras.current.solve_fields } : {}),
           ...(latestMessageId !== undefined ? { expect_last_message_id: baseline.current ?? latestMessageId } : {}),
           ...(force ? { force: true } : {}),
         },
@@ -284,6 +301,7 @@ export const Composer = forwardRef<
       if (sent?.status_unchanged) toast("error", `Sent, but the status didn't change. ${sent.status_unchanged}`);
       else if (status === "solved" && maintenancePlan.current) void logMaintenanceAfterSolve(number, maintenancePlan.current);
       maintenancePlan.current = null;
+      solveExtras.current = null;
       writeDraft(number, mode, "");
       setText("");
       setFiles([]);
@@ -294,6 +312,15 @@ export const Composer = forwardRef<
       if (err instanceof CollisionError) {
         setCollision({ newer: err.newer, then });
         onNewer?.();
+      } else if (status === "solved" && !askedAgain && isSolveRequirementBlock((err as Error).message)) {
+        // 1.20.5: nothing was sent. A set switched on since the ticket was loaded: ask now and send once more.
+        setBusy(false);
+        const extra = await askBeforeYouSolve(number, { force: true, reply: publicReply, subject });
+        if (extra) {
+          solveExtras.current = extra;
+          return send(then, force, true);
+        }
+        if (extra === null) toast("error", (err as Error).message);
       } else toast("error", (err as Error).message);
     } finally {
       setBusy(false);

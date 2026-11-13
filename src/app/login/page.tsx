@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { preload } from "react-dom";
-import { getCurrentUser } from "@/lib/auth";
+import { currentSession } from "@/lib/auth";
+import { duoStepHref } from "@/lib/duo-policy";
 import { getAppSettings } from "@/lib/settings-store";
 import { needsSetup } from "@/lib/db";
 import { providerStart, providersOf, signInSetup } from "@/lib/sign-in-routing";
@@ -34,7 +35,9 @@ export default async function LoginPage({
   // Already signed in: straight to the page they wanted (lib/return-to keeps
   // this on-site, never the sign-in page or an API route).
   const next = safeReturnPath(params.next);
-  if (await getCurrentUser()) redirect(next);
+  // 1.20.5: signed in but the Duo check is still owed: on to that step, not back to this form.
+  const session = await currentSession();
+  if (session) redirect(session.duo.signIn ? duoStepHref(next) : next);
 
   const [settings, setup, look, links] = await Promise.all([
     getAppSettings(),

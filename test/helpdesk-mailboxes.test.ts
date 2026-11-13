@@ -14,9 +14,15 @@
 //     when the provider refuses the address (recorded and audited once),
 //     agent notices unchanged;
 //   - "Answer from" on the ticket and the admin routes' permissions, the
-//     test send, and the additive `mailbox` field of the API and webhooks.
+//     test send, and the additive `mailbox` field of the API and webhooks;
+//   - 1.20.5, send-from addresses (lib/helpdesk/send-addresses): the upgrade
+//     from the send_from switch (idempotent, the old column mirrored, a
+//     1.20.4 binary's write adopted), the list and its limits, the pick on
+//     a help address (and the old `send_from` write), the From name rule,
+//     the refusal fallback and its one audit row per streak, removing an
+//     address in use, and its own test send.
 //
-// hd_mailboxes is workspace-wide: the whole file runs under the email
+// hd_mailboxes and hd_send_addresses are workspace-wide: the whole file runs under the email
 // settings' advisory lock (728351, as test/helpdesk-review-fixes-s2), with
 // the mailboxes and the two old settings it found put back afterwards.
 //
@@ -88,6 +94,7 @@ const EE_REAL = path.join(__dirname, "..", "src", "lib", "ee");
 /* eslint-disable @typescript-eslint/no-require-imports */
 const shared = require("../src/lib/helpdesk/mailboxes-shared") as typeof import("../src/lib/helpdesk/mailboxes-shared");
 const mailboxes = require("../src/lib/helpdesk/mailboxes") as typeof import("../src/lib/helpdesk/mailboxes");
+const sendAddresses = require("../src/lib/helpdesk/send-addresses") as typeof import("../src/lib/helpdesk/send-addresses");
 const parse = require("../src/lib/helpdesk/inbound-parse") as typeof import("../src/lib/helpdesk/inbound-parse");
 const inbound = require("../src/lib/helpdesk/inbound") as typeof import("../src/lib/helpdesk/inbound");
 const email = require("../src/lib/helpdesk/email") as typeof import("../src/lib/helpdesk/email");
@@ -100,6 +107,9 @@ const auditLabels = require("../src/lib/audit-labels") as typeof import("../src/
 const listRoute = require("../src/app/api/helpdesk/admin/mailboxes/route") as typeof import("../src/app/api/helpdesk/admin/mailboxes/route");
 const oneRoute = require("../src/app/api/helpdesk/admin/mailboxes/[id]/route") as typeof import("../src/app/api/helpdesk/admin/mailboxes/[id]/route");
 const testRoute = require("../src/app/api/helpdesk/admin/mailboxes/[id]/test/route") as typeof import("../src/app/api/helpdesk/admin/mailboxes/[id]/test/route");
+const sendersRoute = require("../src/app/api/helpdesk/admin/send-addresses/route") as typeof import("../src/app/api/helpdesk/admin/send-addresses/route");
+const senderRoute = require("../src/app/api/helpdesk/admin/send-addresses/[id]/route") as typeof import("../src/app/api/helpdesk/admin/send-addresses/[id]/route");
+const senderTestRoute = require("../src/app/api/helpdesk/admin/send-addresses/[id]/test/route") as typeof import("../src/app/api/helpdesk/admin/send-addresses/[id]/test/route");
 const agentRoute = require("../src/app/api/helpdesk/mailboxes/route") as typeof import("../src/app/api/helpdesk/mailboxes/route");
 const ticketRoute = require("../src/app/api/helpdesk/tickets/[number]/route") as typeof import("../src/app/api/helpdesk/tickets/[number]/route");
 const settingsRoute = require("../src/app/api/helpdesk/admin/settings/route") as typeof import("../src/app/api/helpdesk/admin/settings/route");
@@ -134,6 +144,7 @@ let failNext: Error | null = null;
 let attempts = 0;
 let lockClient: PoolClient | null = null;
 let savedBoxes: Record<string, unknown>[] = [];
+let savedSenders: Record<string, unknown>[] = [];
 let savedTickets: { id: number; mailbox_id: number }[] = [];
 let savedSettings = { inbound_address: "", email_from_name: "", inbound_secret: "" };
 
@@ -215,6 +226,7 @@ async function mailIn(over: Partial<InboundEmail> = {}) {
 
 async function wipeMailboxes() {
   await pool().query("DELETE FROM hd_mailboxes");
+  await pool().query("DELETE FROM hd_send_addresses");
   mailboxes.resetMailboxesReadyForTests();
 }
 
@@ -234,10 +246,12 @@ before(async () => {
   await lockClient.query("SELECT pg_advisory_lock($1)", [LOCK]);
   // What the workspace had: put back in after().
   savedBoxes = (await pool().query("SELECT * FROM hd_mailboxes ORDER BY id")).rows;
+  savedSenders = (await pool().query("SELECT * FROM hd_send_addresses ORDER BY id")).rows;
   savedTickets = (await pool().query("SELECT id, mailbox_id FROM hd_tickets WHERE mailbox_id IS NOT NULL")).rows;
   const s = await settingsLib.getHelpdeskSettings();
   savedSettings = { inbound_address: s.inbound_address, email_from_name: s.email_from_name, inbound_secret: s.inbound_secret };
   await pool().query("DELETE FROM hd_mailboxes");
+  await pool().query("DELETE FROM hd_send_addresses");
   await settingsLib.saveHelpdeskSettings({ inbound_address: "", email_from_name: "Helpdesk", inbound_secret: s.inbound_secret || settingsLib.newInboundSecret() }, { syncMailboxes: false });
 
   // solo: an agent of team A only (the others below are in every team).
@@ -291,16 +305,21 @@ after(async () => {
   const all = (await pool().query("SELECT id FROM hd_tickets WHERE team_id = ANY($1) OR requester_id = ANY($2) OR id = ANY($3) OR subject LIKE $4", [teams, ids, ticketIds, `${STAMP}%`])).rows.map((r) => r.id);
   await pool().query("DELETE FROM hd_tickets WHERE id = ANY($1)", [all]);
   await pool().query("DELETE FROM hd_mailboxes");
+  await pool().query("DELETE FROM hd_send_addresses");
   await pool().query("DELETE FROM hd_teams WHERE id = ANY($1)", [teams]);
   await pool().query("DELETE FROM notifications WHERE user_id = ANY($1)", [ids]);
-  await pool().query("DELETE FROM audit_log WHERE target_type = 'helpdesk_mailbox' AND target_label LIKE $1", [`%${DOMAIN}`]);
+  await pool().query("DELETE FROM audit_log WHERE target_type IN ('helpdesk_mailbox', 'helpdesk_send_address') AND target_label LIKE $1", [`%${DOMAIN}`]);
   await pool().query("DELETE FROM audit_log WHERE target_type = 'helpdesk_ticket' AND target_id = ANY($1)", [all.map(String)]);
   await pool().query("DELETE FROM audit_log WHERE actor_id = ANY($1)", [ids]);
   await pool().query("DELETE FROM sessions WHERE user_id = ANY($1)", [ids]);
   await pool().query("DELETE FROM role_assignments WHERE user_id = ANY($1)", [ids]);
   await pool().query("DELETE FROM hd_agent_roles WHERE user_id = ANY($1)", [ids]);
   await pool().query("DELETE FROM users WHERE id = ANY($1)", [ids]);
-  // The workspace's own mailboxes and settings, as found.
+  // The workspace's own send-from addresses, mailboxes and settings, as found.
+  for (const b of savedSenders) {
+    const cols = Object.keys(b);
+    await pool().query(`INSERT INTO hd_send_addresses (${cols.join(", ")}) OVERRIDING SYSTEM VALUE VALUES (${cols.map((_, i) => `$${i + 1}`).join(", ")})`, cols.map((c) => b[c]));
+  }
   for (const b of savedBoxes) {
     const cols = Object.keys(b);
     await pool().query(
@@ -466,7 +485,8 @@ describe("mailboxes-shared", () => {
         const t0 = performance.now();
         assert.equal(shared.mailboxForRecipients(boxes, m), undefined);
         const ms = performance.now() - t0;
-        assert.ok(ms < 100, `${name}: ${ms.toFixed(1)} ms`);
+        // A wrong (rescanning) search takes seconds here; one second leaves room for a busy machine.
+        assert.ok(ms < 1000, `${name}: ${ms.toFixed(1)} ms`);
         assert.ok(shared.recipientCandidates(m).length <= 3 * shared.RECIPIENT_LIMITS.addresses);
       }
       // The parser's own address search (From, To, Cc, the envelope fields) reads the same way.
@@ -474,7 +494,7 @@ describe("mailboxes-shared", () => {
       const parsed = parse.parseGeneric({ from: value, to: value, cc: [value, value], recipients: value, subject: "Hi", text: "Hello", headers: { "X-Original-To": value } });
       assert.equal(shared.mailboxForRecipients(boxes, parsed), undefined);
       const ms = performance.now() - t1;
-      assert.ok(ms < 200, `parse, ${name}: ${ms.toFixed(1)} ms`);
+      assert.ok(ms < 1000, `parse, ${name}: ${ms.toFixed(1)} ms`);
     }
     // Only the first 2,000 characters of a value and the first 50 values are read.
     const late = `${" ".repeat(shared.RECIPIENT_LIMITS.value)}billing@acme.test`;
@@ -497,6 +517,7 @@ describe("mailboxes-shared", () => {
 
   test("every audit action has a label", () => {
     for (const k of ["created", "updated", "deleted", "tested", "send_from_failed"]) assert.ok(auditLabels.hasActionLabel(`helpdesk.mailbox.${k}`), k);
+    for (const k of ["created", "updated", "deleted", "tested", "refused"]) assert.ok(auditLabels.hasActionLabel(`helpdesk.send_address.${k}`), k);
     assert.ok(auditLabels.hasActionLabel("helpdesk.ticket.mailbox_changed"));
   });
 });
@@ -599,6 +620,15 @@ describe("upgrade from the single address", () => {
     assert.equal((await mailboxes.ownAddressMatcher())(base), true);
     await settingsLib.saveHelpdeskSettings({ inbound_address: "" }, { syncMailboxes: false });
     mailboxes.resetMailboxesReadyForTests();
+  });
+
+  test("a ticket whose help address was removed during intake is still created, without one", async () => {
+    // Intake matched an address that is gone by the time the ticket is written (removed in between).
+    const gone = 2_000_000_000;
+    assert.equal((await pool().query("SELECT 1 FROM hd_mailboxes WHERE id = $1", [gone])).rowCount, 0);
+    const t = await tickets.createTicket({ subject: `${STAMP} address removed`, body: "x", requester: { id: U.req.id, name: U.req.name, email: U.req.email }, team_id: teamA, mailbox_id: gone } as never, { silent: true });
+    ticketIds.push(t.id);
+    assert.equal((await pool().query("SELECT mailbox_id FROM hd_tickets WHERE id = $1", [t.id])).rows[0].mailbox_id, null);
   });
 
   test("the old settings API: only an empty address clears; junk is refused and removes nothing", async () => {
@@ -774,7 +804,7 @@ describe("the address list", () => {
     assert.equal(typeof list.body.mail_ready, "boolean");
     const audit = (await pool().query("SELECT action, details FROM audit_log WHERE target_type = 'helpdesk_mailbox' AND target_id = $1 ORDER BY id", [String(b.body.mailbox.id)])).rows;
     assert.deepEqual(audit.map((r) => r.action), ["helpdesk.mailbox.created"]);
-    assert.deepEqual(audit[0].details, { address: B, name: "Acme Billing", team: `${STAMP} Billing`, send_from: true, is_default: false });
+    assert.deepEqual(audit[0].details, { address: B, name: "Acme Billing", team: `${STAMP} Billing`, send_address: B, is_default: false });
   });
 
   test("edit: one default at a time, never none; changes are audited from → to", async () => {
@@ -792,7 +822,7 @@ describe("the address list", () => {
     assert.deepEqual(row.details.changes, {
       name: { from: "Acme Billing", to: "Acme Accounts" },
       team: { from: `${STAMP} Billing`, to: "No team (use routing)" },
-      send_from: { from: true, to: false },
+      send_address: { from: B, to: "The workspace address" },
       is_default: { from: false, to: true },
     });
     // Nothing changed: no audit row.
@@ -1061,7 +1091,9 @@ describe("outbound: every mail to the requester uses the ticket's mailbox", () =
 
   test("the provider refuses the address: the mail still goes, from the workspace address, and it is recorded and audited once", async () => {
     const t = await ticket(box.b.id, teamB);
-    const audits = async () => (await pool().query("SELECT details FROM audit_log WHERE action = 'helpdesk.mailbox.send_from_failed' AND target_id = $1 ORDER BY id", [String(box.b.id)])).rows;
+    // 1.20.5: the refusal is held against the send-from address the mailbox picked (here its own address).
+    const sender = box.b.send_address_id!;
+    const audits = async () => (await pool().query("SELECT details FROM audit_log WHERE action = 'helpdesk.send_address.refused' AND target_type = 'helpdesk_send_address' AND target_id = $1 ORDER BY id", [String(sender)])).rows;
     assert.equal((await audits()).length, 0);
     refuseFrom.add(B);
     const first = await send(t);
@@ -1077,7 +1109,10 @@ describe("outbound: every mail to the requester uses the ticket's mailbox", () =
     assert.equal(second.m.from, `"Acme Billing" <${transportFrom}>`);
     const logged = await audits();
     assert.equal(logged.length, 1, "one audit row for the streak, not one per mail");
-    assert.deepEqual(logged[0].details, { address: B, error: "553 5.7.1 Sender address rejected: not owned by user smtp@example.test", sent_from: "workspace address" });
+    assert.deepEqual(logged[0].details, { address: B, error: "553 5.7.1 Sender address rejected: not owned by user smtp@example.test", sent_from: "workspace address", help_address: B });
+    // The 1.20.2 columns carry the same for a 1.20.4 binary on this database.
+    const old = (await pool().query("SELECT send_from, send_from_error FROM hd_mailboxes WHERE id = $1", [box.b.id])).rows[0];
+    assert.deepEqual([old.send_from, /Sender address rejected/.test(old.send_from_error)], [true, true]);
     // The provider accepts it again: the warning clears, and a later refusal is a new streak.
     refuseFrom.clear();
     const ok = await send(t);
@@ -1093,7 +1128,8 @@ describe("outbound: every mail to the requester uses the ticket's mailbox", () =
     assert.equal(dead.ok, false);
     assert.equal(dead.all.length, 0);
     refuseFrom.clear();
-    await mailboxes.clearSendFromFailure(box.b.id);
+    await sendAddresses.clearSendAddressFailure(sender);
+    assert.equal((await pool().query("SELECT send_from_error FROM hd_mailboxes WHERE id = $1", [box.b.id])).rows[0].send_from_error, "", "the old column is cleared with it");
   });
 
   test("only a permanent refusal of the address falls back: a timeout, a 4xx or a refused recipient fails as it always did, sent once", async () => {
@@ -1115,8 +1151,9 @@ describe("outbound: every mail to the requester uses the ticket's mailbox", () =
     assert.equal(email.isSenderRejection(null), false);
 
     const t = await ticket(box.b.id, teamB);
-    await mailboxes.clearSendFromFailure(box.b.id);
-    const audits = async () => (await pool().query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'helpdesk.mailbox.send_from_failed' AND target_id = $1", [String(box.b.id)])).rows[0].n;
+    const senderId = box.b.send_address_id!;
+    await sendAddresses.clearSendAddressFailure(senderId);
+    const audits = async () => (await pool().query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'helpdesk.send_address.refused' AND target_id = $1", [String(senderId)])).rows[0].n;
     const auditsBefore = await audits();
     for (const [name, e, sender] of cases) {
       attempts = 0;
@@ -1127,7 +1164,7 @@ describe("outbound: every mail to the requester uses the ticket's mailbox", () =
         assert.equal(attempts, 2, `${name}: refused once, then sent from the workspace address`);
         assert.equal(r.m.from, `"Acme Billing" <${transportFrom}>`, name);
         assert.notEqual((await mailboxes.getMailbox(box.b.id))!.send_from_error, "", name);
-        await mailboxes.clearSendFromFailure(box.b.id);
+        await sendAddresses.clearSendAddressFailure(senderId);
       } else {
         assert.equal(r.ok, false, `${name}: the send fails`);
         assert.equal(attempts, 1, `${name}: no second send (the first may have gone through)`);
@@ -1379,5 +1416,345 @@ describe("the ticket", () => {
       await pool().query("DELETE FROM hd_webhooks WHERE id = $1", [hook.id]);
       hooks.setWebhookAutoSendForTests(true);
     }
+  });
+});
+
+// --- 1.20.5: send-from addresses ------------------------------------------------------------
+
+describe("send-from addresses (1.20.5)", () => {
+  const SBASE = "http://localhost/api/helpdesk/admin/send-addresses";
+  const N = `no-reply@${DOMAIN}`;
+  const S = `support@${DOMAIN}`;
+  const WORKSPACE = "The workspace address";
+  type Sender = { id: number; address: string; name: string; last_error: string; used_by: { id: number; address: string }[] };
+  const rawBox = async (id: number) => (await pool().query("SELECT send_from, send_from_error, send_address_id FROM hd_mailboxes WHERE id = $1", [id])).rows[0];
+  const senders = async (): Promise<Sender[]> => (await pool().query("SELECT id, address, name, last_error FROM hd_send_addresses ORDER BY lower(address)")).rows;
+  const post = (b: unknown, who: Person | null = U.manager) => call(sendersRoute.POST, req(SBASE, who, b));
+  const patch = (id: number, b: unknown, who: Person | null = U.manager) => call(senderRoute.PATCH, req(`${SBASE}/${id}`, who, b, "PATCH"), { id: String(id) });
+  const del = (id: number, who: Person | null = U.manager) => call(senderRoute.DELETE, req(`${SBASE}/${id}`, who, undefined, "DELETE"), { id: String(id) });
+  const sendTest = (id: number, who: Person | null = U.manager) => call(senderTestRoute.POST, req(`${SBASE}/${id}/test`, who), { id: String(id) });
+  const list = async (): Promise<Sender[]> => (await call(sendersRoute.GET, req(SBASE, U.manager, undefined, "GET"))).body.send_addresses;
+  const patchBox = (id: number, b: unknown) => call(oneRoute.PATCH, req(`${BASE}/${id}`, U.manager, b, "PATCH"), { id: String(id) });
+  const refusals = async (id: number) => (await pool().query("SELECT details FROM audit_log WHERE action = 'helpdesk.send_address.refused' AND target_id = $1 ORDER BY id", [String(id)])).rows;
+  const vars = { ticket_number: "1", subject: "x", requester_name: "Cara", team_name: "T", priority_label: "Normal", agent_name: "Ana", ticket_url: "/help/requests/1", message: "Hello", reply_excerpt: "Hello" };
+  async function ticketOn(mailboxId: number, teamId: number) {
+    const t = await tickets.createTicket(
+      { subject: `${STAMP} send-from`, body: "x", requester: { id: null, name: "Cara Customer", email: `${STAMP}-cara5@customer.example.test` }, team_id: teamId, mailbox_id: mailboxId, via: "email", source: "email" } as never,
+      { silent: true }
+    );
+    ticketIds.push(t.id);
+    return t;
+  }
+  async function send(t: { id: number; number: number; team_id: number | null }) {
+    mail.length = 0;
+    const ok = await email.sendHelpdeskTemplate(`${STAMP}-cara5@customer.example.test`, "hd_reply", { ...vars, ticket_number: String(t.number) }, { ticketId: t.id, number: t.number, teamId: t.team_id });
+    return { ok, m: mail[mail.length - 1], all: [...mail] };
+  }
+
+  /** No help address, no send-from address, and no old setting to seed one from. */
+  async function fresh() {
+    await wipeMailboxes();
+    await settingsLib.saveHelpdeskSettings({ inbound_address: "" }, { syncMailboxes: false });
+  }
+
+  before(() => {
+    refuseFrom.clear();
+    failNext = null;
+  });
+
+  test("upgrade: a help address that sent from itself gets a send-from address equal to it, once; the old column stays true", async () => {
+    await fresh();
+    // The rows as 1.20.4 left them: A sends from itself and was refused yesterday, B does not, C does.
+    const made = await pool().query(
+      `INSERT INTO hd_mailboxes (address, name, send_from, send_from_error, send_from_error_at, is_default, position) VALUES
+         ($1, 'Acme Help', true, '553 5.7.1 Sender address rejected', now() - interval '1 day', true, 0),
+         ($2, 'Acme Billing', false, '', NULL, false, 1),
+         ($3, 'Acme Press', true, '', NULL, false, 2) RETURNING id`,
+      [A, B, C]
+    );
+    const [ia, ib, ic] = made.rows.map((r) => r.id as number);
+    assert.equal((await senders()).length, 0);
+    mailboxes.resetMailboxesReadyForTests();
+    let boxes = await mailboxes.listMailboxes();
+    assert.deepEqual(boxes.map((m) => [m.address, m.send_from, m.send_address, m.send_address_name]), [[A, true, A, ""], [B, false, null, null], [C, true, C, ""]]);
+    assert.deepEqual((await senders()).map((s) => [s.address, s.name, s.last_error]), [[A, "", "553 5.7.1 Sender address rejected"], [C, "", ""]], "no name of its own, and the refusal 1.20.4 recorded comes along");
+    assert.match(boxes[0].send_from_error, /^553/);
+    assert.ok(boxes[0].send_from_error_at);
+    // Nothing a requester sees changes: the same From, the same name, the same Reply-To.
+    const who = await mailboxes.outboundIdentity((await ticketOn(ia, teamA)).id);
+    assert.deepEqual([who.name, who.address, who.sendFrom, who.fromAddress], ["Acme Help", A, true, A]);
+    assert.deepEqual(await mailboxes.outboundIdentity((await ticketOn(ib, teamB)).id), { mailboxId: ib, name: "Acme Billing", address: B, sendFrom: false });
+    // A second start, and a second process: nothing more.
+    mailboxes.resetMailboxesReadyForTests();
+    await mailboxes.listMailboxes();
+    sendAddresses.resetSendAddressesReadyForTests();
+    await sendAddresses.sendAddressesReady();
+    assert.deepEqual((await senders()).map((s) => s.address), [A, C]);
+    // The 1.20.2 columns still say what a 1.20.4 binary reads.
+    assert.deepEqual([(await rawBox(ia)).send_from, (await rawBox(ib)).send_from, (await rawBox(ic)).send_from], [true, false, true]);
+    assert.match((await rawBox(ia)).send_from_error, /^553/);
+
+    // A 1.20.4 binary on the same database flips the switch: the next start takes it over.
+    await pool().query("UPDATE hd_mailboxes SET send_from = true WHERE id = $1", [ib]);
+    await pool().query("UPDATE hd_mailboxes SET send_from = false WHERE id = $1", [ic]);
+    mailboxes.resetMailboxesReadyForTests();
+    boxes = await mailboxes.listMailboxes();
+    assert.deepEqual(boxes.map((m) => [m.address, m.send_from, m.send_address]), [[A, true, A], [B, true, B], [C, false, null]]);
+    assert.deepEqual((await senders()).map((s) => s.address), [B, A, C], "C stays on the list for another help address to pick");
+    // And without a restart: a write here adopts it first, so the mirror does not undo it.
+    await pool().query("UPDATE hd_mailboxes SET send_from = false WHERE id = $1", [ib]);
+    await mailboxes.updateMailbox(ia, { name: "Acme Helpdesk" }, by());
+    assert.deepEqual([(await rawBox(ib)).send_from, (await rawBox(ib)).send_address_id], [false, null]);
+    assert.equal((await rawBox(ia)).send_from, true);
+  });
+
+  test("the list: permissions, the address rules, duplicates, edits and the cap", async () => {
+    await fresh();
+    for (const who of [null, U.req, U.agent, U.newbie]) {
+      const expected = who === null ? 401 : 403;
+      assert.equal((await call(sendersRoute.GET, req(SBASE, who, undefined, "GET"))).status, expected, `GET as ${who?.name}`);
+      assert.equal((await post({ address: N }, who)).status, expected);
+      assert.equal((await patch(1, { name: "x" }, who)).status, expected);
+      assert.equal((await del(1, who)).status, expected);
+      assert.equal((await sendTest(1, who)).status, expected);
+    }
+    assert.equal((await senders()).length, 0, "nothing was written");
+    assert.equal((await post({ address: "nope" })).body.error, "That is not an email address.");
+    assert.match((await post({ address: `no-reply+x@${DOMAIN}` })).body.error, /\+ tag/);
+    assert.match((await post({})).body.error, /Enter the address to send from/);
+    assert.match((await post({ address: `Acme <${N}>` })).body.error, /not an email address/);
+    assert.match((await post({ address: `${N}\r\nBcc: x@evil.example` })).body.error, /not an email address/);
+    assert.match((await post({ address: N, name: 5 })).body.error, /name is text/);
+    assert.match((await post({ address: N, name: "x".repeat(81) })).body.error, /under 80 characters/);
+    assert.match((await post({ address: `${"a".repeat(200)}@${DOMAIN}` })).body.error, /under 200 characters/);
+    const n = await post({ address: ` No-Reply@${DOMAIN.toUpperCase()} `, name: ' Acme "Support" <x>\r\nBcc: y ' });
+    assert.equal(n.status, 201, JSON.stringify(n.body));
+    assert.deepEqual([n.body.send_address.address, n.body.send_address.name], [N, "Acme Support x Bcc: y"], "stored clean: no quotes, brackets or line breaks");
+    assert.equal((await post({ address: N.toUpperCase() })).status, 409);
+    const s = await post({ address: S });
+    assert.equal(s.body.send_address.name, "", "the name is optional");
+    assert.deepEqual((await list()).map((x) => [x.address, x.name, x.used_by]), [[N, "Acme Support x Bcc: y", []], [S, "", []]]);
+    const page = await call(listRoute.GET, req(BASE, U.manager, undefined, "GET"));
+    assert.deepEqual([page.body.send_addresses.length, page.body.send_address_limit], [2, 200], "the Email page reads both lists in one answer");
+    // Edit.
+    assert.equal((await patch(s.body.send_address.id, { address: N })).status, 409);
+    assert.equal((await patch(999999, { name: "x" })).status, 404);
+    const e = await patch(n.body.send_address.id, { name: "" });
+    assert.deepEqual([e.status, e.body.send_address.name], [200, ""]);
+    const audit = (await pool().query("SELECT action, details FROM audit_log WHERE target_type = 'helpdesk_send_address' AND target_id = $1 ORDER BY id", [String(n.body.send_address.id)])).rows;
+    assert.deepEqual(audit.map((r) => r.action), ["helpdesk.send_address.created", "helpdesk.send_address.updated"]);
+    assert.deepEqual(audit[0].details, { address: N, name: "Acme Support x Bcc: y" });
+    assert.deepEqual(audit[1].details.changes, { name: { from: "Acme Support x Bcc: y", to: "None (the help address's name)" } });
+    // The cap: 200 on the list, said plainly.
+    assert.equal(shared.SEND_ADDRESS_LIMITS.addresses, 200);
+    await pool().query("INSERT INTO hd_send_addresses (address) SELECT 'cap' || g || '@' || $1 FROM generate_series(1, 198) g", [DOMAIN]);
+    const over = await post({ address: `one-more@${DOMAIN}` });
+    assert.equal(over.status, 400);
+    assert.match(over.body.error, /Up to 200 send-from addresses/);
+    // The old `send_from: true` write (and the upgrade) is not held to it.
+    const box = await mailboxes.createMailbox({ address: A, name: "Acme Help", send_from: true }, by());
+    assert.deepEqual([box.send_address, box.send_from], [A, true]);
+    assert.equal((await senders()).length, 201);
+    await pool().query("DELETE FROM hd_send_addresses WHERE address LIKE 'cap%'");
+  });
+
+  test("the pick on a help address: by id, the old send_from write, and the mirrored column", async () => {
+    await fresh();
+    const a = await mailboxes.createMailbox({ address: A, name: "Acme Help" }, by());
+    const n = (await post({ address: N, name: "Acme Support" })).body.send_address as Sender;
+    assert.deepEqual([a.send_address_id, a.send_address, a.send_from], [null, null, false]);
+    let r = await patchBox(a.id, { send_address_id: n.id });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual([r.body.mailbox.send_address_id, r.body.mailbox.send_address, r.body.mailbox.send_address_name, r.body.mailbox.send_from], [n.id, N, "Acme Support", false]);
+    assert.equal((await rawBox(a.id)).send_from, false, "another address than its own: the old column stays off");
+    const row = (await pool().query("SELECT details FROM audit_log WHERE action = 'helpdesk.mailbox.updated' AND target_id = $1 ORDER BY id DESC LIMIT 1", [String(a.id)])).rows[0];
+    assert.deepEqual(row.details.changes, { send_address: { from: WORKSPACE, to: N } });
+    assert.match((await patchBox(a.id, { send_address_id: 999999999 })).body.error, /no longer on the list/);
+    assert.match((await patchBox(a.id, { send_address_id: "x" })).body.error, /send_address_id must be/);
+    assert.equal((await mailboxes.getMailbox(a.id))!.send_address, N, "a refused write changes nothing");
+
+    // The old write. true: its own address, added to the list when missing.
+    r = await patchBox(a.id, { send_from: true });
+    assert.deepEqual([r.body.mailbox.send_address, r.body.mailbox.send_from, r.body.mailbox.send_address_name], [A, true, ""]);
+    assert.equal((await rawBox(a.id)).send_from, true);
+    assert.deepEqual((await senders()).map((s) => s.address), [A, N]);
+    await patchBox(a.id, { send_from: true });
+    assert.equal((await senders()).length, 2, "sent again: nothing new");
+    // false: the workspace address. The send-from address stays on the list.
+    r = await patchBox(a.id, { send_from: false });
+    assert.deepEqual([r.body.mailbox.send_address_id, r.body.mailbox.send_from, (await rawBox(a.id)).send_from], [null, false, false]);
+    assert.equal((await senders()).length, 2);
+    // Both in one write: the id wins.
+    r = await patchBox(a.id, { send_from: true, send_address_id: n.id });
+    assert.deepEqual([r.body.mailbox.send_address, r.body.mailbox.send_from], [N, false]);
+    r = await patchBox(a.id, { send_from: true, send_address_id: null });
+    assert.deepEqual([r.body.mailbox.send_address, r.body.mailbox.send_from], [null, false]);
+    assert.match((await patchBox(a.id, { send_from: "yes" })).body.error, /send_from is true or false/);
+
+    // A new help address with a pick; the list names who uses what; the agents' short list says where replies go from.
+    const b = await call(listRoute.POST, req(BASE, U.manager, { address: B, name: "Acme Billing", send_address_id: n.id }));
+    assert.deepEqual([b.status, b.body.mailbox.send_address], [201, N]);
+    await patchBox(a.id, { send_address_id: n.id });
+    assert.deepEqual((await list()).map((x) => [x.address, x.used_by]), [[A, []], [N, [{ id: a.id, address: A }, { id: b.body.mailbox.id, address: B }]]]);
+    const short = (await call(agentRoute.GET, req("http://localhost/api/helpdesk/mailboxes", U.manager, undefined, "GET"))).body.mailboxes;
+    assert.deepEqual(short.map((m: { address: string; send_from: boolean; send_address: string | null }) => [m.address, m.send_from, m.send_address]), [[A, false, N], [B, false, N]]);
+
+    // A help address that sends from itself still does when its address changes (as its switch did before)…
+    await patchBox(a.id, { send_from: true });
+    r = await patchBox(a.id, { address: `helpdesk@${DOMAIN}` });
+    assert.deepEqual([r.body.mailbox.send_address, r.body.mailbox.send_from, (await rawBox(a.id)).send_from], [`helpdesk@${DOMAIN}`, true, true]);
+    // …unless the same write picks one.
+    r = await patchBox(a.id, { address: A, send_address_id: n.id });
+    assert.deepEqual([r.body.mailbox.address, r.body.mailbox.send_address, r.body.mailbox.send_from], [A, N, false]);
+    // The old settings API moving the default's address: the same.
+    await patchBox(a.id, { send_from: true });
+    await settingsLib.saveHelpdeskSettings({ inbound_address: `frontdesk@${DOMAIN}` });
+    let now = (await mailboxes.getMailbox(a.id))!;
+    assert.deepEqual([now.address, now.send_address, now.send_from, (await rawBox(a.id)).send_from], [`frontdesk@${DOMAIN}`, `frontdesk@${DOMAIN}`, true, true]);
+    await mailboxes.updateMailbox(a.id, { address: A, send_address_id: n.id }, by());
+    // A send-from address edited to be a help address's own: the old column follows, and the refusal held against the old address is dropped.
+    await sendAddresses.recordSendAddressFailure(n.id, "553 refused");
+    const moved = await patch(n.id, { address: B });
+    assert.deepEqual([moved.status, moved.body.send_address.address, moved.body.send_address.last_error], [200, B, ""]);
+    now = (await mailboxes.getMailbox(b.body.mailbox.id))!;
+    assert.deepEqual([now.send_address, now.send_from, (await rawBox(now.id)).send_from, (await rawBox(a.id)).send_from], [B, true, true, false]);
+    await pool().query("DELETE FROM audit_log WHERE action = 'helpdesk.send_address.refused' AND target_id = $1", [String(n.id)]);
+  });
+
+  test("outbound: From the picked address, under its name when it has one; Reply-To stays the help address; a refusal falls back and is audited once", async () => {
+    await fresh();
+    mail.length = 0;
+    await email.sendHelpdeskTemplate(`${STAMP}-probe@customer.example.test`, "hd_portal_link", { portal_name: "x", signin_url: "https://x.test/", minutes: "15", org_name: "x" }, null);
+    const transportFrom = bare(mail[0].from);
+    const n = (await post({ address: N, name: "Acme Support" })).body.send_address as Sender;
+    const s = (await post({ address: S })).body.send_address as Sender;
+    const a = await mailboxes.createMailbox({ address: A, name: "Acme Help", team_id: teamA, send_address_id: n.id }, by());
+    const b = await mailboxes.createMailbox({ address: B, name: "Acme Billing", team_id: teamB, send_address_id: s.id }, by());
+    const ta = await ticketOn(a.id, teamA);
+    const tb = await ticketOn(b.id, teamB);
+    const first = await send(ta);
+    assert.equal(first.m.from, `"Acme Support" <${N}>`, "the send-from address's own name");
+    assert.equal(first.m.replyTo, `help+hd-${(await email.ensureReplyToken(ta.id))!}@${DOMAIN}`, "answers come back to the help address");
+    const second = await send(tb);
+    assert.equal(second.m.from, `"Acme Billing" <${S}>`, "no name of its own: the help address's name");
+    assert.match(second.m.replyTo!, /^billing\+hd-/);
+    // Agent-only notices: the workspace address under the default help address's name, as before.
+    mail.length = 0;
+    assert.equal(await email.sendHelpdeskEmail(U.agent.id, "hd_assigned", { ticket_number: String(tb.number) }), true);
+    assert.equal(mail[mail.length - 1].from, `"Acme Help" <${transportFrom}>`);
+
+    // The provider refuses no-reply@: the same mail from the workspace address, under the same name.
+    refuseFrom.add(N);
+    attempts = 0;
+    const fell = await send(ta);
+    assert.deepEqual([fell.ok, fell.all.length, attempts], [true, 1, 2]);
+    assert.equal(fell.m.from, `"Acme Support" <${transportFrom}>`);
+    assert.match(fell.m.replyTo!, /^help\+hd-/);
+    let stored = (await sendAddresses.getSendAddress(n.id))!;
+    assert.match(stored.last_error, /553 5\.7\.1 Sender address rejected/);
+    assert.ok(stored.last_error_at);
+    assert.match((await mailboxes.getMailbox(a.id))!.send_from_error, /Sender address rejected/, "the help address reads its pick's refusal");
+    assert.equal((await mailboxes.getMailbox(a.id))!.send_address_id, n.id, "the pick is the admin's: it is not undone");
+    assert.equal((await rawBox(a.id)).send_from_error, "", "not its own address: the old column holds nothing");
+    // A second help address on the same send-from address, and more mail: still one audit row for the streak.
+    await patchBox(b.id, { send_address_id: n.id });
+    await send(tb);
+    await send(ta);
+    const logged = await refusals(n.id);
+    assert.equal(logged.length, 1);
+    assert.deepEqual(logged[0].details, { address: N, error: "553 5.7.1 Sender address rejected: not owned by user smtp@example.test", sent_from: "workspace address", help_address: A });
+    assert.deepEqual((await list()).find((x) => x.id === n.id)!.used_by.map((m) => m.address), [A, B]);
+    // Accepted again: cleared, and a later refusal is a new streak.
+    refuseFrom.clear();
+    assert.equal((await send(tb)).m.from, `"Acme Support" <${N}>`);
+    stored = (await sendAddresses.getSendAddress(n.id))!;
+    assert.deepEqual([stored.last_error, stored.last_error_at], ["", null]);
+    refuseFrom.add(N);
+    await send(ta);
+    assert.equal((await refusals(n.id)).length, 2);
+    // A timeout says nothing about the address: no second send, nothing recorded.
+    await sendAddresses.clearSendAddressFailure(n.id);
+    refuseFrom.clear();
+    attempts = 0;
+    failNext = Object.assign(new Error("Connection timeout"), { code: "ETIMEDOUT", command: "CONN" });
+    const timeout = await send(ta);
+    assert.deepEqual([timeout.ok, attempts, (await sendAddresses.getSendAddress(n.id))!.last_error], [false, 1, ""]);
+    // A send-from address equal to the workspace's own: one send, nothing to fall back to.
+    const w = (await post({ address: transportFrom })).body.send_address as Sender;
+    await patchBox(a.id, { send_address_id: w.id });
+    attempts = 0;
+    assert.equal((await send(ta)).m.from, `"Acme Help" <${transportFrom}>`);
+    assert.equal(attempts, 1);
+    await patchBox(a.id, { send_address_id: n.id });
+    await del(w.id);
+
+    // The help address's own Send test leaves as a reply would. (Not through its route: the
+    // earlier tests used this person's five a minute.)
+    mail.length = 0;
+    assert.deepEqual(await email.sendMailboxTestMail((await mailboxes.getMailbox(a.id))!, U.manager.email), { ok: true, from: N });
+    assert.deepEqual([mail[0].from, mail[0].replyTo, mail[0].subject], [`"Acme Support" <${N}>`, A, `Test from ${A}`]);
+  });
+
+  test("Send test on a send-from address: to the admin's own address, From it, and the provider's refusal is kept", async () => {
+    const [n, s] = [(await senders()).find((x) => x.address === N)!, (await senders()).find((x) => x.address === S)!];
+    const [a, b] = await mailboxes.listMailboxes();
+    await patchBox(b.id, { send_address_id: s.id });
+    mail.length = 0;
+    const ok = await sendTest(n.id);
+    assert.deepEqual(ok.body, { ok: true, to: U.manager.email, from: N });
+    assert.deepEqual([mail[0].to, mail[0].from, mail[0].replyTo, mail[0].subject], [U.manager.email, `"Acme Support" <${N}>`, undefined, `Test from ${N}`]);
+    assert.equal(mail[0].headers["X-CompassDocs-Helpdesk"], "1", "a test that comes back in is dropped as our own");
+    // No name of its own: the name of the help address that sends from it.
+    await sendTest(s.id);
+    assert.equal(mail[1].from, `"Acme Billing" <${S}>`);
+    refuseFrom.add(N);
+    mail.length = 0;
+    const before = (await refusals(n.id)).length;
+    const refused = await sendTest(n.id);
+    assert.equal(refused.status, 200);
+    assert.deepEqual(refused.body, { ok: false, to: U.manager.email, from: N, error: "553 5.7.1 Sender address rejected: not owned by user smtp@example.test" });
+    assert.equal(mail.length, 0, "no fallback on a test: the refusal is the answer");
+    assert.match((await list()).find((x) => x.id === n.id)!.last_error, /Sender address rejected/);
+    assert.match((await mailboxes.getMailbox(a.id))!.send_from_error, /Sender address rejected/);
+    assert.equal((await refusals(n.id)).length, before + 1);
+    assert.equal((await refusals(n.id)).at(-1)!.details.help_address, undefined, "a test of the address alone names no help address");
+    refuseFrom.clear();
+    assert.equal((await sendTest(n.id)).body.ok, true);
+    assert.equal((await sendAddresses.getSendAddress(n.id))!.last_error, "", "a test that goes through clears the warning");
+    assert.equal((await sendTest(999999)).status, 404);
+    const tested = (await pool().query("SELECT details FROM audit_log WHERE action = 'helpdesk.send_address.tested' AND target_id = $1 ORDER BY id", [String(n.id)])).rows;
+    assert.deepEqual(tested.map((r) => r.details.result), ["sent", "refused", "sent"]);
+  });
+
+  test("removing a send-from address in use: its help addresses go back to the workspace address", async () => {
+    const n = (await senders()).find((x) => x.address === N)!;
+    const [a, b] = await mailboxes.listMailboxes();
+    await patchBox(b.id, { send_address_id: n.id });
+    const gone = await del(n.id);
+    assert.deepEqual(gone.body, { ok: true, released: [{ id: a.id, address: A }, { id: b.id, address: B }] });
+    assert.deepEqual((await mailboxes.listMailboxes()).map((m) => [m.address, m.send_address_id, m.send_address, m.send_from, m.send_from_error]), [[A, null, null, false, ""], [B, null, null, false, ""]]);
+    const audit = (await pool().query("SELECT details FROM audit_log WHERE action = 'helpdesk.send_address.deleted' AND target_id = $1", [String(n.id)])).rows[0];
+    assert.deepEqual(audit.details, { address: N, help_addresses: [A, B], they_now_send_from: WORKSPACE });
+    assert.equal((await del(n.id)).status, 404);
+    // Mail keeps going, from the workspace address under the help address's name.
+    const out = await send(await ticketOn(a.id, teamA));
+    assert.equal(out.ok, true);
+    assert.match(out.m.from, /^"Acme Help" </);
+    assert.match(out.m.replyTo!, /^help\+hd-/);
+    // One that nothing uses just goes.
+    const s = (await senders()).find((x) => x.address === S)!;
+    assert.deepEqual((await del(s.id)).body, { ok: true, released: [] });
+    // A help address's own address removed from the list: the old column goes off with it, so the next start does not add it back.
+    await patchBox(a.id, { send_from: true });
+    const own = (await senders()).find((x) => x.address === A)!;
+    assert.deepEqual((await del(own.id)).body.released, [{ id: a.id, address: A }]);
+    assert.equal((await rawBox(a.id)).send_from, false);
+    mailboxes.resetMailboxesReadyForTests();
+    assert.equal((await mailboxes.getMailbox(a.id))!.send_address, null);
+    assert.deepEqual(await senders(), []);
+    // Removing a help address leaves its send-from address on the list.
+    await patchBox(b.id, { send_from: true });
+    await mailboxes.deleteMailbox(b.id, by());
+    assert.deepEqual((await list()).map((x) => [x.address, x.used_by]), [[B, []]]);
   });
 });

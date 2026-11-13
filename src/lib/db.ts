@@ -34,6 +34,7 @@ import { HD_APPEARANCE_SCHEMA } from "./helpdesk/appearance-schema";
 import { HD_SHARE_SCHEMA } from "./helpdesk/share-schema";
 import { HD_CLAUDE_SCHEMA } from "./helpdesk/claude-schema";
 import { HD_MAILBOXES_SCHEMA } from "./helpdesk/mailboxes-schema";
+import { HD_SOLVE_REQUIREMENTS_SCHEMA } from "./helpdesk/solve-requirements-schema";
 import { createHash, randomBytes } from "node:crypto";
 import { SEED_SPACES, SEED_DOCS } from "./seed-data";
 import { hashPassword } from "./password";
@@ -510,6 +511,30 @@ const SCHEMA_SQL = `
   -- Device metadata for the "active sessions" account page.
   ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip text;
   ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_agent text;
+
+  -- The Duo sign-in check (1.20.5, lib/duo-policy): when this session last
+  -- passed the step and how ('duo', or 'duo_unreachable' when Duo was down and
+  -- the workspace lets people through), and when a bypass-list account's
+  -- session was first seen (so the bypass is audited once, not per request).
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS mfa_at timestamptz;
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS mfa_method text;
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS mfa_bypass_at timestamptz;
+  -- One in-flight Duo step (1.20.5): the state and nonce sent to Duo, bound to
+  -- the session that started it. Keyed on a hash of the state; a row is deleted
+  -- when its callback arrives (single use) and goes with its session.
+  CREATE TABLE IF NOT EXISTS duo_states (
+    state_hash text PRIMARY KEY,
+    session_token text NOT NULL REFERENCES sessions(token) ON DELETE CASCADE,
+    nonce text NOT NULL,
+    username text NOT NULL,
+    purpose text NOT NULL DEFAULT 'signin',
+    return_to text NOT NULL DEFAULT '/',
+    redirect_uri text NOT NULL,
+    config_rev text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    expires_at timestamptz NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_duo_states_session ON duo_states(session_token);
 
   -- TOTP two-factor auth: secret + hashed one-time recovery codes.
   ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret text;
@@ -2354,6 +2379,8 @@ const SCHEMA_SQL = `
   ${HD_CLAUDE_SCHEMA}
   -- Several help addresses: hd_mailboxes, hd_tickets.mailbox_id (1.20.2, lib/helpdesk/mailboxes-schema; after hd_teams, hd_tickets).
   ${HD_MAILBOXES_SCHEMA}
+  -- "Before you solve" requirement sets and a ticket's answers (1.20.5, lib/helpdesk/solve-requirements-schema; after hd_tickets).
+  ${HD_SOLVE_REQUIREMENTS_SCHEMA}
   --- end Helpdesk 1.19.0 ---------------------------------------------------
   ${EMAIL_PARTS_SCHEMA}
   ${NOTIFY_POLICY_SCHEMA}
@@ -4968,6 +4995,9 @@ const SENSITIVE_SETTINGS = new Set([
   // Google Workspace service-account key (the whole JSON, including its
   // private_key). Sealed for the same reason and auto-sealed on next boot.
   "directory_google_service_account",
+  // The Duo application's client secret (1.20.5): it signs and verifies every
+  // Duo token, so it is sealed like sso_client_secret.
+  "duo_client_secret",
 ]);
 
 export async function getSetting(key: string): Promise<string | undefined> {
@@ -16274,19 +16304,100 @@ export async function consumeRecoveryCode(userId: number, codeHash: string): Pro
   return (res.rowCount ?? 0) > 0;
 }
 
+/** What the session row itself says, beside its user (1.20.5: the Duo step's columns). */
+export interface SessionFacts {
+  expires_at: string;
+  mfa_at: string | null;
+  mfa_method: string | null;
+  mfa_bypass_at: string | null;
+}
+
 export async function getSessionUser(
   token: string
-): Promise<(User & { expires_at: string }) | undefined> {
+): Promise<(User & SessionFacts) | undefined> {
   const cols = USER_COLUMNS.split(",")
     .map((c) => "u." + c.trim())
     .join(", ");
   return (
-    await q<User & { expires_at: string }>(
-      `SELECT ${cols}, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id
+    await q<User & SessionFacts>(
+      `SELECT ${cols}, s.expires_at, s.mfa_at, s.mfa_method, s.mfa_bypass_at
+       FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token = $1 AND s.expires_at > now() AND u.status = 'active'`,
       [sessionKey(token)]
     )
   )[0];
+}
+
+// --- The Duo sign-in check (1.20.5) -------------------------------------------
+
+/** Record that this session passed the Duo step now. False when the session is gone. */
+export async function markSessionMfa(token: string, method: "duo" | "duo_unreachable"): Promise<boolean> {
+  const r = await q("UPDATE sessions SET mfa_at = now(), mfa_method = $2 WHERE token = $1 AND expires_at > now() RETURNING 1", [
+    sessionKey(token),
+    method,
+  ]);
+  return r.length > 0;
+}
+
+/** Note a bypass-list account's session the first time it is seen. True exactly once per session, so the audit row is written once. */
+export async function markSessionBypassSeen(token: string): Promise<boolean> {
+  const r = await q("UPDATE sessions SET mfa_bypass_at = now() WHERE token = $1 AND mfa_bypass_at IS NULL RETURNING 1", [
+    sessionKey(token),
+  ]);
+  return r.length > 0;
+}
+
+export interface DuoStateRow {
+  nonce: string;
+  username: string;
+  purpose: "signin" | "test";
+  return_to: string;
+  redirect_uri: string;
+  config_rev: string;
+  /** Did the session that started the step send this callback? */
+  same_session: boolean;
+  expired: boolean;
+}
+
+function duoStateKey(state: string): string {
+  return createHash("sha256").update(state).digest("hex");
+}
+
+/** Remember one in-flight Duo step for `token`'s session. Older steps of the same session and anything expired are dropped. */
+export async function saveDuoState(input: {
+  state: string;
+  token: string;
+  nonce: string;
+  username: string;
+  purpose: "signin" | "test";
+  returnTo: string;
+  redirectUri: string;
+  configRev: string;
+  ttlSeconds: number;
+}): Promise<void> {
+  const key = sessionKey(input.token);
+  await q("DELETE FROM duo_states WHERE expires_at < now() OR session_token = $1", [key]);
+  await q(
+    `INSERT INTO duo_states (state_hash, session_token, nonce, username, purpose, return_to, redirect_uri, config_rev, expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now() + make_interval(secs => $9))`,
+    [duoStateKey(input.state), key, input.nonce, input.username, input.purpose, input.returnTo, input.redirectUri, input.configRev, input.ttlSeconds]
+  );
+}
+
+/**
+ * Take the step a callback's `state` names. The row is deleted whatever
+ * happens next, so a state works once: a replay finds nothing. The caller
+ * refuses a row from another session or past its time.
+ */
+export async function takeDuoState(state: string, token: string): Promise<DuoStateRow | undefined> {
+  const r = await q<Omit<DuoStateRow, "same_session"> & { session_token: string }>(
+    `DELETE FROM duo_states WHERE state_hash = $1
+     RETURNING session_token, nonce, username, purpose, return_to, redirect_uri, config_rev, (expires_at < now()) AS expired`,
+    [duoStateKey(state)]
+  );
+  if (!r[0]) return undefined;
+  const { session_token, ...row } = r[0];
+  return { ...row, same_session: session_token === sessionKey(token) };
 }
 
 /** Slide a session's expiry forward (sliding idle timeout). */

@@ -39,7 +39,35 @@ function keyFrom(label: string, taken: Set<string>): string {
   return k;
 }
 
-export function FormBuilder({ form, onChange }: { form: HdFormField[]; onChange: (next: HdFormField[]) => void }) {
+/**
+ * The words the builder uses, for a form that isn't a request form (1.20.5: the "Before you solve" closing
+ * fields, Desk settings → Before you solve). Left out, it reads as the request form's builder always has.
+ */
+export interface FormBuilderCopy {
+  /** "Question" (the default) or "Field": the card's label, as in "Question 2". */
+  noun?: string;
+  /** The line shown while there are none. */
+  empty?: string;
+  /** The label field's placeholder. */
+  placeholder?: string;
+  /** An option's placeholder. */
+  optionPlaceholder?: string;
+}
+
+export function FormBuilder({
+  form,
+  onChange,
+  copy,
+  max = 40,
+}: {
+  form: HdFormField[];
+  onChange: (next: HdFormField[]) => void;
+  copy?: FormBuilderCopy;
+  /** How many the form may hold (the request form's 40 by default). */
+  max?: number;
+}) {
+  const Noun = copy?.noun ?? "Question";
+  const noun = Noun.toLowerCase();
   const set = (i: number, p: Partial<HdFormField>) => onChange(form.map((f, j) => (j === i ? { ...f, ...p } : f)));
   const move = (i: number, dir: -1 | 1) => {
     const j = i + dir;
@@ -55,23 +83,23 @@ export function FormBuilder({ form, onChange }: { form: HdFormField[]; onChange:
 
   return (
     <div className="space-y-3">
-      {form.length === 0 && <SectionEmpty>No extra questions: people write a subject and a description.</SectionEmpty>}
+      {form.length === 0 && <SectionEmpty>{copy?.empty ?? "No extra questions: people write a subject and a description."}</SectionEmpty>}
       {form.map((f, i) => {
         const n = i + 1;
         const hasOptions = f.type === "choice" || f.type === "select";
         return (
           <fieldset key={i} className="rounded-lg border border-slate-200 p-3">
-            <legend className="sr-only">Question {n}</legend>
+            <legend className="sr-only">{Noun} {n}</legend>
             <div className="flex items-start gap-2">
               <span className="mt-7 w-5 shrink-0 text-right text-xs tabular-nums text-slate-500" aria-hidden>
                 {n}
               </span>
               <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
-                <Field label={`Question ${n}`}>
+                <Field label={`${Noun} ${n}`}>
                   <TextInput
                     value={f.label}
                     maxLength={200}
-                    placeholder="What do you need?"
+                    placeholder={copy?.placeholder ?? "What do you need?"}
                     onChange={(e) => {
                       const label = e.target.value;
                       // A brand-new question takes its key from its first label.
@@ -108,10 +136,10 @@ export function FormBuilder({ form, onChange }: { form: HdFormField[]; onChange:
                           <TextInput
                             dense
                             className="min-w-0 flex-1"
-                            aria-label={`Option ${oi + 1} of question ${n}`}
+                            aria-label={`Option ${oi + 1} of ${noun} ${n}`}
                             value={o.label}
                             maxLength={200}
-                            placeholder="Developer laptop"
+                            placeholder={copy?.optionPlaceholder ?? "Developer laptop"}
                             onChange={(e) => {
                               const opts = (f.options ?? []).slice();
                               const taken = new Set(opts.filter((_, j) => j !== oi).map((x) => x.value));
@@ -123,7 +151,7 @@ export function FormBuilder({ form, onChange }: { form: HdFormField[]; onChange:
                           <TextInput
                             dense
                             className="min-w-0 flex-1"
-                            aria-label={`Hint for option ${oi + 1} of question ${n}`}
+                            aria-label={`Hint for option ${oi + 1} of ${noun} ${n}`}
                             value={o.hint ?? ""}
                             maxLength={200}
                             placeholder="Hint (optional)"
@@ -137,7 +165,7 @@ export function FormBuilder({ form, onChange }: { form: HdFormField[]; onChange:
                             type="button"
                             disabled={(f.options ?? []).length <= 1}
                             onClick={() => set(i, { options: (f.options ?? []).filter((_, j) => j !== oi) })}
-                            aria-label={`Remove option ${oi + 1} of question ${n}`}
+                            aria-label={`Remove option ${oi + 1} of ${noun} ${n}`}
                             data-tt="Remove"
                             className={iconButtonClass("quiet", "sm")}
                           >
@@ -168,13 +196,13 @@ export function FormBuilder({ form, onChange }: { form: HdFormField[]; onChange:
                 </label>
               </div>
               <div className="flex shrink-0 flex-col gap-1">
-                <button type="button" disabled={i === 0} onClick={() => move(i, -1)} aria-label={`Move question ${n} up`} data-tt="Move up" className={iconButtonClass("quiet", "sm")}>
+                <button type="button" disabled={i === 0} onClick={() => move(i, -1)} aria-label={`Move ${noun} ${n} up`} data-tt="Move up" className={iconButtonClass("quiet", "sm")}>
                   <ArrowUp aria-hidden />
                 </button>
-                <button type="button" disabled={i === form.length - 1} onClick={() => move(i, 1)} aria-label={`Move question ${n} down`} data-tt="Move down" className={iconButtonClass("quiet", "sm")}>
+                <button type="button" disabled={i === form.length - 1} onClick={() => move(i, 1)} aria-label={`Move ${noun} ${n} down`} data-tt="Move down" className={iconButtonClass("quiet", "sm")}>
                   <ArrowDown aria-hidden />
                 </button>
-                <button type="button" onClick={() => onChange(form.filter((_, j) => j !== i))} aria-label={`Remove question ${n}`} data-tt="Remove" className={iconButtonClass("quiet", "sm", "hover-danger")}>
+                <button type="button" onClick={() => onChange(form.filter((_, j) => j !== i))} aria-label={`Remove ${noun} ${n}`} data-tt="Remove" className={iconButtonClass("quiet", "sm", "hover-danger")}>
                   <Trash2 aria-hidden />
                 </button>
               </div>
@@ -182,8 +210,8 @@ export function FormBuilder({ form, onChange }: { form: HdFormField[]; onChange:
           </fieldset>
         );
       })}
-      <Button variant="secondary" icon={<Plus />} onClick={add} disabled={form.length >= 40}>
-        Add question
+      <Button variant="secondary" icon={<Plus />} onClick={add} disabled={form.length >= max}>
+        Add {noun}
       </Button>
     </div>
   );

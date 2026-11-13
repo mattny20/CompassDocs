@@ -84,6 +84,8 @@ export const SETTINGS_CAP: Record<string, string[]> = {
   canned: ["macros.manage_all", "macros.manage_team", "macros.manage_personal"],
   // Checklists (1.19.2, agent W3, lib/helpdesk/checklists-caps).
   checklists: ["settings.manage", "request_types.manage", "workflows.manage"],
+  // "Before you solve" requirement sets (1.20.5, lib/helpdesk/solve-requirements).
+  "before-you-solve": ["settings.manage"],
   csat: ["csat.manage"],
   workflows: ["workflows.manage"],
   "contact-cards": ["settings.manage"],

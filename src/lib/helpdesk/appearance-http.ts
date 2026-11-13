@@ -9,8 +9,7 @@ import "server-only";
 // from the bytes.
 
 import { NextResponse } from "next/server";
-import { crossOriginRejection } from "../api-auth";
-import { getCurrentUser } from "../auth";
+import { apiSession, crossOriginRejection } from "../api-auth";
 import { deskArtUploadRateLimited } from "../rate-limit";
 import type { SessionUser } from "../types";
 import { helpdeskCapabilities, HD_LICENCE_ERROR } from "./access";
@@ -22,8 +21,8 @@ export async function deskUserGate(opts: { write?: boolean } = {}): Promise<Sess
     const cross = await crossOriginRejection();
     if (cross) return cross;
   }
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  const user = await apiSession("desk"); // 1.20.5: desk side, so the Duo desk rule applies
+  if (user instanceof NextResponse) return user;
   let caps: Awaited<ReturnType<typeof helpdeskCapabilities>>;
   try {
     caps = await helpdeskCapabilities(user);

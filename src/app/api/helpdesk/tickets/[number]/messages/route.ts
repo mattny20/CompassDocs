@@ -7,6 +7,12 @@
 //   internal note, optionally changing the status in the same step ("Send and
 //   mark solved"). → 201 { message, status, held }. A Newbie's public reply
 //   is held for a lead's review (held: true; lib/helpdesk/review).
+//   1.20.5 ("Before you solve", lib/helpdesk/solve-requirements): with a then_status that solves,
+//   `solve_answers` (closing answers by field key) and `solve_fields` ({ assignee_id?, team_id?,
+//   category?, tags? }, each needing its desk capability) are applied in the same transaction as the
+//   status. A ticket that would still need something answers 409 { error, code:
+//   "solve_requirements", missing } before anything is posted. A reply held for review changes no
+//   status, so it is never asked.
 // Helpdesk 1.19.0 (helpdesk.agent). 30 a minute per person.
 
 import { NextResponse } from "next/server";
@@ -60,6 +66,38 @@ export async function POST(req: Request, { params }: { params: Promise<{ number:
     const held = await checklists.checklistSolveRefusal(t.id);
     if (held) return NextResponse.json(held, { status: 409 });
   }
+  // 1.20.5: "Before you solve" requirement sets block it too, before anything is posted. The ticket fields the dialog
+  // set are checked as PATCH checks them; a public reply counts as the reply a set may require. A newbie's reply is
+  // held for review and changes no status, so nothing is asked of it.
+  let solve: { answers?: unknown; fields?: import("@/lib/helpdesk/solve-requirements").SolveFieldPatch } | undefined;
+  const solveReqs = await import("@/lib/helpdesk/solve-requirements");
+  if (solveReqs.solvesForRequirements(t.status, b.then_status as string | undefined)) {
+    let fields: import("@/lib/helpdesk/solve-requirements").SolveFieldPatch | undefined;
+    if (b.solve_fields !== undefined && b.solve_fields !== null) {
+      if (typeof b.solve_fields !== "object" || Array.isArray(b.solve_fields)) return badRequest("Send solve_fields as an object.");
+      const raw = b.solve_fields as Record<string, unknown>;
+      try {
+        const { validateTicketPatch } = await import("@/lib/helpdesk/tickets");
+        const p = validateTicketPatch({ assignee_id: raw.assignee_id, team_id: raw.team_id, category: raw.category, tags: raw.tags });
+        if (Object.keys(p).length) {
+          const { patchRefusal } = await import("@/lib/helpdesk/patch-caps");
+          const refused = await patchRefusal(gate, t, p);
+          if (refused) return NextResponse.json({ error: refused }, { status: 403 });
+          fields = p;
+        }
+      } catch (e) {
+        if (e instanceof HdTicketError) return badRequest(e.message);
+        throw e;
+      }
+    }
+    solve = { answers: b.solve_answers, fields };
+    const { prepareReply } = await import("@/lib/helpdesk/review");
+    const willHold = b.kind === "public" && (await prepareReply({ id: gate.id }, t, { kind: "public", asRequester: false })).review_state === "pending";
+    if (!willHold) {
+      const needs = await solveReqs.solveRequirementRefusal(t.id, { answers: solve.answers, patch: fields, replyPending: b.kind === "public" });
+      if (needs) return NextResponse.json({ error: needs.error, code: needs.code, missing: needs.missing }, { status: needs.status });
+    }
+  }
   // 1.19.1 collision warning (lib/helpdesk/presence): someone else's newer
   // message since expect_last_message_id → 409 { newer }, unless force.
   const collided = await collisionRefusal(t.id, gate.id, b);
@@ -79,12 +117,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ number:
         asRequester: false,
         attachments,
         then_status: b.then_status as never,
+        solve,
       },
       { origin: originOf(req) }
     );
   } catch (e) {
     // A merge committed meanwhile (re-checked under its lock): 409 naming the kept ticket.
-    if (e instanceof HdTicketError) return NextResponse.json({ error: e.message }, { status: e.status });
+    if (e instanceof HdTicketError) return NextResponse.json({ error: e.message, ...e.extra }, { status: e.status });
     throw e;
   }
   if (!res) return notFound();

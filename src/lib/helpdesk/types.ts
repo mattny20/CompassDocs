@@ -821,6 +821,10 @@ export interface HdTicketDetail {
   mailbox?: (import("./mailboxes-shared").HdTicketMailbox & { own: boolean }) | null;
   mailboxes?: import("./mailboxes-shared").HdMailboxOption[];
   can_change_mailbox?: boolean;
+  /** 1.20.5 (lib/helpdesk/solve-requirements): the "Before you solve" answers kept on the ticket; absent when there are none. */
+  solve_details?: import("./solve-requirements-shared").HdSolveDetail[];
+  /** 1.20.5: a switched-on requirement set matches this ticket, so the desk asks what a solve needs before it solves. */
+  before_solve?: boolean;
 }
 
 /** A requester-safe ticket: no internal fields (tags, assignee ids, SLA internals, tokens). */

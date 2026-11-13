@@ -937,6 +937,18 @@ forced password change (`/account/password`) share one shell (1.16.0).
 `/setup` and `/oauth/authorize` keep theirs for now; moving them is
 mechanical and comes later.
 
+- **The Duo step** (`/login/duo`, 1.20.5) is a sign-in surface too: the
+  same `AuthShell` and `AuthHeading` ("Confirm it's you", with one sentence
+  saying why), an `IdentifierRow` with **Sign out** so nobody is stuck on
+  it, and one primary button, "Continue with Duo"
+  (`components/auth/DuoStep`). A failure is a `notice-error` line above
+  the button and the button reads "Try again"; Duo being down is a state
+  of its own with its own heading, "Duo can't be reached". The step never
+  starts by itself: a prompt on someone's phone always follows a click.
+  Inside the desk the same step is offered by `DuoDeskPrompt`, a
+  `notice-warn` bar fixed at the top with one button that opens the step in
+  a **second tab**, so the screen the agent is working on is never
+  navigated away.
 - **`AuthShell` is the only auth shell** (`components/auth/AuthShell`,
   server-safe, styled by the `.auth-*` block in `globals.css`). From 64rem
   it is a **cover** beside a plain, card-less **form column**; below 64rem
@@ -4429,6 +4441,60 @@ live in `components/helpdesk/desk/checklists`.
 - Requesters, CCs and portal customers never see checklists: no
   requester route returns them and every timeline line is internal.
 
+## Helpdesk: before you solve
+
+Requirement sets (1.20.5, `lib/helpdesk/solve-requirements`). Components
+live in `components/helpdesk/desk/solve`. The words are **ticket**,
+**solve** and **Before you solve**; never "close a case".
+
+- **The settings page** (Desk settings → Before you solve,
+  `ClipboardCheck`) is the list-then-detail pattern (§Settings pages):
+  rows show the set's name, an **On** `ok` or **Off** `neutral` `sm`
+  chip, one facts line ("IT Support · 2 ticket fields · 3 closing
+  fields") and "Answered on 12 tickets" on the right from `sm`. **New
+  requirement set** asks for a name, creates the set switched off and
+  opens its page.
+- **A set's page** stacks four cards over one `SaveRow` ("Save
+  requirement set"): **Set** (Name, the On `Toggle`), **Applies to** (a
+  `Segmented` "All tickets" / "Chosen teams and request types", then the
+  checklist editor's bordered checkbox pills for teams and request
+  types), **On the ticket** (a hairline list of checkbox rows, each a
+  label and one help sentence; only the fields this install can meet are
+  offered) and **Closing fields** (the request form's `FormBuilder` with
+  `copy={{ noun: "Field", … }}`; never a second builder). Errors are
+  inline `text-xs text-red-600` under the card's control after the first
+  Save. Delete is the danger zone.
+- **The dialog** ("Before you solve #1047", `CircleCheck`, the solve
+  flow's promise-and-host recipe as `SolveMaintenance`) opens before any
+  request changes the ticket. Under the subject and one lede sentence:
+  an eyebrow **On the ticket** with a `Field` per missing ticket field
+  (a `Select` for Owner and Team, a `TextInput` for Category and Tag, a
+  search plus a hairline list with `sm` secondary **Link** buttons for an
+  asset, an input and a secondary **Log time**), then one eyebrow per set
+  with its closing fields drawn by the request form's `FormFieldControl`.
+  A setter that saves at once (Link, Log time) says so in its help line
+  and becomes a `Check` row ("Time logged. Logged 25m."); everything else
+  is saved by the primary. A requirement the dialog can't meet (a reply,
+  a field the role may not change) is a sentence saying what to do.
+  Errors are inline after the first submit, and a server refusal is a
+  `notice-error` line above the actions. The action row is sticky at the
+  bottom of the dialog's own scroll (`sticky bottom-0`, a top hairline),
+  Cancel then the primary, whose label says what happens: **Solve**, or
+  **Send and solve** from the composer. Cancel changes nothing and never
+  touches the composer's text.
+- **Solve details** is a side-panel card in the eyebrow tier, above
+  Properties, in the Request details recipe (`dt` `text-xs
+  text-slate-500`, `dd` `text-sm text-slate-800`), read-only, with one
+  `text-xs` line "Filled in by Ana 2h ago". With more than one set, each
+  set's name heads its answers in `text-xs font-semibold`.
+- **A refused solve** on a path that can't ask (bulk edit, the API, the
+  Claude connector, an automation) says "Before you solve, this ticket
+  needs: an owner, a linked asset, Resolution code and 2 more."
+  (`SOLVE_BLOCK_PREFIX`; ticket fields in lower case, closing fields as
+  named, up to four).
+- Requesters, CCs and portal customers never see the answers: no
+  requester route returns them and their timeline line is internal.
+
 ## Helpdesk: assets
 
 Assets on tickets (1.19.3; mock-ups i1 to i4). Snipe-IT is the source;
@@ -4896,7 +4962,8 @@ the image work in `appearance-upload`).
 
 ## Helpdesk: help addresses
 
-1.20.2 (`lib/helpdesk/mailboxes`, Desk settings → Email).
+1.20.2 (`lib/helpdesk/mailboxes`, Desk settings → Email); send-from
+addresses 1.20.5 (`lib/helpdesk/send-addresses`).
 
 - **The Addresses card is a list that acts at once.** A `padding="none"`
   `Card` with a secondary **Add address** in its header `actions` and a
@@ -4905,7 +4972,11 @@ the image work in `appearance-upload`).
   address has no spaces to wrap at), chips beside it (**Default** `info`,
   **Sends from this address** `accent`, both `sm`), a `text-xs
   text-slate-500` facts line ("Acme Billing · Billing · 12 tickets"; the
-  team reads "No team (use routing)" when none is mapped), and the row's
+  team reads "No team (use routing)" when none is mapped; it ends with
+  " · Sends from support@acme.com" when replies leave from another
+  address, as words and not a chip, because an address in a
+  `whitespace-nowrap` chip would push a phone sideways; the line carries
+  `[overflow-wrap:anywhere]` for the same reason), and the row's
   actions on the right, which wrap under the text on a phone: a secondary
   `sm` **Send test** with its words, then icon-only Edit and Remove
   (`iconButtonClass("quiet", "sm")`, one-word `data-tt`, the whole
@@ -4919,10 +4990,37 @@ the image work in `appearance-upload`).
   this name until a test goes through"). Send test answers with a toast:
   `ok` naming the recipient and the From it used, `error` with the
   provider's refusal verbatim.
+- **Two lists on one page, the second feeding the first's dialog**
+  (1.20.5). **Send-from addresses** is a second card of the same recipe
+  directly under **Addresses** (`id="send-from"`, its own secondary **Add
+  send-from address**, the same row and the same three actions), not a
+  page of its own: an item has two fields, and the help address dialog
+  picks from this list, so both must be in view together. Each row's
+  facts line says who uses it ("From name: Acme Support · Used by
+  help@acme.com and billing@acme.com", or "Not used by a help address"),
+  and its refusal is the same `ink-warn` line. The card's footer line
+  says where the mail goes through and what must be done at the provider
+  first. Two icon-only buttons of the same kind on one page name their
+  list in the `aria-label` ("Remove send-from address support@acme.com").
+  At the list's limit the Add button is disabled inside `Tooltip` ("Up to
+  200 send-from addresses."). Removing one that help addresses use is a
+  `confirmDialog({ danger: true })` that names them and says where they
+  go back to; one that nothing uses says so.
+- **A pick from a list kept on the same page** (1.20.5, "Send replies
+  from") is a `Select` in a `Field`: the first option is the default in
+  words ("The workspace address (notifications@acme.com)"), then one
+  option per item ("support@acme.com (Acme Support)"), then, only while
+  it applies, an option that adds the thing being typed ("billing@acme.com
+  (adds it to your send-from addresses)"). The help line says what the
+  pick changes and what it does not ("Answers always come back to this
+  help address…"), names a side effect of the chosen item first when it
+  has one ('Replies will be from "Acme Support"…'), and says where to
+  add more while the list is empty.
 - **The Add and Edit dialog** is a `Modal` with the token dialog's frame:
   Address, From name, Team (a `Select` whose first option is "No team
-  (use routing)"), then two `Toggle size="full"`s whose help says what on
-  and off each do in full sentences. A choice that cannot be changed here
+  (use routing)"), Send replies from (above), then a `Toggle
+  size="full"` whose help says what on and off do in full sentences. A
+  choice that cannot be changed here
   (the first address is the default; the default cannot be switched off)
   is a disabled `Toggle` whose help says how to change it, never a hidden
   control. Client rules mirror the server's (`mailboxAddressProblem`) and

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { apiGuard } from "@/lib/api-auth";
+import { apiGuard, mfaRequired } from "@/lib/api-auth";
+import { duoStandingOf } from "@/lib/auth";
+import { hasDeskSideAccess } from "@/lib/helpdesk/access";
 import { getUserById, setUserProfile, setUserAvatar } from "@/lib/db";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
@@ -10,6 +12,20 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Client resizes to ~128px before upload; 150k chars ≈ 110 KB binary.
 const AVATAR_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
 const AVATAR_MAX_CHARS = 150_000;
+
+/**
+ * Does the Duo check stand between this session and a change of its own
+ * email? Yes when a rule applies to the person (the sign-in rule, or the
+ * desk rule for someone with desk-side access) and the session has not
+ * really passed Duo: never asked, let through while Duo was down, or with
+ * a desk approval that has run out.
+ */
+async function duoBarsEmailChange(user: SessionUser): Promise<boolean> {
+  const duo = duoStandingOf(user);
+  if (!duo.enforced) return false;
+  if (!duo.rules.signIn && !(duo.rules.desk && (await hasDeskSideAccess(user)))) return false;
+  return !duo.realDuo || duo.verdict.desk;
+}
 
 // Self-service profile: display name + email (local accounts only — SSO and
 // SCIM keep the identity provider as the source of truth) and avatar (anyone).
@@ -43,6 +59,15 @@ export async function PATCH(req: Request) {
     }
     if (email !== "" && (email.length > 200 || !EMAIL_RE.test(email))) {
       return NextResponse.json({ error: "That email address doesn't look valid." }, { status: 400 });
+    }
+    // 1.20.5: the email is the name Duo knows this person by (lib/duo
+    // duoUsernameFor), so while a Duo rule applies to them it can only be
+    // changed from a session that has really passed Duo. Otherwise someone
+    // holding just the password could point the Duo request at an address
+    // of their own. An administrator changing someone else's email
+    // (Settings → Users) is not affected.
+    if (email !== me.email && (await duoBarsEmailChange(user))) {
+      return mfaRequired("Changing your email needs a Duo approval on this session first. Confirm with Duo, then try again.");
     }
     // An email signs in and is matched on (1.16.0), so it must not be one
     // another account already has, as its email or its username.

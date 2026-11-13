@@ -412,6 +412,8 @@ export async function anonymiseTicketTx(client: PoolClient, ticketId: number, no
   if (opt.has("hd_ticket_presence")) await client.query("DELETE FROM hd_ticket_presence WHERE ticket_id = $1", [ticketId]);
   // 1.19.2: checklist items may name the requester (agent W3, lib/helpdesk/checklists).
   await (await import("./checklists")).anonymiseChecklistsTx(client, ticketId);
+  // 1.20.5: "Before you solve" answers: free text and people's names go, as the form answers do; choices stay for reports (lib/helpdesk/solve-requirements).
+  await (await import("./solve-requirements")).anonymiseSolveAnswersTx(client, ticketId);
   // 1.19.2: an incident's own ticket: its updates, title and their audit copies (agent W1, lib/helpdesk/incidents).
   await (await import("./incidents")).anonymiseIncidentTx(client, ticketId, ANONYMISED_SUBJECT);
   // 1.19.3: which device the requester had is theirs too: the asset links go (lib/helpdesk/assets).

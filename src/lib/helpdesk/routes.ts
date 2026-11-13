@@ -4,7 +4,8 @@
 
 import "server-only";
 import { NextResponse } from "next/server";
-import { canWorkTicket, ticketRelation } from "./access";
+import { mfaRequired } from "../api-auth";
+import { canWorkTicket, deskDuoBarsTicket, ticketRelation } from "./access";
 import type { TicketRelation } from "./access";
 import { getTicketByNumber, parseTicketNumber } from "./tickets";
 import type { HdTicket } from "./types";
@@ -32,12 +33,16 @@ export async function loadTicketFor(
   if (!number) return notFound();
   const ticket = await getTicketByNumber(number);
   if (!ticket) return notFound();
+  // 1.20.5: someone who would reach the ticket as its agent, but whose
+  // session owes the desk its Duo approval, is told so (`mfa_required`)
+  // rather than "not found". Their own request, an approval or a CC still
+  // opens as before: canWorkTicket is what the Duo rule holds back.
   if (need === "work") {
-    if (!(await canWorkTicket(user, ticket))) return notFound();
+    if (!(await canWorkTicket(user, ticket))) return (await deskDuoBarsTicket(user, ticket)) ? mfaRequired() : notFound();
     return { ticket, relation: "agent" };
   }
   const relation = await ticketRelation(user, ticket);
-  if (!relation) return notFound();
+  if (!relation) return (await deskDuoBarsTicket(user, ticket)) ? mfaRequired() : notFound();
   return { ticket, relation };
 }
 

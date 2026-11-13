@@ -153,6 +153,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
           { href: "/admin/sso#oidc", label: "Microsoft Entra ID (OIDC)", keywords: "entra azure oidc tenant client secret" },
           { href: "/admin/sso#saml", label: "SAML 2.0", keywords: "saml idp metadata certificate okta" },
           { href: "/admin/sso#scim", label: "SCIM provisioning", keywords: "scim provisioning token entra users groups" },
+          { href: "/admin/sso#duo", label: "Duo sign-in check", keywords: "duo mfa 2fa two-factor multi-factor push universal prompt bypass break-glass desk" },
         ] },
       { href: "/admin/directory", label: "Directory", icon: BookUser, description: "People sync from Microsoft 365, attributes, and profiles.", keywords: "people microsoft 365 sync attributes profiles photos", permission: "directory.sync_manage", docs: "https://docs.compassdocs.io/guides/directory/", pages: [
           { href: "/admin/directory", label: "People", icon: Users, keywords: "people entries import csv" },

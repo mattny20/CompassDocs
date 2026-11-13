@@ -44,6 +44,7 @@ import { IncidentSideCards } from "../incidents/IncidentSideCards";
 import { ChecklistsSideCard } from "../checklists/TicketChecklists";
 import { TicketAssetsCard } from "../assets/TicketAssets";
 import { TicketLanguageRow } from "../skills/TicketLanguageRow";
+import { SolveDetailsCard } from "../solve/SolveDetails";
 
 interface Agent {
   user_id: number;
@@ -153,6 +154,9 @@ export function SidePanel({
 
       {/* Merged into / merged in (1.19.1, agent V2). */}
       <RelatedCard d={d} />
+
+      {/* The "Before you solve" answers kept on the ticket (1.20.5, solve/SolveDetails). */}
+      <SolveDetailsCard details={d.solve_details} />
 
       {/* Properties */}
       <section aria-label="Properties" className={`${CARD_CLASS} px-4 py-1`}>

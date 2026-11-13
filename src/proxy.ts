@@ -28,5 +28,10 @@ export const config = {
     // Pages only: everything except Next's own assets, static files with an
     // extension (favicon, images, fonts) and the API.
     "/((?!_next/|api/|.*\\.[a-zA-Z0-9]+$).*)",
+    // 1.20.5: and everything under /desk, extension or not. The Duo desk
+    // rule reads this header to know a page is a desk page (lib/auth
+    // requireUser), so "/desk/tickets/42.0" must not slip past the rule
+    // above and arrive with a header the client wrote itself.
+    "/desk/:path*",
   ],
 };

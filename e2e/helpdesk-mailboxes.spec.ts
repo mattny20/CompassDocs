@@ -10,8 +10,12 @@ import { ADMIN, api, ensureUser, login } from "./helpers";
 // receives), the agent changes "Answer from", and removing an address in
 // use says how many tickets move.
 //
-// The email settings, the mailboxes and the SMTP settings are workspace
-// state: written under the advisory locks the unit suites use for them
+// 1.20.5: "replies from the address itself" is the dialog's "Send replies
+// from" choice (the address, which adds it to the send-from list); the
+// send-from list has its own spec (e2e/helpdesk-send-addresses.spec.ts).
+//
+// The email settings, the mailboxes, the send-from addresses and the SMTP
+// settings are workspace state: written under the advisory locks the unit suites use for them
 // (728351 email settings, 728661 SMTP) and put back afterwards. Licensed rig
 // only (the helpdesk is Enterprise): skipped elsewhere.
 
@@ -108,6 +112,7 @@ test.describe("help addresses (licensed)", () => {
   let sink: { port: number; close: () => Promise<void> } | null = null;
   const saved = new Map<string, string | null>();
   let savedBoxes: Record<string, unknown>[] = [];
+  let savedSenders: Record<string, unknown>[] = [];
   let savedTickets: { id: number; mailbox_id: number }[] = [];
   const teams: number[] = [];
   const numbers: number[] = [];
@@ -126,13 +131,19 @@ test.describe("help addresses (licensed)", () => {
       for (const n of numbers) await db.query("DELETE FROM hd_tickets WHERE number = $1", [n]);
       await db.query("DELETE FROM hd_tickets WHERE requester_email = $1", [customer]);
       await db.query("DELETE FROM hd_mailboxes WHERE address = ANY($1)", [[HELP, BILLING]]);
+      await db.query("DELETE FROM hd_send_addresses WHERE address = ANY($1)", [[HELP, BILLING]]);
       for (const id of teams) await api(page, `/api/helpdesk/admin/teams/${id}`, { method: "DELETE" });
     } finally {
       await page.close();
     }
     // The workspace's own addresses, as found.
-    if (savedBoxes.length) {
+    if (savedBoxes.length || savedSenders.length) {
       await db.query("DELETE FROM hd_mailboxes");
+      await db.query("DELETE FROM hd_send_addresses");
+      for (const b of savedSenders) {
+        const cols = Object.keys(b);
+        await db.query(`INSERT INTO hd_send_addresses (${cols.join(", ")}) OVERRIDING SYSTEM VALUE VALUES (${cols.map((_, i) => `$${i + 1}`).join(", ")})`, cols.map((c) => b[c])).catch(() => undefined);
+      }
       for (const b of savedBoxes) {
         const cols = Object.keys(b);
         await db.query(`INSERT INTO hd_mailboxes (${cols.join(", ")}) OVERRIDING SYSTEM VALUE VALUES (${cols.map((_, i) => `$${i + 1}`).join(", ")})`, cols.map((c) => b[c])).catch(() => undefined);
@@ -147,7 +158,7 @@ test.describe("help addresses (licensed)", () => {
       "DELETE FROM role_assignments WHERE user_id = (SELECT id FROM users WHERE username = $1) AND role_id = (SELECT id FROM roles WHERE key = 'helpdesk-agent')",
       [AGENT.username]
     );
-    await db.query("DELETE FROM audit_log WHERE target_type = 'helpdesk_mailbox' AND target_label = ANY($1)", [[HELP, BILLING]]);
+    await db.query("DELETE FROM audit_log WHERE target_type IN ('helpdesk_mailbox', 'helpdesk_send_address') AND target_label = ANY($1)", [[HELP, BILLING]]);
     if (adminEmailSet) await db.query("UPDATE users SET email = '' WHERE username = $1 AND email = $2", [ADMIN.username, `e2e-admin-${stamp}@acme.example`]);
     for (const l of [...LOCKS].reverse()) await db.query("SELECT pg_advisory_unlock($1)", [l]);
     await db.end();
@@ -172,8 +183,10 @@ test.describe("help addresses (licensed)", () => {
     // The workspace's state this spec changes, kept for afterAll.
     for (const k of ["helpdesk_settings", "helpdesk_inbound_auth"]) await keep(k);
     savedBoxes = (await db.query("SELECT * FROM hd_mailboxes ORDER BY id")).rows;
+    savedSenders = (await db.query("SELECT * FROM hd_send_addresses ORDER BY id")).rows;
     savedTickets = (await db.query("SELECT id, mailbox_id FROM hd_tickets WHERE mailbox_id IS NOT NULL")).rows;
     await db.query("DELETE FROM hd_mailboxes");
+    await db.query("DELETE FROM hd_send_addresses");
     sink = await smtpSink();
     await setSetting("smtp_host", "127.0.0.1");
     await setSetting("smtp_port", String(sink.port));
@@ -215,7 +228,10 @@ test.describe("help addresses (licensed)", () => {
       await dialog.getByLabel("Address", { exact: true }).fill(address);
       await dialog.getByLabel("From name").fill(name);
       await dialog.getByRole("combobox", { name: "Team" }).selectOption({ label: team });
-      if (sendFrom) await dialog.getByRole("switch", { name: "Send replies from this address" }).click();
+      // 1.20.5: the switch became a choice. The address itself is offered until it is on the send-from list.
+      const from = dialog.getByRole("combobox", { name: "Send replies from" });
+      await expect(from).toHaveValue("");
+      if (sendFrom) await from.selectOption("own");
       await dialog.getByRole("button", { name: "Add address" }).click();
       await expect(dialog).toBeHidden({ timeout: 30_000 });
     }
@@ -229,6 +245,11 @@ test.describe("help addresses (licensed)", () => {
     await expect(rows.nth(1)).toContainText(BILLING);
     await expect(rows.nth(1)).toContainText("Sends from this address");
     await expect(rows.nth(1)).not.toContainText("Default");
+    // It is on the send-from list now, used by the address that picked it.
+    const senderRows = page.getByTestId("hd-send-address-row");
+    await expect(senderRows).toHaveCount(1);
+    await expect(senderRows.first()).toContainText(BILLING);
+    await expect(senderRows.first()).toContainText(`Used by ${BILLING}`);
     // The same address again is refused in the dialog, in the server's words.
     await page.getByRole("button", { name: "Add address" }).first().click();
     const dup = page.getByRole("dialog", { name: "Add address" });

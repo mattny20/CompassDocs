@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
 import { createApiToken, listApiTokens } from "@/lib/db";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { deskDoorRefusal } from "@/lib/helpdesk/access";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,12 @@ export async function POST(req: Request) {
   const gate = await apiGuard("viewer", "account.token_create");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
+  // 1.20.5: a token outlives the session and reaches the desk through the
+  // API and the connector, where Duo is never asked. So someone with
+  // desk-side access cannot mint one while their session owes the desk its
+  // Duo approval. Everyone else is unaffected.
+  const duo = await deskDoorRefusal(user);
+  if (duo) return duo;
 
   let body: any;
   try {

@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { createOAuthCode, getOAuthClient } from "@/lib/db";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { deskDoorRefusal } from "@/lib/helpdesk/access";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,14 @@ export async function POST(req: Request) {
     target.searchParams.set("error", "access_denied");
     return NextResponse.redirect(target, 303);
   }
+
+  // 1.20.5: approving hands the app a token that reaches the desk without
+  // Duo ever being asked again, so someone with desk-side access cannot
+  // approve while their session owes the desk its Duo approval. (The consent
+  // page sends them to the Duo step first; this is for a request that skips
+  // the page.)
+  const duo = await deskDoorRefusal(user);
+  if (duo) return duo;
 
   const challenge = get("code_challenge");
   if (!challenge || (get("code_challenge_method") || "S256") !== "S256") {

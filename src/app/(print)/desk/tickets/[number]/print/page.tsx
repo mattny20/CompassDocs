@@ -48,7 +48,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function TicketPrintPage({ params, searchParams }: Props) {
-  const user = await requireUser();
+  const user = await requireUser("desk"); // 1.20.5: a desk page outside the desk's layout, so it asks for the Duo desk rule itself
   if (user.must_change_password) {
     const back = safeReturnPath(await currentPagePath());
     redirect(back === "/" ? "/account/password" : `/account/password?next=${encodeURIComponent(back)}`);

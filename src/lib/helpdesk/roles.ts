@@ -24,8 +24,7 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { cache } from "react";
-import { crossOriginRejection } from "../api-auth";
-import { getCurrentUser } from "../auth";
+import { apiSession, crossOriginRejection } from "../api-auth";
 import { featureEnabled } from "../ee";
 import { userHolds } from "../access";
 import { getSetting, setSetting } from "../db";
@@ -229,8 +228,8 @@ export const HD_FORBIDDEN = "You don't have permission for that.";
 export async function hdCapGate(cap: HdCap, opts: { teamId?: number | null } = {}): Promise<SessionUser | NextResponse> {
   const cross = await crossOriginRejection();
   if (cross) return cross;
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  const user = await apiSession("desk"); // 1.20.5: desk side, so the Duo desk rule applies
+  if (user instanceof NextResponse) return user;
   if (!(await featureEnabled("helpdesk"))) return NextResponse.json({ error: "The helpdesk is not included in your licence." }, { status: 402 });
   let ok: boolean;
   try {
@@ -246,8 +245,8 @@ export async function hdCapGate(cap: HdCap, opts: { teamId?: number | null } = {
 export async function hdAnyCapGate(caps: HdCap[]): Promise<SessionUser | NextResponse> {
   const cross = await crossOriginRejection();
   if (cross) return cross;
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  const user = await apiSession("desk"); // 1.20.5: desk side, so the Duo desk rule applies
+  if (user instanceof NextResponse) return user;
   if (!(await featureEnabled("helpdesk"))) return NextResponse.json({ error: "The helpdesk is not included in your licence." }, { status: 402 });
   try {
     for (const c of caps) if (await hdCan(user, c)) return user;

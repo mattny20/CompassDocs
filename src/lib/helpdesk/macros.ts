@@ -372,7 +372,7 @@ export async function applyMacroToTicket(
   ticketId: number,
   macroId: number,
   actor: MacroApplyActor,
-  opts: { preview?: boolean; fromAutomation?: boolean; origin?: string; authorize?: MacroAuthorize } = {}
+  opts: { preview?: boolean; fromAutomation?: boolean; origin?: string; authorize?: MacroAuthorize; /** 1.20.5: closing answers for a macro that solves (lib/helpdesk/solve-requirements). */ solveAnswers?: unknown } = {}
 ): Promise<MacroApplyResult> {
   const macro = await getMacro(macroId);
   if (!macro) return { ok: false, status: 404, error: "Macro not found." };
@@ -412,6 +412,18 @@ export async function applyMacroToTicket(
       statusDropped = held.error;
     }
   }
+  // 1.20.5: "Before you solve" requirement sets block it the same way (lib/helpdesk/solve-requirements): a person's macro
+  // is refused whole before its reply is posted, an automation's drops only the status change. The macro's own reply and
+  // field changes count towards what the sets ask for.
+  const solveReqs = await import("./solve-requirements");
+  if (patch.status !== undefined && solveReqs.solvesForRequirements(t.status, patch.status)) {
+    const needs = await solveReqs.solveRequirementRefusal(ticketId, { answers: opts.solveAnswers, patch: { team_id: patch.team_id, tags: patch.tags }, replyPending: !!body });
+    if (needs && !opts.fromAutomation) return { ok: false, status: needs.status === 400 ? 409 : needs.status, error: needs.error };
+    if (needs) {
+      delete patch.status;
+      statusDropped = needs.error;
+    }
+  }
   const hook = { fromAutomation: opts.fromAutomation, actorId: actor.id, actorName: actor.name, origin: opts.origin };
   let messageId: number | null = null;
   let held = false;
@@ -432,11 +444,12 @@ export async function applyMacroToTicket(
   if (Object.keys(patch).length) {
     const { updateTicket } = await import("./tickets");
     try {
-      await updateTicket(ticketId, patch, { id: actor.id, name: actor.name }, hook);
+      await updateTicket(ticketId, patch, { id: actor.id, name: actor.name }, hook, { solveAnswers: opts.solveAnswers });
     } catch (e) {
       // An item unticked since the check above: the reply is out, so keep the rest of the change (W3).
+      // 1.20.5: the same when a "Before you solve" requirement refuses it now (a reply held for review doesn't count as sent).
       const msg = e instanceof Error ? e.message : "";
-      if (patch.status === undefined || !checklists.isChecklistBlock(msg)) throw e;
+      if (patch.status === undefined || !(checklists.isChecklistBlock(msg) || solveReqs.isSolveRequirementBlock(msg))) throw e;
       delete patch.status;
       statusDropped = msg;
       if (Object.keys(patch).length) await updateTicket(ticketId, patch, { id: actor.id, name: actor.name }, hook);

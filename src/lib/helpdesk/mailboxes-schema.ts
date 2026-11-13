@@ -31,6 +31,33 @@
 //                                one an agent chose to answer from. NULL =
 //                                work it out (the team's mailbox, else the
 //                                default). Config, not personal data.
+//
+// 1.20.5: send-from addresses (lib/helpdesk/send-addresses). The list an
+// admin keeps of addresses replies may go out From; each help address picks
+// one, or none. Additive again: a 1.20.4 binary on the same database ignores
+// the table and the new column and keeps reading hd_mailboxes.send_from and
+// send_from_error, which 1.20.5 mirrors from the pick in the transaction
+// that changes it.
+//
+//   hd_send_addresses            one row per address mail may go out From,
+//                                through the workspace mail server. The mail
+//                                provider must allow each one.
+//     address                    unique whatever its case (idx on lower()).
+//     name                       its own From name; '' = the name of the help
+//                                address that sends from it.
+//     last_error(_at)            the provider's refusal the last time a mail
+//                                From it was turned down and went out from the
+//                                workspace address instead; '' once one is
+//                                accepted again. Logged and audited once per
+//                                failure streak.
+//   hd_mailboxes.send_address_id the send-from address replies about this
+//                                help address's tickets go out From. NULL =
+//                                the workspace address. Removing a send-from
+//                                address puts its help addresses back on NULL.
+//   hd_mailboxes.send_from       (1.20.2 column, now a mirror) true exactly
+//                                when the picked send-from address is the
+//                                help address itself; send_from_error(_at)
+//                                then carry that address's last_error(_at).
 
 export const HD_MAILBOXES_SCHEMA = `
 CREATE TABLE IF NOT EXISTS hd_mailboxes (
@@ -50,4 +77,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_mailboxes_address ON hd_mailboxes (lowe
 CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_mailboxes_default ON hd_mailboxes (is_default) WHERE is_default;
 ALTER TABLE hd_tickets ADD COLUMN IF NOT EXISTS mailbox_id integer REFERENCES hd_mailboxes(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_hd_tickets_mailbox ON hd_tickets(mailbox_id) WHERE mailbox_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS hd_send_addresses (
+  id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  address text NOT NULL,
+  name text NOT NULL DEFAULT '',
+  last_error text NOT NULL DEFAULT '',
+  last_error_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hd_send_addresses_address ON hd_send_addresses (lower(address));
+ALTER TABLE hd_mailboxes ADD COLUMN IF NOT EXISTS send_address_id integer REFERENCES hd_send_addresses(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_hd_mailboxes_send_address ON hd_mailboxes(send_address_id) WHERE send_address_id IS NOT NULL;
 `;

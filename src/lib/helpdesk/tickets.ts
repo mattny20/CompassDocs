@@ -322,6 +322,11 @@ export async function insertTicketTx(client: PoolClient, input: CreateTicketInpu
   const dues = policy ? computeDues(createdAt.getTime(), policy, hours) : null;
   const status: HdStatus = input.status ?? (input.assignee_id ? "open" : "new");
   let row: HdTicketRow | undefined;
+  // 1.20.5: the help address this ticket came in on can be removed between
+  // the moment intake matched it and this insert. The ticket is then stored
+  // without one (what removing the address does to its tickets anyway)
+  // rather than lost to a foreign-key error.
+  let mailboxId = input.mailbox_id ?? null;
   for (let attempt = 0; !row; attempt++) {
     try {
       await client.query("SAVEPOINT hd_ticket_insert");
@@ -355,15 +360,21 @@ export async function insertTicketTx(client: PoolClient, input: CreateTicketInpu
           dues?.resolve_due ?? null,
           newTicketReplyToken(),
           createdAt,
-          input.mailbox_id ?? null,
+          mailboxId,
         ]
       );
       await client.query("RELEASE SAVEPOINT hd_ticket_insert");
       row = normalizeRow<HdTicketRow>(res.rows[0]);
     } catch (e) {
       await client.query("ROLLBACK TO SAVEPOINT hd_ticket_insert");
+      const err = e as { code?: string; constraint?: string };
+      // The help address was removed meanwhile: once more, without it.
+      if (err.code === "23503" && err.constraint === "hd_tickets_mailbox_id_fkey" && mailboxId !== null) {
+        mailboxId = null;
+        continue;
+      }
       // A reply-token clash (vanishingly rare) is retried with a new token.
-      if ((e as { code?: string }).code !== "23505" || attempt >= 2) throw e;
+      if (err.code !== "23505" || attempt >= 2) throw e;
     }
   }
   const body = (input.body ?? "").slice(0, TICKET_LIMITS.body);
@@ -405,6 +416,8 @@ export async function createTicket(input: CreateTicketInput, ctx: HdHookContext 
 export class HdTicketError extends Error {
   /** 1.19.1: set by assertNotMergedTx when addMessage refused a message before writing anything (lib/helpdesk/inbound retries it once). */
   messageUnsent?: boolean;
+  /** 1.20.5: more for the route's JSON body beside `error` (a "Before you solve" refusal's `code` and `missing`; lib/helpdesk/solve-requirements). */
+  extra?: Record<string, unknown>;
   constructor(message: string, public status = 400) {
     super(message);
   }
@@ -509,9 +522,13 @@ export async function updateTicket(
   ticketId: number,
   patch: HdTicketPatch,
   actor: UpdateActor,
-  ctx: HdHookContext = {}
+  ctx: HdHookContext = {},
+  /** 1.20.5: the closing answers sent with a solve (lib/helpdesk/solve-requirements); stored only if the ticket is solved. */
+  opts: { solveAnswers?: unknown } = {}
 ): Promise<UpdateResult | undefined> {
   const now = new Date();
+  // 1.20.5: the switched-on "Before you solve" sets, read before the transaction (one cached lookup; none defined: nothing more).
+  const solveSets = patch.status === "solved" || patch.status === "closed" ? await (await import("./solve-requirements")).solveSetsSnapshot() : null;
   const tx = await withTx(async (client) => {
     const before = await getTicketRow(ticketId, client, true);
     if (!before) return undefined;
@@ -624,6 +641,32 @@ export async function updateTicket(
       // 1.19.2: required checklist items block solving, whatever solves it (lib/helpdesk/checklists, agent W3): 409.
       const held = await (await import("./checklists")).checklistSolveBlockTx(client, ticketId, before.status, to);
       if (held) throw new HdTicketError(held, 409);
+      // 1.20.5: "Before you solve" requirement sets, whatever solves it (lib/helpdesk/solve-requirements): 409 naming what is
+      // missing. The ticket is read as this same change leaves it, and the answers sent with the solve are stored here, so
+      // they are saved only if it is solved.
+      if (solveSets?.sets.length) {
+        const sr = await (await import("./solve-requirements")).applySolveRequirementsTx(
+          client,
+          solveSets,
+          {
+            id: ticketId,
+            team_id: teamId,
+            request_type_id: before.request_type_id,
+            assignee_id: patch.assignee_id !== undefined ? patch.assignee_id : before.assignee_id,
+            category: patch.category !== undefined ? patch.category : before.category,
+            tags: patch.tags !== undefined ? patch.tags : before.tags ?? [],
+            first_replied_at: before.first_replied_at,
+            source: before.source,
+          },
+          { from: before.status, to, answers: opts.solveAnswers, actor: { id: actor.id, name: actor.name }, now }
+        );
+        if (sr.refusal) {
+          const err = new HdTicketError(sr.refusal.error, sr.refusal.status);
+          err.extra = { code: sr.refusal.code, missing: sr.refusal.missing };
+          throw err;
+        }
+        if (sr.line) lines.push({ kind: "internal", body: sr.line });
+      }
       set("status", to);
       changed.push("status");
       lines.push({ kind: "system", body: `${who} changed the status from ${HD_STATUS_LABEL[before.status]} to ${HD_STATUS_LABEL[to]}` });

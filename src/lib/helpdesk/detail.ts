@@ -151,7 +151,20 @@ export async function ticketDetail(user: { id: number; role: Role }, t: HdTicket
     merge: await import("./merge").then((m) => m.mergeInfo(t.id)).catch(() => undefined),
     // The address it is answered from, and the choices while more than one is listed (1.20.2, lib/helpdesk/mailboxes).
     ...(await mailboxFields(user, t, canWork)),
+    // "Before you solve" (1.20.5, lib/helpdesk/solve-requirements): the answers kept on the ticket, and whether a set applies.
+    ...(await solveFields(t)),
   };
+}
+
+async function solveFields(t: HdTicket): Promise<Pick<HdTicketDetail, "solve_details" | "before_solve">> {
+  try {
+    const { solveSetsApplyTo, ticketSolveDetails } = await import("./solve-requirements");
+    const [solve_details, before_solve] = await Promise.all([ticketSolveDetails(t.id), solveSetsApplyTo(t)]);
+    return { ...(solve_details.length ? { solve_details } : {}), ...(before_solve ? { before_solve } : {}) };
+  } catch (e) {
+    console.error("[helpdesk] solve details:", e);
+    return {};
+  }
 }
 
 async function mailboxFields(user: { id: number; role: Role }, t: HdTicket, canWork: boolean): Promise<Pick<HdTicketDetail, "mailbox" | "mailboxes" | "can_change_mailbox">> {

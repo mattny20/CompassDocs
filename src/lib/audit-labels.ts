@@ -16,6 +16,12 @@ export const AUDIT_LABELS: Record<string, string> = {
   "auth.lockout": "Locked out after failed sign-ins",
   "auth.lookup_throttled": "Throttled sign-in lookups",
   "auth.sso_link_refused": "Refused a single sign-on link",
+  // The Duo sign-in check (1.20.5)
+  "auth.duo_approved": "Confirmed with Duo",
+  "auth.duo_denied": "Failed the Duo check",
+  "auth.duo_bypass": "Skipped Duo (bypass list)",
+  "auth.duo_unreachable_allowed": "Let through while Duo was unreachable",
+  "auth.duo_unreachable_blocked": "Blocked while Duo was unreachable",
 
   // Accounts (the Users section)
   "user.create": "Created user",
@@ -163,6 +169,13 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.mailbox.tested": "Sent a test from a helpdesk email address",
   "helpdesk.mailbox.send_from_failed": "Could not send from a helpdesk email address",
   "helpdesk.ticket.mailbox_changed": "Changed the address a ticket is answered from",
+  // Send-from addresses (1.20.5, lib/helpdesk/send-addresses). The refusal used to be
+  // helpdesk.mailbox.send_from_failed; that label stays for the rows already written.
+  "helpdesk.send_address.created": "Added a helpdesk send-from address",
+  "helpdesk.send_address.updated": "Changed a helpdesk send-from address",
+  "helpdesk.send_address.deleted": "Removed a helpdesk send-from address",
+  "helpdesk.send_address.tested": "Sent a test from a helpdesk send-from address",
+  "helpdesk.send_address.refused": "The mail provider refused a helpdesk send-from address",
   // Customer portal (1.19.1, agent V6, lib/helpdesk/portal).
   "helpdesk.portal.updated": "Changed the customer portal",
   "helpdesk.portal.contact_blocked": "Blocked a customer portal contact",
@@ -269,6 +282,10 @@ export const AUDIT_LABELS: Record<string, string> = {
   "helpdesk.checklist.item_added": "Added an item to a ticket's checklist",
   "helpdesk.checklist.item_ticked": "Ticked a checklist item",
   "helpdesk.checklist.item_unticked": "Unticked a checklist item",
+  // "Before you solve" requirement sets (1.20.5, lib/helpdesk/solve-requirements).
+  "helpdesk.solve_requirements.created": "Created a Before you solve requirement set",
+  "helpdesk.solve_requirements.updated": "Changed a Before you solve requirement set",
+  "helpdesk.solve_requirements.deleted": "Deleted a Before you solve requirement set",
   // Assets on tickets, Snipe-IT (1.19.3).
   "helpdesk.assets.settings_changed": "Changed the asset settings",
   "helpdesk.assets.disconnected": "Disconnected Snipe-IT",
@@ -476,6 +493,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   "settings.smtp": "Updated email delivery settings",
   "settings.public_site": "Updated public site settings",
   "settings.sso": "Updated SSO settings",
+  "settings.duo": "Updated Duo settings",
   "settings.saml": "Updated SAML settings",
   "settings.section_access": "Changed section access",
   "settings.compliance": "Updated compliance settings",

@@ -820,7 +820,11 @@ async function evalFinish(c: Ctx, s: HdWorkflowStepB & { kind: "finish" }): Prom
     }
   }
   // 1.19.2: required checklist items still open keep the request open for its team (agent W3).
-  const held = await (await import("./checklists")).checklistSolveRefusal(c.ticket.id, c.client);
+  // 1.20.5: and so does a "Before you solve" requirement set with something missing (lib/helpdesk/solve-requirements):
+  // the workflow cannot ask a person, so the request waits for its team, as with checklists.
+  const heldByItems = await (await import("./checklists")).checklistSolveRefusal(c.ticket.id, c.client);
+  const heldByDetails = heldByItems ? null : await (await import("./solve-requirements")).solveRequirementRefusal(c.ticket.id, { client: c.client });
+  const held: { error: string } | null = heldByItems ?? heldByDetails;
   if (held) await sysMsg(c.client, c.ticket.id, `The workflow has finished, but the request stays open: ${mdInline(held.error)}`, "internal");
   const solved = held ? false : await solveRequest(c);
   if (solved) await sysMsg(c.client, c.ticket.id, `Solved by the workflow: ${s.title}.`);
@@ -839,8 +843,11 @@ async function evalFinish(c: Ctx, s: HdWorkflowStepB & { kind: "finish" }): Prom
     // (lib/helpdesk/checklists heldFinishCsat), and the request's owner, else its team's leads, hear of it.
     await c.client.query(`UPDATE hd_workflow_runs SET current = current || jsonb_build_object('held_finish', jsonb_build_object('csat', $2::boolean)) WHERE id = $1`, [c.run.id, csat]);
     const ids = await (await import("./checklists")).heldFinishRecipients(ticketId, c.client);
-    const message = `The ${c.cursor.workflow_title} workflow has finished, but the request stays open until its required checklist items are ticked. ${held.error}`;
-    if (ids.length) c.effects.push(async () => (await notifyMod()).notifyWorkflowMessage(ticketId, ids, `Checklist to finish on #${c.ticket.number}`, message, { actorName: SYSTEM_AUTHOR }));
+    const message = heldByItems
+      ? `The ${c.cursor.workflow_title} workflow has finished, but the request stays open until its required checklist items are ticked. ${held.error}`
+      : `The ${c.cursor.workflow_title} workflow has finished, but the request stays open until someone solves it with its details filled in. ${held.error}`;
+    const heading = heldByItems ? `Checklist to finish on #${c.ticket.number}` : `Details to fill in on #${c.ticket.number}`;
+    if (ids.length) c.effects.push(async () => (await notifyMod()).notifyWorkflowMessage(ticketId, ids, heading, message, { actorName: SYSTEM_AUTHOR }));
   }
 }
 

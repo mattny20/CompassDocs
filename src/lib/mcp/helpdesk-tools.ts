@@ -220,7 +220,7 @@ export const HELPDESK_TOOL_DEFS: HdToolDef[] = [
     side: "agent",
     write: "update",
     description:
-      "Helpdesk desk: change a ticket's status, priority, team, assignee or tags, each within the person's desk role (Change status, Change priority, Transfer to another team, Take a ticket / Assign within their teams / Assign to anyone). Only when the workspace lets Claude update tickets. Changes show on the timeline \"via Claude\".",
+      "Helpdesk desk: change a ticket's status, priority, team, assignee or tags, each within the person's desk role (Change status, Change priority, Transfer to another team, Take a ticket / Assign within their teams / Assign to anyone). Only when the workspace lets Claude update tickets. Changes show on the timeline \"via Claude\". A workspace may ask for details before a ticket is solved (\"Before you solve\"): hd_read_ticket lists them under before_you_solve; send the closing fields as solve_answers with status solved, after confirming the answers with the person.",
     inputSchema: obj(
       {
         number: NUMBER,
@@ -229,6 +229,11 @@ export const HELPDESK_TOOL_DEFS: HdToolDef[] = [
         team_id: { type: ["number", "null"], description: "Team id (hd_queue lists them), or null for no team." },
         assignee_id: { type: ["number", "string", "null"], description: "An agent's user id (hd_read_ticket lists them), \"me\", or null to unassign." },
         tags: { type: "array", items: { type: "string" }, description: "The ticket's full tag list (replaces it)." },
+        solve_answers: {
+          type: "object",
+          description:
+            "With status solved: the \"Before you solve\" closing fields, keyed by field key from hd_read_ticket's before_you_solve.closing_fields (text as a string, a choice as its option value, a number, a date YYYY-MM-DD, a tick as true, a person as their user id). Stored only if the ticket is solved.",
+        },
       },
       ["number"]
     ),
@@ -782,6 +787,8 @@ async function readTicket(user: User, a: Args, ctx: Ctx) {
     tasks: d.children.map((c) => ({ number: c.number, subject: c.subject, status: c.status, team: c.team_name })),
     // 1.19.2: checklists (agents only; required items must be ticked before it can be solved; agent W3).
     checklists: await (await import("../helpdesk/checklists")).checklistsForMcp(t.id),
+    // 1.20.5: the "Before you solve" answers kept on the ticket, and what a solve would still need (lib/helpdesk/solve-requirements).
+    ...(await (await import("../helpdesk/solve-requirements")).solveRequirementsForMcp(t)),
     // 1.19.3: linked assets from Snipe-IT (agents only; lib/helpdesk/assets).
     assets: await (await import("../helpdesk/assets")).assetsForMcp(t.id),
     conversation: d.messages.map((m) => messageOut(m, true)),
@@ -863,7 +870,16 @@ async function updateTicketTool(user: User, a: Args, ctx: Ctx) {
     const missing = await validateTaskSolve(t.id);
     if (missing) return refuse(`${missing.error} The task's hand-off is entered in the desk (Mark done).`);
   }
-  const r = await updateTicket(t.id, patch, { id: user.id, name: user.name || user.username, role: user.role, via: "mcp" }, { origin: ctx.origin });
+  // 1.20.5: a solve that a "Before you solve" requirement set refuses says what to send (lib/helpdesk/solve-requirements).
+  let r: Awaited<ReturnType<typeof updateTicket>>;
+  try {
+    r = await updateTicket(t.id, patch, { id: user.id, name: user.name || user.username, role: user.role, via: "mcp" }, { origin: ctx.origin }, { solveAnswers: a.solve_answers ?? undefined });
+  } catch (e) {
+    if (e instanceof HdTicketError && e.extra?.code === "solve_requirements") {
+      return refuse(`${e.message} (${e.status}) Set the ticket fields first, and send the closing fields as solve_answers with status solved: hd_read_ticket lists them under before_you_solve.`);
+    }
+    throw e;
+  }
   if (!r) return refuse(NOT_FOUND(a.number));
   if (r.changed.includes("assignee_id")) {
     const { recordManualAssignment } = await import("../helpdesk/assignment/engine");

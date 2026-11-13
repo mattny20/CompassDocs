@@ -1,4 +1,6 @@
-// POST /api/helpdesk/tickets/[number]/macro/[macroId]   { preview?: boolean, expect_last_message_id?, force? }
+// POST /api/helpdesk/tickets/[number]/macro/[macroId]   { preview?: boolean, expect_last_message_id?, force?, solve_answers? }
+// (1.20.5: a macro that solves a ticket a "Before you solve" requirement set matches is refused whole, 409 with the
+// sentence, unless what the set asks for is there; solve_answers carries the closing fields, as on PATCH.)
 // (1.19.1: a reply-sending macro takes the messages route's send guard: a
 // newer message by someone else answers 409 { newer } unless force.)
 // Helpdesk 1.19.0 (macros.use in the ticket's team, agent J's capability,
@@ -63,6 +65,8 @@ export async function POST(req: Request, ctx: Ctx) {
       {
         preview,
         origin: requestOrigin(req),
+        // 1.20.5: closing answers for a macro that solves ("Before you solve", lib/helpdesk/solve-requirements).
+        solveAnswers: (body as Record<string, unknown>).solve_answers,
         authorize: async ({ body: reply, patch }) => {
           if (reply && !(await hdCan(gate, "tickets.reply_public", { teamId })) && !(await hdCan(gate, "tickets.reply_needs_review", { teamId }))) {
             return { status: 403, error: HD_FORBIDDEN };
