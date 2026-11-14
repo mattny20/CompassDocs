@@ -5,8 +5,9 @@
 // which of those send through Microsoft Graph.
 //
 // Loaded once per process, then refreshed by every write in
-// lib/helpdesk/m365/mail and by the minute sweep (so another instance's
-// change is seen within a minute). An install that never connects Microsoft
+// lib/helpdesk/m365/mail, by the minute sweep, and behind any read that
+// finds it older than half a minute (so another instance's change is seen
+// within about that time). An install that never connects Microsoft
 // 365 reads one settings row at the first mail and nothing after. Server-only.
 
 import "server-only";
@@ -44,7 +45,10 @@ async function load(): Promise<M365State> {
 /** Read the state again (after a write, and once a minute from the sweep). */
 export async function refreshM365State(): Promise<M365State> {
   loading = load()
-    .then((s) => (state = s))
+    .then((s) => {
+      readAt = Date.now();
+      return (state = s);
+    })
     .catch(() => state ?? EMPTY)
     .finally(() => {
       loading = null;
@@ -52,8 +56,17 @@ export async function refreshM365State(): Promise<M365State> {
   return loading;
 }
 
-/** The state as last read; the first call reads it. */
+const FRESH_MS = 30_000;
+let readAt = 0;
+
+/**
+ * The state as last read; the first call reads it. Older than half a minute
+ * it is still answered at once, and read again behind the answer, so a
+ * change made on another instance (a help address moved, the connection
+ * removed) is picked up here within about that time even between sweeps.
+ */
 export async function m365State(): Promise<M365State> {
+  if (state && Date.now() - readAt > FRESH_MS && !loading) void refreshM365State();
   return state ?? loading ?? refreshM365State();
 }
 
@@ -61,4 +74,5 @@ export async function m365State(): Promise<M365State> {
 export function resetM365StateForTests(): void {
   state = null;
   loading = null;
+  readAt = 0;
 }

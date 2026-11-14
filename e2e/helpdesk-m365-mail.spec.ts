@@ -8,8 +8,11 @@ import { ADMIN, api, login } from "./helpers";
 // (test/helpers/fake-m365): set up (the one-click flow when the enterprise
 // build has it, else the manual form), connect a mailbox that the app may
 // not read yet, the restrict-access commands, Check access before and after
-// "the admin ran them", a help address placed on the mailbox that sends
-// through Microsoft 365, mail read with Check now and by a notification,
+// "the admin ran them", a mailbox that is not read while no help address
+// lives on it, the question asked before a mailbox is connected while the
+// app can read every mailbox, a help address placed on the mailbox that
+// sends through Microsoft 365, mail read with Check now and by a
+// notification, "Last messages", a message given up on and "Try again",
 // Send test, an error state, and removing it all.
 //
 // It runs only where the app was started with the test seam
@@ -56,7 +59,7 @@ test.describe("Microsoft 365 mailboxes (licensed, fake Microsoft)", () => {
       await db.query("DELETE FROM hd_tickets WHERE requester_email = $1", [customer]);
       await db.query("DELETE FROM hd_m365_mailboxes WHERE address = $1", [HELP]);
       await db.query("DELETE FROM hd_mailboxes WHERE address = $1", [HELP]);
-      await db.query("DELETE FROM settings WHERE key = 'helpdesk_m365_mail'");
+      await db.query("DELETE FROM settings WHERE key IN ('helpdesk_m365_mail', 'helpdesk_m365_mail_roles')");
       for (const s of saved) {
         if (s.value === null) await db.query("DELETE FROM settings WHERE key = $1", [s.key]);
         else await db.query("INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [s.key, s.value]);
@@ -146,9 +149,13 @@ test.describe("Microsoft 365 mailboxes (licensed, fake Microsoft)", () => {
     await expect(restrict).toHaveAttribute("open", "");
     const commands = restrict.getByTestId("hd-m365-commands");
     await expect(commands).toContainText("New-ServicePrincipal -AppId");
-    await expect(commands).toContainText(`PrimarySmtpAddress -eq '${HELP}'`);
-    await expect(commands).toContainText('-Role "Application Mail.ReadWrite" -CustomResourceScope "CompassDocs help mailboxes"');
-    await expect(commands).toContainText('-Role "Application Mail.Send"');
+    // Every value is a single-quoted PowerShell literal; the filter is one too, with the address's quotes doubled inside it.
+    await expect(commands).toContainText(`-RecipientRestrictionFilter 'EmailAddresses -eq ''${HELP}'''`);
+    await expect(commands).toContainText("-Role 'Application Mail.ReadWrite' -CustomResourceScope 'CompassDocs help mailboxes'");
+    await expect(commands).toContainText("-Role 'Application Mail.Send'");
+    await expect(commands).toContainText(`Get-EXOMailbox -Identity '${HELP}' | Format-List UserPrincipalName, ExternalDirectoryObjectId`);
+    await expect(commands).toContainText(`-Resource '${HELP}' | Format-Table RoleName, GrantedPermissions, AllowedResourceScope, InScope`);
+    expect(await commands.innerText()).not.toContain('"');
     await expect(restrict.getByRole("button", { name: "Copy commands" }).first()).toBeVisible();
     await restrict.getByRole("button", { name: "Check access" }).click();
     const access = restrict.getByTestId("hd-m365-access");
@@ -161,6 +168,37 @@ test.describe("Microsoft 365 mailboxes (licensed, fake Microsoft)", () => {
     await restrict.getByRole("button", { name: "Check access" }).click();
     await expect(access).toContainText(`${HELP}: the app can read it.`, { timeout: 30_000 });
     await expect(access).toContainText(`${OTHER}: Microsoft 365 refused, as it should. The app can't read this mailbox.`);
+
+    // --- Connected, reachable, but no help address lives on it yet: it is not read ---------------
+    await expect(row).toContainText("Not being read");
+    await expect(row.getByTestId("hd-m365-mailbox-idle")).toContainText("No help address lives here yet, so it is not being read.");
+    await expect(row.getByRole("button", { name: "Check now" })).toHaveCount(0);
+    await ctl("message", { address: HELP, subject: `Before any help address ${stamp}`, from: { name: "Cara Customer", address: customer }, body: { contentType: "text", content: "Nobody reads this yet." } });
+    expect((await api(page, `/api/helpdesk/admin/m365-mail/mailboxes/${(await db.query("SELECT id FROM hd_m365_mailboxes WHERE address = $1", [HELP])).rows[0].id}/check`, { method: "POST", body: {} })).body.idle).toBe(true);
+    expect((await db.query("SELECT count(*)::int AS n FROM hd_tickets WHERE requester_email = $1", [customer])).rows[0].n).toBe(0);
+
+    // --- While the app can read every mailbox, connecting one asks first ------------------------------
+    // Someone grants Mail.ReadWrite in Entra behind the desk's back. The page has not looked yet; the server has the last word.
+    await ctl("roles", { roles: ["Mail.ReadWrite"] });
+    await expect(card(page).getByTestId("hd-m365-connect-advanced")).toBeVisible();
+    await address.fill(OTHER);
+    await card(page).getByRole("button", { name: "Connect mailbox" }).click();
+    const ask = page.getByRole("dialog");
+    await expect(ask).toContainText(`Connect ${OTHER}?`, { timeout: 30_000 });
+    await expect(ask).toContainText("This app can read every mailbox in your organisation");
+    await ask.getByRole("button", { name: "Cancel" }).click();
+    await expect(card(page).getByTestId("hd-m365-mailbox-row")).toHaveCount(1);
+    // The warning is on the page now, with nobody having pressed Check access.
+    await expect(card(page).getByTestId("hd-m365-tenant-wide")).toContainText("This app can read every mailbox in your organisation. It holds Mail.ReadWrite granted in Entra.", { timeout: 30_000 });
+    // Asked again, the question names the permission; still no.
+    await card(page).getByRole("button", { name: "Connect mailbox" }).click();
+    await expect(ask).toContainText("Mail.ReadWrite is granted in Entra");
+    await ask.getByRole("button", { name: "Cancel" }).click();
+    expect((await db.query("SELECT count(*)::int AS n FROM hd_m365_mailboxes WHERE address = $1", [OTHER])).rows[0].n).toBe(0);
+    await ctl("roles", { roles: [] });
+    await address.fill("");
+    await restrict.getByRole("button", { name: "Check access" }).click();
+    await expect(card(page).getByTestId("hd-m365-tenant-wide")).toHaveCount(0, { timeout: 30_000 });
 
     // --- A help address on the mailbox, sending through Microsoft 365 -------------------------
     await page.getByRole("button", { name: "Add address" }).first().click();
@@ -176,6 +214,7 @@ test.describe("Microsoft 365 mailboxes (licensed, fake Microsoft)", () => {
     await expect(addressRow.getByTestId("hd-mailbox-m365-send")).toContainText(`Sends through Microsoft 365 as ${HELP}`);
     await expect(row).toContainText(`Help address: ${HELP}`);
 
+    // What arrived while no help address lived on the mailbox stays where it is: reading starts now.
     // --- Mail arrives: Check now reads it; then a notification brings the next at once ---------
     await ctl("message", { address: HELP, subject: `Invoice ${stamp} looks wrong`, from: { name: "Cara Customer", address: customer }, body: { contentType: "text", content: "The total is off by ten." } });
     await row.getByRole("button", { name: "Check now" }).click();
@@ -184,7 +223,7 @@ test.describe("Microsoft 365 mailboxes (licensed, fake Microsoft)", () => {
     const ticket = (await db.query("SELECT number, mailbox_id FROM hd_tickets WHERE requester_email = $1 AND subject = $2", [customer, `Invoice ${stamp} looks wrong`])).rows;
     expect(ticket.length).toBe(1);
     let inboxState = (await ctl("state")).mailboxes.find((m: { address: string }) => m.address === HELP);
-    expect(inboxState.messages.map((m: { isRead: boolean }) => m.isRead)).toEqual([true]);
+    expect(inboxState.messages.map((m: { subject: string; isRead: boolean }) => [m.subject.startsWith("Before any help address"), m.isRead])).toEqual([[true, false], [false, true]]);
     // Check now also set up notifications (the dev server is on loopback, which the seam lets the fake call back).
     await expect(row).toContainText("Notifications on", { timeout: 60_000 });
     const second = await ctl("message", { address: HELP, subject: `Second ${stamp}`, from: { name: "Cara Customer", address: customer }, body: { contentType: "text", content: "And one more thing." } });
@@ -195,6 +234,35 @@ test.describe("Microsoft 365 mailboxes (licensed, fake Microsoft)", () => {
     await row.getByRole("button", { name: "Check now" }).click();
     await expect(row).toContainText("2 taken in, 0 dropped", { timeout: 60_000 });
     expect((await db.query("SELECT count(*)::int AS n FROM hd_tickets WHERE requester_email = $1", [customer])).rows[0].n).toBe(2);
+
+    // --- Last messages: how the sender check went, and nothing of the mail itself --------------------
+    await row.getByTestId("hd-m365-last-messages").locator("summary").click();
+    const lastMessages = row.getByTestId("hd-m365-last-message");
+    await expect(lastMessages).toHaveCount(2, { timeout: 30_000 });
+    await expect(lastMessages.first()).toContainText("clientco.example");
+    await expect(lastMessages.first()).toContainText("Passed");
+    await expect(lastMessages.first()).toContainText("New ticket");
+    await expect(lastMessages.first()).toContainText("first of 1 Authentication-Results: spf=pass, dkim=pass, dmarc=pass, compauth=pass (reason 100)");
+    const shown = await row.getByTestId("hd-m365-last-messages").innerText();
+    expect(shown).not.toContain(customer);
+    expect(shown).not.toContain(`Second ${stamp}`);
+    await row.getByTestId("hd-m365-last-messages").locator("summary").click();
+
+    // --- A message Microsoft will not hand over is given up on after five tries; Try again starts it over ----
+    await ctl("set", { fail: { message: 400 } });
+    const stuck = await ctl("message", { address: HELP, subject: `Stuck ${stamp}`, from: { name: "Cara Customer", address: customer }, body: { contentType: "text", content: "Hard to read." } });
+    await row.getByRole("button", { name: "Check now" }).click();
+    await expect(row).toContainText("1 waiting to be tried again", { timeout: 60_000 });
+    // (Four more refusals, without waiting for four more reads.)
+    await db.query("UPDATE hd_m365_messages SET attempts = 5 WHERE message_id = $1", [stuck.id]);
+    await ctl("set", { fail: {} });
+    await page.reload();
+    await expect(row).toContainText("1 could not be taken in", { timeout: 120_000 });
+    await row.getByTestId("hd-m365-retry").click();
+    await expect(page.getByText("The message was tried again.")).toBeVisible({ timeout: 60_000 });
+    await expect(row.getByTestId("hd-m365-retry")).toHaveCount(0);
+    await expect(row).toContainText("3 taken in, 0 dropped");
+    expect((await db.query("SELECT count(*)::int AS n FROM hd_tickets WHERE requester_email = $1 AND subject = $2", [customer, `Stuck ${stamp}`])).rows[0].n).toBe(1);
 
     // --- Send test goes through Microsoft 365 (when the admin has an email address to send to) ----
     const sent = await api(page, `/api/helpdesk/admin/mailboxes/${(await db.query("SELECT id FROM hd_mailboxes WHERE address = $1", [HELP])).rows[0].id}/test`, { method: "POST", body: {} });
@@ -223,7 +291,7 @@ test.describe("Microsoft 365 mailboxes (licensed, fake Microsoft)", () => {
     await expect(page.getByText("Microsoft 365 options saved.")).toBeVisible({ timeout: 30_000 });
     const third = await ctl("message", { address: HELP, subject: `Third ${stamp}`, from: { name: "Cara Customer", address: customer }, body: { contentType: "text", content: "Filed away." } });
     await row.getByRole("button", { name: "Check now" }).click();
-    await expect(row).toContainText("3 taken in", { timeout: 60_000 });
+    await expect(row).toContainText("4 taken in", { timeout: 60_000 });
     inboxState = (await ctl("state")).mailboxes.find((m: { address: string }) => m.address === HELP);
     expect(inboxState.folders).toEqual(["Processed"]);
     expect(inboxState.messages.find((m: { id: string }) => m.id === third.id).folder).toBe("Processed");
@@ -250,6 +318,9 @@ test.describe("Microsoft 365 mailboxes (licensed, fake Microsoft)", () => {
     const res = await anon.request.get("/api/helpdesk/admin/m365-mail");
     expect(res.status()).toBe(401);
     expect((await anon.request.post("/api/helpdesk/admin/m365-mail/check-access", { data: {} })).status()).toBe(401);
+    expect((await anon.request.post("/api/helpdesk/admin/m365-mail/mailboxes", { data: { address: "ceo@acme.example", confirm_tenant_wide: true } })).status()).toBe(401);
+    expect((await anon.request.get("/api/helpdesk/admin/m365-mail/mailboxes/1/messages")).status()).toBe(401);
+    expect((await anon.request.post("/api/helpdesk/admin/m365-mail/mailboxes/1/retry", { data: {} })).status()).toBe(401);
     expect((await anon.request.post("/api/helpdesk/m365/notify/not-the-key?validationToken=hello", { data: {} })).status()).toBe(404);
     expect((await anon.request.post("/api/helpdesk/m365/notify/not-the-key", { data: { value: [{ subscriptionId: "x", clientState: "y" }] } })).status()).toBe(404);
     await anon.close();

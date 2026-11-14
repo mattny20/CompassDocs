@@ -13,8 +13,10 @@
 // desk's threading does not depend on ours surviving (the reply address and
 // the subject reference are read first, lib/helpdesk/inbound-parse
 // findReplyToken). From is the help address: when that is an alias,
-// Exchange shows the mailbox's main address unless the organisation allows
-// sending from aliases.
+// Exchange rewrites it to the mailbox's main address unless the organisation
+// has turned on sending from aliases (Set-OrganizationConfig
+// -SendFromAliasEnabled $true; off by default). The page says so next to
+// the option.
 //
 // A refusal from Microsoft (the app may not send as the mailbox, the
 // mailbox is gone, the sign-in fails) sends the same mail by SMTP from the
@@ -61,6 +63,8 @@ export async function buildMime(m: HelpdeskOutgoingMail): Promise<Buffer> {
 interface Link {
   mailbox_id: number;
   m365_address: string;
+  /** What Graph is asked by: the mailbox's object ID or sign-in name when one was given, else its address. */
+  m365_user: string;
   send_error: string;
 }
 
@@ -99,7 +103,7 @@ async function credentials(): Promise<M365Credentials> {
 }
 
 const post = (creds: M365Credentials, link: Link, mime: Buffer) =>
-  graph(creds, { method: "POST", path: `${userPath(link.m365_address)}/sendMail`, text: { value: mime.toString("base64"), type: "text/plain" }, what: "send mail as this mailbox" });
+  graph(creds, { method: "POST", path: `${userPath(link.m365_user)}/sendMail`, text: { value: mime.toString("base64"), type: "text/plain" }, what: "send mail as this mailbox" });
 
 /**
  * Send one mail through Graph when its help address chose that. "sent": it
@@ -111,7 +115,7 @@ export async function sendThroughM365(helpMailboxId: number, helpAddress: string
   const state = await m365State();
   if (!state.configured || !state.sendVia.has(helpMailboxId)) return "not_chosen";
   const link = await hqOne<Link>(
-    "SELECT l.mailbox_id, l.send_error, m.address AS m365_address FROM hd_m365_links l JOIN hd_m365_mailboxes m ON m.id = l.m365_mailbox_id WHERE l.mailbox_id = $1 AND l.send_via",
+    "SELECT l.mailbox_id, l.send_error, m.address AS m365_address, COALESCE(NULLIF(m.graph_id, ''), m.address) AS m365_user FROM hd_m365_links l JOIN hd_m365_mailboxes m ON m.id = l.m365_mailbox_id WHERE l.mailbox_id = $1 AND l.send_via",
     [helpMailboxId]
   );
   const from = cleanMailboxAddress(helpAddress);
@@ -155,7 +159,7 @@ export async function sendThroughM365(helpMailboxId: number, helpAddress: string
  */
 export async function sendM365TestMail(box: { id: number; address: string; name: string }, to: string): Promise<{ ok: boolean; from: string; error?: string } | null> {
   const link = await hqOne<Link & { send_address_id: number | null }>(
-    `SELECT l.mailbox_id, l.send_error, m.address AS m365_address, b.send_address_id FROM hd_m365_links l JOIN hd_m365_mailboxes m ON m.id = l.m365_mailbox_id
+    `SELECT l.mailbox_id, l.send_error, m.address AS m365_address, COALESCE(NULLIF(m.graph_id, ''), m.address) AS m365_user, b.send_address_id FROM hd_m365_links l JOIN hd_m365_mailboxes m ON m.id = l.m365_mailbox_id
        JOIN hd_mailboxes b ON b.id = l.mailbox_id WHERE l.mailbox_id = $1 AND l.send_via`,
     [box.id]
   );

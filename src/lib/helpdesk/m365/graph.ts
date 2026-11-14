@@ -10,8 +10,8 @@
 //               a stored link is checked again each time it is used.
 //   transport   lib/safe-fetch's one-hop safeFetchOnce (the SSRF guard and
 //               proxy routing the rest of the app uses); no redirect is
-//               followed. 20 seconds for a call, body included; answers
-//               are read up to a cap.
+//               followed. 20 seconds for a call, body included (a large
+//               download may ask for longer); answers are read up to a cap.
 //   tokens      cached in memory per (tenant, client ID, secret) until five
 //               minutes before they expire. A 401 drops the token and tries
 //               once more; a 403 drops it for the next call (a token keeps
@@ -119,7 +119,7 @@ export function tokenClaims(token: string): M365TokenClaims {
     const oid = typeof c.oid === "string" ? c.oid.trim().toLowerCase() : "";
     if (GUIDISH.test(tid)) out.tid = tid;
     if (GUIDISH.test(oid)) out.oid = oid;
-    if (Array.isArray(c.roles)) out.roles = c.roles.filter((r): r is string => typeof r === "string" && /^[A-Za-z0-9_.]{1,80}$/.test(r)).slice(0, 100);
+    if (Array.isArray(c.roles)) out.roles = c.roles.filter((r): r is string => typeof r === "string" && /^[A-Za-z0-9_.-]{1,80}$/.test(r)).slice(0, 100);
   } catch {
     /* not a JWT: nothing known */
   }
@@ -162,18 +162,18 @@ function retryAfter(res: Response): number | null {
   const h = res.headers.get("retry-after");
   if (!h) return null;
   const secs = Number(h);
-  return Number.isFinite(secs) ? Math.max(0, Math.min(secs, 600) * 1000) : null;
+  return Number.isFinite(secs) ? Math.max(0, Math.min(secs, 3600) * 1000) : null;
 }
 
 const NO_ANSWER = "Couldn't reach Microsoft 365, or it didn't answer in time. Check that this server can reach login.microsoftonline.com and graph.microsoft.com.";
 
-async function exchange(url: string, init: RequestInit, max: number): Promise<{ res: Response; body: Buffer }> {
+async function exchange(url: string, init: RequestInit, max: number, timeoutMs = TIMEOUT_MS): Promise<{ res: Response; body: Buffer }> {
   const ctrl = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
     ctrl.abort();
-  }, TIMEOUT_MS);
+  }, timeoutMs);
   try {
     let res: Response;
     try {
@@ -281,6 +281,8 @@ export interface GraphCall {
   /** "bytes": the answer as it is (an attachment's content). */
   as?: "json" | "bytes";
   maxBytes?: number;
+  /** For a large download: the whole exchange may take this long instead of 20 seconds (at most 3 minutes). */
+  timeoutMs?: number;
   /** What the call was for, for the sentence ("read the mailbox"). */
   what?: string;
 }
@@ -321,7 +323,7 @@ export async function graph<T = Record<string, unknown>>(c: M365Credentials, cal
       headers["content-type"] = "application/json";
       body = JSON.stringify(call.body);
     }
-    const { res, body: answer } = await exchange(url, { method: call.method ?? "GET", headers, body }, call.maxBytes ?? JSON_CAP);
+    const { res, body: answer } = await exchange(url, { method: call.method ?? "GET", headers, body }, call.maxBytes ?? JSON_CAP, Math.min(180_000, Math.max(TIMEOUT_MS, call.timeoutMs ?? TIMEOUT_MS)));
     if (res.ok) {
       if (call.as === "bytes") return answer as unknown as T;
       if (!answer.length) return {} as T;

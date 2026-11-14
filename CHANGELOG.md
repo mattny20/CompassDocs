@@ -4,6 +4,60 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.20.7] - 2026-11-14
+
+Microsoft 365 mailboxes for desk email: the desk reads your help mailboxes
+directly through Microsoft Graph, with no forwarding and no inbound mail
+provider in between.
+
+### Added
+- **Connect Microsoft 365 help mailboxes.** Desk settings → Email has a new
+  Microsoft 365 card. The desk reads each connected mailbox through
+  Microsoft Graph: Microsoft tells it when mail arrives, and a timer checks
+  as well, which is also how installs Microsoft cannot reach are served.
+  Shared mailboxes and user mailboxes work; distribution lists and Microsoft
+  365 groups do not, and the page says to use a shared mailbox instead.
+- **"Set up automatically with Microsoft".** Sign in once as a tenant admin
+  and the desk creates its app registration, with no mail permission at all.
+  A form stays for entering an app registration by hand.
+- **The app is limited to your help mailboxes.** An Exchange administrator
+  runs one block of Exchange Online PowerShell, generated with your real
+  IDs, that allows the app those mailboxes and nothing else. "Check access"
+  reports what the app can reach, and the page warns for as long as the app
+  can read every mailbox in the organisation.
+- **Sender checks come from Microsoft.** Exchange's own SPF, DKIM and DMARC
+  results decide whether a sender is verified, and every existing rule about
+  who may add to a ticket applies unchanged. Each mailbox lists how its last
+  messages were read.
+- **Send replies through Microsoft 365.** "Send replies from" on a help
+  address gains "Through Microsoft 365", which sends as the mailbox so
+  replies appear in its Sent Items. If Microsoft refuses, the reply goes out
+  by SMTP from the workspace address and the refusal is shown and audited.
+- **After a message is taken in** it is marked as read, or moved to a folder
+  such as "Processed" (a setting). Meeting invites that arrive this way fill
+  in the ticket's event.
+
+### Changed
+- **A help address on a connected mailbox carries its reply address even
+  when the inbound webhook is off,** and "Send test" on an address that
+  sends through Microsoft 365 goes through Microsoft 365.
+- **The one-click Microsoft setups only accept a host override for a local
+  test rig or one of Microsoft's own national clouds.**
+
+### Upgrading
+- **Nothing to run, and nothing changes until you connect a mailbox.** The
+  inbound webhook and SMTP work exactly as before. Three tables are added on
+  start.
+- **For mail to arrive at once,** Microsoft must be able to reach
+  `/api/helpdesk/m365/notify/…` on your CompassDocs address over public
+  HTTPS. Without that, turn notifications off on the card and the desk reads
+  on the timer.
+- **Aliases:** unless your tenant has `SendFromAliasEnabled` turned on,
+  Exchange rewrites an alias to the mailbox's main address on mail in and
+  out, so the desk cannot tell which alias a message was sent to. Use one
+  shared mailbox per help address, or turn that setting on.
+- **The one-click setup needs the 1.20.7 enterprise image.**
+
 ## [1.20.6] - 2026-11-13
 
 Three additions to the desk: a managed list of categories and

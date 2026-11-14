@@ -20,9 +20,19 @@
 //               the PowerShell commands would grant). Otherwise 403. An
 //               address that is no mailbox (a group, a distribution list, a
 //               contact, unknown) is 404 ErrorInvalidUser.
+//   identity    a mailbox has an object ID and a sign-in name (UPN). Graph
+//               finds it by either. By its address only when that is also
+//               the sign-in name: Microsoft documents /users/{id | UPN}, so
+//               the fake is strict about it (404 ErrorInvalidUser).
 //   delta       a change log per Inbox; pages by Prefer: odata.maxpagesize;
 //               a moved or deleted message comes back as @removed;
-//               `expireDelta` answers the next token with 410.
+//               `expireDelta` answers the next token as Microsoft documents
+//               a lost one: true = 410 Gone with a Location (a
+//               "synchronization reset"), "token" = a 4xx with the code
+//               syncStateNotFound (the token expired).
+//   folders     a message says where it lies (parentFolderId: the Inbox's id
+//               or a folder's); a meeting message is an eventMessage whose
+//               invite is in its MIME (/$value), never an attachment.
 //   subscriptions  creating one runs the validation handshake against the
 //               notificationUrl (and refuses when it fails); deliver() and
 //               lifecycle() POST what Graph would.
@@ -60,12 +70,21 @@ export interface FakeMessage {
   isRead: boolean;
   headers: { name: string; value: string }[];
   attachments: FakeAttachment[];
-  /** "inbox", or a folder id after a move. */
+  /** "inbox", or a folder id after a move ("sentitems", "deleteditems" and the like are folders too). */
   folder: string;
+  /** Exchange's kind for a meeting invite, update or cancellation: Graph says "#microsoft.graph.eventMessage". */
+  eventMessage?: boolean;
+  /** The message's MIME (GET …/$value). */
+  mime?: Buffer;
+  /** Graph's `sender` when it differs from `from` (a message sent on behalf of someone). */
+  sender?: { name: string; address: string } | null;
 }
 
 export interface FakeMailbox {
   address: string;
+  /** The sign-in name (default: the address). */
+  upn: string;
+  objectId: string;
   /** "shared" and "user" are mailboxes; anything else is not one (404). */
   kind: "shared" | "user" | "group" | "distribution_list" | "contact";
   messages: Map<string, FakeMessage>;
@@ -74,7 +93,7 @@ export interface FakeMailbox {
   seq: number;
   /** The MIME of every message sent as this mailbox. */
   sent: Buffer[];
-  expireDelta: boolean;
+  expireDelta: boolean | "token";
 }
 
 export interface FakeApp {
@@ -98,6 +117,8 @@ export interface FakeSubscription {
   id: string;
   appId: string;
   resource: string;
+  /** The Prefer header it was created with (IdType="ImmutableId" or ''). */
+  prefer: string;
   mailbox: string;
   notificationUrl: string;
   lifecycleNotificationUrl: string;
@@ -115,8 +136,21 @@ export interface FakeM365 {
   subscriptions: Map<string, FakeSubscription>;
   /** One line per request: "GET /graph/v1.0/users/help@x/mailFolders/inbox 200". */
   log: string[];
-  /** Fail a kind of call: { sendMail: 403, subscriptions: 403, patch: 500, move: 404, attachments: 500, message: 500, token: 503 }. */
+  /** One line per request as it arrived, with its query: "GET /graph/v1.0/users/…/messages/…?$select=id,body". */
+  requests: string[];
+  /** Every read of a message takes this long (so tests can see how many run at once). */
+  delayMs: number;
+  /** The most message reads that were in flight at the same moment since it was last set to 0. */
+  maxInflight: number;
+  /** With fail.attachmentValue: only this attachment's content fails ('' = every one). */
+  failAttachmentId: string;
+  /**
+   * Fail a kind of call: { sendMail: 403, subscriptions: 403, patch: 500, move: 404, attachments: 500, message: 500,
+   * body: 500, attachmentValue: 503, mime: 500, token: 503 }. -1 = no answer at all (the connection is cut).
+   */
   fail: Record<string, number>;
+  /** Seconds in a Retry-After header on every 429 and 503 the fake answers (0 = none). */
+  retryAfter: number;
   /** A new app cannot sign in for this long. */
   signInDelayMs: number;
   /** Fail a step of the setup: "addPassword" | "servicePrincipals". */
@@ -129,7 +163,7 @@ export interface FakeM365 {
   /** The delta query's next page link points at another host. */
   evilNextLink: boolean;
   addApp(over?: Partial<FakeApp> & { secret?: string }): FakeApp;
-  addMailbox(address: string, kind?: FakeMailbox["kind"]): FakeMailbox;
+  addMailbox(address: string, kind?: FakeMailbox["kind"], over?: { upn?: string; objectId?: string }): FakeMailbox;
   addMessage(address: string, over?: Partial<FakeMessage>): FakeMessage;
   removeMessage(address: string, id: string): void;
   /** POST the change notification Graph would send for a new message. Resolves with the status the app answered. */
@@ -141,6 +175,8 @@ export interface FakeM365 {
 }
 
 const GRAPH = "/graph/v1.0";
+/** The Inbox's own id (a folder id, not the word "inbox"). */
+export const INBOX_ID = "AQMkInboxFolderId=";
 
 /** The headers Exchange Online puts on an inbound message, top first, above the sender's own. */
 export function exchangeHeaders(o: {
@@ -186,6 +222,7 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
   const deviceCodes = new Map<string, { polls: number; tenant: string }>();
   const log: string[] = [];
   let base = "";
+  let inflight = 0;
 
   const fake: FakeM365 = {
     base: "",
@@ -195,7 +232,12 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
     mailboxes,
     subscriptions,
     log,
+    requests: [],
+    delayMs: 0,
+    maxInflight: 0,
+    failAttachmentId: "",
     fail: {},
+    retryAfter: 0,
     signInDelayMs: 0,
     failStep: "",
     deleteFails: false,
@@ -220,8 +262,19 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
       apps.set(app.appId, app);
       return app;
     },
-    addMailbox(address, kind = "shared") {
-      const mb: FakeMailbox = { address: address.toLowerCase(), kind, messages: new Map(), folders: new Map(), changes: [], seq: 0, sent: [], expireDelta: false };
+    addMailbox(address, kind = "shared", over = {}) {
+      const mb: FakeMailbox = {
+        address: address.toLowerCase(),
+        upn: (over.upn ?? address).toLowerCase(),
+        objectId: (over.objectId ?? randomUUID()).toLowerCase(),
+        kind,
+        messages: new Map(),
+        folders: new Map(),
+        changes: [],
+        seq: 0,
+        sent: [],
+        expireDelta: false,
+      };
       mailboxes.set(mb.address, mb);
       return mb;
     },
@@ -304,6 +357,12 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
   };
 
   const send = (res: http.ServerResponse, status: number, body?: unknown, headers: Record<string, string> = {}): void => {
+    if (status === -1) {
+      // No answer at all: the connection is cut.
+      res.destroy();
+      return;
+    }
+    if ((status === 429 || status === 503) && fake.retryAfter > 0) headers = { "retry-after": String(fake.retryAfter), ...headers };
     if (body === undefined) {
       res.writeHead(status, headers);
       res.end();
@@ -329,7 +388,8 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
       internetMessageId: m.internetMessageId,
       subject: m.subject,
       from: m.from ? addr(m.from) : undefined,
-      sender: m.from ? addr(m.from) : undefined,
+      sender: m.sender === null ? undefined : m.sender ? addr(m.sender) : m.from ? addr(m.from) : undefined,
+      parentFolderId: m.folder === "inbox" ? INBOX_ID : m.folder,
       toRecipients: m.to.map(addr),
       ccRecipients: m.cc.map(addr),
       replyTo: [],
@@ -345,15 +405,24 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
       return full;
     }
     const out: Record<string, unknown> = { "@odata.etag": 'W/"x"', id: m.id };
+    // A derived type is named whatever is selected.
+    if (m.eventMessage) out["@odata.type"] = "#microsoft.graph.eventMessage";
     for (const k of select) if (k in full) out[k] = full[k];
     return out;
   };
 
+  /** The mailbox a /users/{x} segment names: by object ID, by sign-in name, and by address only when that is the sign-in name. */
+  const resolve = (key: string): FakeMailbox | undefined => {
+    const k = key.toLowerCase().replace(/^aad-upn:/, "");
+    return [...mailboxes.values()].find((m) => m.objectId === k || m.upn === k);
+  };
+
   /** Whether the app may read (or send as) the mailbox; null = allowed, else the answer to give. */
-  const refuse = (app: FakeApp, address: string, sending = false): [number, unknown] | null => {
-    const mb = mailboxes.get(address);
+  const refuse = (app: FakeApp, key: string, sending = false): [number, unknown] | null => {
+    const mb = resolve(key);
     if (!mb || (mb.kind !== "shared" && mb.kind !== "user")) return [404, gerr("ErrorInvalidUser", "The requested user is invalid.")];
-    const wide = sending ? app.roles.includes("Mail.Send") : app.roles.some((r) => r === "Mail.ReadWrite" || r === "Mail.Read");
+    const address = mb.address;
+    const wide = sending ? app.roles.includes("Mail.Send") : app.roles.some((r) => r === "Mail.ReadWrite" || r === "Mail.Read" || r === "MailboxItem.Read.All" || r === "Mail-Advanced.ReadWrite.All");
     const scoped = sending ? app.sendScope.has(address) : app.scope.has(address);
     return wide || scoped ? null : [403, gerr("ErrorAccessDenied", "Access is denied. Check credentials and try again.")];
   };
@@ -411,9 +480,10 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
       if (fake.fail.subscriptions) return send(res, fake.fail.subscriptions, gerr("ExtensionError", "Operation: Create; Exception: [Status Code: Forbidden]"));
       const b = json();
       const resource = String(b.resource ?? "");
-      const mailbox = decodeURIComponent(resource.match(/^users\/([^/]+)\//i)?.[1] ?? "").toLowerCase();
-      const no = refuse(app, mailbox);
+      const named = decodeURIComponent(resource.match(/^users\/([^/]+)\//i)?.[1] ?? "").toLowerCase();
+      const no = refuse(app, named);
       if (no) return send(res, no[0], no[1]);
+      const mailbox = resolve(named)!.address;
       const notificationUrl = String(b.notificationUrl ?? "");
       const token = `Validation: Testing client application reachability for subscription Request-Id: ${randomUUID()}`;
       for (const target of [...new Set([notificationUrl, String(b.lifecycleNotificationUrl ?? notificationUrl)])]) {
@@ -430,6 +500,7 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
         id: randomUUID(),
         appId: app.appId,
         resource,
+        prefer: String(req.headers.prefer ?? ""),
         mailbox,
         notificationUrl,
         lifecycleNotificationUrl: String(b.lifecycleNotificationUrl ?? ""),
@@ -458,12 +529,13 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
     // --- A mailbox ---
     const user = path.match(/^\/users\/([^/]+)(\/.*)?$/);
     if (!user) return send(res, 404, gerr("BadRequest", "Not part of the fake."));
-    const address = decodeURIComponent(user[1]).toLowerCase();
+    const key = decodeURIComponent(user[1]).toLowerCase();
     const rest = user[2] ?? "";
     const sending = rest === "/sendMail";
-    const no = refuse(app, address, sending);
+    const no = refuse(app, key, sending);
     if (no) return send(res, no[0], no[1]);
-    const mb = mailboxes.get(address)!;
+    const mb = resolve(key)!;
+    const address = mb.address;
     const select = url.searchParams.get("$select")?.split(",") ?? null;
 
     if (sending && method === "POST") {
@@ -474,7 +546,7 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
       mb.sent.push(Buffer.from(text, "base64"));
       return send(res, 202);
     }
-    if (rest === "/mailFolders/inbox" && method === "GET") return send(res, 200, { id: "inbox-id", displayName: "Inbox" });
+    if (rest === "/mailFolders/inbox" && method === "GET") return send(res, 200, { id: INBOX_ID, displayName: "Inbox" });
     if (rest === "/mailFolders" && method === "GET") {
       const want = (url.searchParams.get("$filter") ?? "").match(/^displayName eq '(.*)'$/)?.[1]?.replace(/''/g, "'");
       const value = [...mb.folders].filter(([, name]) => want === undefined || name === want).map(([id, displayName]) => ({ id, displayName }));
@@ -493,8 +565,12 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
       const token = url.searchParams.get("$deltatoken");
       const skip = url.searchParams.get("$skiptoken");
       if ((token !== null || skip !== null) && mb.expireDelta) {
+        const how = mb.expireDelta;
         mb.expireDelta = false;
-        return send(res, 410, gerr("SyncStateNotFound", "The sync state generation is not found; ResyncRequired."));
+        // The token expired: "a 40X-series error with error codes such as syncStateNotFound".
+        if (how === "token") return send(res, 404, gerr("syncStateNotFound", "The sync state generation is not found."));
+        // A synchronization reset: 410 Gone and where to start over.
+        return send(res, 410, gerr("resyncRequired", "Resync required."), { location: `${base}${GRAPH}/users/${encodeURIComponent(key)}/mailFolders/inbox/messages/delta?$deltatoken=` });
       }
       const [since, offset] = skip !== null ? skip.split(":").map(Number) : [token !== null ? Number(token) : -1, 0];
       let items: Record<string, unknown>[];
@@ -508,7 +584,7 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
         });
       }
       const page = items.slice(offset, offset + size);
-      const root = `${base}${GRAPH}/users/${encodeURIComponent(address)}/mailFolders/inbox/messages/delta`;
+      const root = `${base}${GRAPH}/users/${encodeURIComponent(key)}/mailFolders/inbox/messages/delta`;
       const more = offset + size < items.length;
       const until = mb.seq;
       const link = more
@@ -523,8 +599,20 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
       const m = mb.messages.get(id);
       if (!m) return send(res, 404, gerr("ErrorItemNotFound", "The specified object was not found in the store."));
       if (tail === "" && method === "GET") {
+        inflight++;
+        fake.maxInflight = Math.max(fake.maxInflight, inflight);
+        try {
+          if (fake.delayMs > 0) await new Promise((r) => setTimeout(r, fake.delayMs));
+        } finally {
+          inflight--;
+        }
         if (fake.fail.message) return send(res, fake.fail.message, gerr("ErrorInternalServerError", "Try again."));
+        if (fake.fail.body && select?.includes("body")) return send(res, fake.fail.body, gerr("ErrorInternalServerError", "Try again."));
         return send(res, 200, messageJson(m, select));
+      }
+      if (tail === "/$value" && method === "GET") {
+        if (fake.fail.mime) return send(res, fake.fail.mime, gerr("ErrorInternalServerError", "Try again."));
+        return send(res, 200, m.mime ?? Buffer.from(`From: ${m.from?.address ?? ""}\r\nSubject: ${m.subject}\r\nContent-Type: text/plain\r\n\r\n${m.body.content}\r\n`));
       }
       if (tail === "" && method === "PATCH") {
         if (fake.fail.patch) return send(res, fake.fail.patch, gerr("ErrorAccessDenied", "Access is denied."));
@@ -550,6 +638,7 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
       const att = tail.match(/^\/attachments\/([^/]+)\/\$value$/);
       if (att && method === "GET") {
         const a = m.attachments.find((x) => x.id === decodeURIComponent(att[1]));
+        if (fake.fail.attachmentValue && (!fake.failAttachmentId || fake.failAttachmentId === a?.id)) return send(res, fake.fail.attachmentValue, gerr("ErrorInternalServerError", "Try again."));
         return a ? send(res, 200, a.data) : send(res, 404, gerr("ErrorItemNotFound", "No such attachment."));
       }
     }
@@ -599,7 +688,8 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
       appTokens.clear();
       delegated.clear();
       log.length = 0;
-      Object.assign(fake, { fail: {}, signInDelayMs: 0, failStep: "", deleteFails: false, deviceTenant: tenantId, devicePending: 1, evilNextLink: false });
+      fake.requests.length = 0;
+      Object.assign(fake, { fail: {}, retryAfter: 0, delayMs: 0, maxInflight: 0, failAttachmentId: "", signInDelayMs: 0, failStep: "", deleteFails: false, deviceTenant: tenantId, devicePending: 1, evilNextLink: false });
       return send(res, 200, { ok: true });
     }
     if (op === "set") {
@@ -611,10 +701,13 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
       const made = fake.addApp();
       return send(res, 200, { tenant: made.tenant, client_id: made.appId, secret: made.secrets[0] });
     }
-        if (op === "mailbox") return send(res, 200, { address: fake.addMailbox(String(b.address), (b.kind as FakeMailbox["kind"]) ?? "shared").address });
+    if (op === "mailbox") {
+      const made = fake.addMailbox(String(b.address), (b.kind as FakeMailbox["kind"]) ?? "shared", { upn: b.upn as string | undefined, objectId: b.objectId as string | undefined });
+      return send(res, 200, { address: made.address, upn: made.upn, objectId: made.objectId });
+    }
     if (op === "message") {
-      const { address, attachments, ...over } = b as { address: string; attachments?: { name: string; contentType: string; base64: string }[] } & Partial<FakeMessage>;
-      const msg = fake.addMessage(address, { ...over, ...(attachments ? { attachments: attachments.map((a, i) => ({ id: `att-${i}`, name: a.name, contentType: a.contentType, data: Buffer.from(a.base64, "base64") })) } : {}) });
+      const { address, attachments, mimeBase64, ...over } = b as { address: string; mimeBase64?: string; attachments?: { name: string; contentType: string; base64: string }[] } & Partial<FakeMessage>;
+      const msg = fake.addMessage(address, { ...over, ...(mimeBase64 ? { mime: Buffer.from(mimeBase64, "base64") } : {}), ...(attachments ? { attachments: attachments.map((a, i) => ({ id: `att-${i}`, name: a.name, contentType: a.contentType, data: Buffer.from(a.base64, "base64") })) } : {}) });
       return send(res, 200, { id: msg.id });
     }
     if (op === "unsubscribe") {
@@ -640,12 +733,14 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
         apps: [...apps.values()].map((a) => ({ appId: a.appId, spId: a.spId, displayName: a.displayName, roles: a.roles, scope: [...a.scope], deleted: a.deleted })),
         mailboxes: [...mailboxes.values()].map((m) => ({
           address: m.address,
+          upn: m.upn,
+          objectId: m.objectId,
           kind: m.kind,
           folders: [...m.folders.values()],
           messages: [...m.messages.values()].map((x) => ({ id: x.id, subject: x.subject, isRead: x.isRead, folder: x.folder === "inbox" ? "inbox" : (m.folders.get(x.folder) ?? x.folder) })),
           sent: m.sent.map((s) => s.toString("utf8")),
         })),
-        subscriptions: [...subscriptions.values()].map((s) => ({ id: s.id, mailbox: s.mailbox, changeType: s.changeType, resource: s.resource })),
+        subscriptions: [...subscriptions.values()].map((s) => ({ id: s.id, mailbox: s.mailbox, changeType: s.changeType, resource: s.resource, prefer: s.prefer })),
         log,
       });
     }
@@ -655,6 +750,13 @@ export async function startFakeM365(opts: { port?: number } = {}): Promise<FakeM
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://fake");
     const done = (status: number) => log.push(`${req.method} ${url.pathname} ${status}`);
+    let search = url.search;
+    try {
+      search = decodeURIComponent(url.search);
+    } catch {
+      /* as it came */
+    }
+    fake.requests.push(`${req.method} ${url.pathname}${search}`);
     res.on("finish", () => done(res.statusCode));
     const run = url.pathname.startsWith(`${GRAPH}/`)
       ? graph(req, res, url, url.pathname.slice(GRAPH.length))

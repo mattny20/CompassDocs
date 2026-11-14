@@ -9,19 +9,27 @@
 //                <details> with the three fields, as the way to do it by
 //                hand; a line says what is and is not supported.
 //   set up       the mailboxes (a list that acts at once: Connect mailbox,
-//                Check now, Disconnect), each with how its mail arrives, when
-//                it was last read, its counts and its last error in words;
+//                Check now, Try again, Disconnect), each with how its mail
+//                arrives, when it was last read, its counts and its last
+//                error in words, and a closed "Last messages" (how the
+//                sender check went for the last few, never any content);
 //                then three <details>: "Limit the app to your help
 //                mailboxes" (the Exchange Online commands with Copy, and
 //                Check access with its answer), "Options" and "App
 //                registration".
+//
+// Who may do what: saving or removing the connection and connecting or
+// disconnecting a mailbox decide what the desk reads, so they need
+// settings.manage (the API refuses the rest); without it those controls are
+// not shown and a line says who to ask. Everything else is the page's own
+// channels.manage.
 //
 // The help address dialog on the same page reads the same data
 // (useM365Mail): M365MailboxField is its "Microsoft 365 mailbox" pick, and
 // the address rows show M365AddressChip and M365AddressWarning.
 
 import { useEffect, useId, useState, useSyncExternalStore } from "react";
-import { Plus, RefreshCw, ShieldCheck, Unplug } from "lucide-react";
+import { Plus, RefreshCw, RotateCcw, ShieldCheck, Unplug } from "lucide-react";
 import { Button, iconButtonClass } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { Chip } from "@/components/Chip";
@@ -35,8 +43,11 @@ import { useFormatDate } from "@/components/SettingsProvider";
 import { LoadingRow } from "@/components/Spinner";
 import { toast } from "@/components/Toasts";
 import {
+  M365_GRAPH_ID_PROBLEM,
   M365_MAIL_LIMITS,
   M365_ROLES,
+  cleanM365GraphId,
+  m365AddressProblem,
   m365CredentialsProblem,
   modeSentence,
   restrictCommands,
@@ -44,8 +55,10 @@ import {
   type M365AfterIntake,
   type M365MailView,
   type M365MailboxView,
+  type M365MessageDiag,
 } from "@/lib/helpdesk/m365-mail-shared";
-import { getJson, sendJson } from "../api";
+import { ApiError, getJson, sendJson } from "../api";
+import { useCan } from "../me";
 
 const URL_ = "/api/helpdesk/admin/m365-mail";
 const SUMMARY = "cursor-pointer text-sm font-semibold text-slate-900";
@@ -141,10 +154,17 @@ export function M365AddressWarning({ id, workspaceFrom }: { id: number; workspac
 export function M365MailboxField({ value, onChange, typed }: { value: string; onChange: (next: string) => void; typed: string | null }) {
   const v = useM365Mail();
   if (!v?.connected || v.mailboxes.length === 0) return null;
+  const picked = v.mailboxes.find((m) => String(m.id) === value);
+  // An alias of the picked mailbox: Microsoft only keeps the alias on a message when the organisation says so.
+  const alias = !!picked && !!typed && typed !== picked.address;
   return (
     <Field
       label="Microsoft 365 mailbox"
-      help="Pick the connected mailbox this address belongs to, and the desk reads its mail there. An alias uses the mailbox it is an alias of. Distribution lists and Microsoft 365 groups can't be read: use a shared mailbox."
+      help={
+        alias
+          ? `The desk reads this address's mail in ${picked.address}. Microsoft 365 shows mail sent to an alias under the mailbox's main address unless your organisation has turned on sending from aliases (SendFromAliasEnabled). Until it has, mail to this alias is handled as mail to ${picked.address}.`
+          : "Pick the connected mailbox this address belongs to, and the desk reads its mail there. An alias uses the mailbox it is an alias of. Distribution lists and Microsoft 365 groups can't be read: use a shared mailbox."
+      }
     >
       <Select value={value} onChange={(e) => onChange(e.target.value)} data-testid="hd-mailbox-m365-pick">
         <option value="">Not on Microsoft 365 (forwarded to the webhook)</option>
@@ -169,6 +189,8 @@ export function M365MailCard() {
   const v = useM365Mail();
   const [setupDone, setSetupDone] = useState(false);
   const error = useSyncExternalStore(subscribe, () => loadError, () => "");
+  // Which app the desk signs in as and which mailboxes it reads: settings.manage. The rest of the card: the page's own capability.
+  const manage = useCan()("settings.manage");
 
   // The statuses move by themselves (a read every few minutes): read them again while the card is open.
   const live = !!v?.connected;
@@ -195,7 +217,7 @@ export function M365MailCard() {
           )
         ) : (
           <>
-            {(!v.connected || setupDone) && (
+            {manage && (!v.connected || setupDone) && (
               <MsDeviceSetup
                 startUrl="/api/ee/m365-mail/setup/start"
                 pollUrl="/api/ee/m365-mail/setup/poll"
@@ -213,7 +235,7 @@ export function M365MailCard() {
                 }}
               />
             )}
-            {v.connected ? <Connected v={v} /> : <NotConnected v={v} />}
+            {v.connected ? <Connected v={v} manage={manage} /> : <NotConnected v={v} manage={manage} />}
           </>
         )}
       </div>
@@ -222,7 +244,7 @@ export function M365MailCard() {
 }
 
 function attention(v: M365MailView): boolean {
-  return !v.verified || !!v.access?.tenant_wide.length || v.mailboxes.some((m) => m.last_error || m.sub_error) || v.links.some((l) => l.send_error);
+  return !v.verified || v.tenant_wide.length > 0 || v.mailboxes.some((m) => m.last_error || m.sub_error) || v.links.some((l) => l.send_error);
 }
 
 function StatusChip({ v }: { v: M365MailView }) {
@@ -239,7 +261,19 @@ function StatusChip({ v }: { v: M365MailView }) {
 
 const SUPPORTED = "Works with shared mailboxes and user mailboxes. Distribution lists and Microsoft 365 groups are not supported: use a shared mailbox instead.";
 
-function NotConnected({ v }: { v: M365MailView }) {
+const ASK = "Connecting Microsoft 365 and choosing which mailboxes it reads takes the Helpdesk settings capability. Ask someone whose desk role has it.";
+
+function NotConnected({ v, manage }: { v: M365MailView; manage: boolean }) {
+  if (!manage) {
+    return (
+      <>
+        <p className="text-sm text-slate-600" data-testid="hd-m365-ask">
+          Microsoft 365 is not connected. {ASK}
+        </p>
+        {v.orphaned && <MailboxList v={v} manage={false} />}
+      </>
+    );
+  }
   return (
     <>
       {v.orphaned && (
@@ -255,7 +289,7 @@ function NotConnected({ v }: { v: M365MailView }) {
         <CredentialsForm className="mt-3" submit="Connect" />
       </details>
       <p className="mt-3 text-xs text-slate-500">{SUPPORTED}</p>
-      {v.orphaned && <MailboxList v={v} />}
+      {v.orphaned && <MailboxList v={v} manage={manage} />}
     </>
   );
 }
@@ -313,8 +347,9 @@ function CredentialsForm({ className = "", submit, tenant = "", clientId = "", k
   );
 }
 
-function Connected({ v }: { v: M365MailView }) {
-  const wide = v.access?.tenant_wide ?? [];
+function Connected({ v, manage }: { v: M365MailView; manage: boolean }) {
+  // What the app's own token carries, read when the connection was saved and every half hour since (and by Check access).
+  const wide = v.tenant_wide;
   const checkedOk = !!v.access && wide.length === 0 && v.access.mailboxes.length > 0 && v.access.mailboxes.every((m) => m.ok);
   // Open until a check came back clean; after that it is the admin's to open and close (a check never shuts it on its own answer).
   const [restrictOpen, setRestrictOpen] = useState(!checkedOk);
@@ -327,10 +362,10 @@ function Connected({ v }: { v: M365MailView }) {
       )}
       {wide.length > 0 && (
         <p className="notice-warn mb-3 rounded-lg border px-3 py-2 text-sm" data-testid="hd-m365-tenant-wide">
-          This app can read every mailbox in your organisation. It holds {wide.join(", ")} granted in Entra. Run the commands under Limit access, then remove {wide.length === 1 ? "that permission" : "those permissions"} from the app in Entra (App registrations, API permissions).
+          This app can read every mailbox in your organisation. It holds {wide.join(", ")} granted in Entra. Run the commands under Limit access, then remove {wide.length === 1 ? "that permission" : "those permissions"} from the app in Entra (App registrations, API permissions). The desk looks again every half hour, and when you press Check access.
         </p>
       )}
-      <MailboxList v={v} />
+      <MailboxList v={v} manage={manage} />
       <details className="mt-5 text-sm text-slate-600" open={restrictOpen} onToggle={(e) => setRestrictOpen((e.currentTarget as HTMLDetailsElement).open)} data-testid="hd-m365-restrict">
         <summary className={SUMMARY}>
           Limit the app to your help mailboxes
@@ -346,36 +381,71 @@ function Connected({ v }: { v: M365MailView }) {
       </details>
       <details className="mt-4 text-sm text-slate-600" data-testid="hd-m365-app">
         <summary className={SUMMARY}>App registration</summary>
-        <AppRegistration v={v} />
+        <AppRegistration v={v} manage={manage} />
       </details>
     </>
   );
 }
 
-function MailboxList({ v }: { v: M365MailView }) {
+function MailboxList({ v, manage }: { v: M365MailView; manage: boolean }) {
   const [address, setAddress] = useState("");
+  const [graphId, setGraphId] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState<number | null>(null);
+  const [retrying, setRetrying] = useState<number | null>(null);
   const full = v.mailboxes.length >= v.limit;
+
+  /** With organisation-wide access the list alone decides what the desk reads: say so, and ask. */
+  const confirmWide = (roles: string[], a: string) =>
+    confirmDialog({
+      title: `Connect ${a}?`,
+      body: `This app can read every mailbox in your organisation (${roles.join(", ")} ${roles.length === 1 ? "is" : "are"} granted in Entra), so Microsoft will not stop the desk from reading this one, whoever it belongs to. Connect it only if it is a help mailbox. Limiting the app first is safer.`,
+      confirmLabel: "Connect anyway",
+      danger: true,
+    });
 
   async function connect(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (!address.trim()) {
-      setError("Enter the mailbox's address.");
+    const a = address.trim();
+    const problem = m365AddressProblem(a) || (cleanM365GraphId(graphId) === null ? M365_GRAPH_ID_PROBLEM : "");
+    if (problem) {
+      setError(problem);
       return;
+    }
+    let confirmed = false;
+    if (v.tenant_wide.length) {
+      if ((await confirmWide(v.tenant_wide, a)) !== true) return;
+      confirmed = true;
     }
     setBusy(true);
     try {
-      const r = await sendJson<{ mailbox: { address: string; waiting: boolean; linked: string | null }; view: M365MailView }>(`${URL_}/mailboxes`, "POST", { address: address.trim() }, "Couldn't connect the mailbox.");
+      const send = (confirm: boolean) =>
+        sendJson<{ mailbox: { address: string; waiting: boolean; linked: string | null }; view: M365MailView }>(
+          `${URL_}/mailboxes`,
+          "POST",
+          { address: a, ...(graphId.trim() ? { graph_id: graphId.trim() } : {}), ...(confirm ? { confirm_tenant_wide: true } : {}) },
+          "Couldn't connect the mailbox."
+        );
+      let r;
+      try {
+        r = await send(confirmed);
+      } catch (err) {
+        // The app gained organisation-wide access since the page last looked: the same question, then once more.
+        if (!(err instanceof ApiError) || err.code !== "tenant_wide" || confirmed) throw err;
+        void loadM365Mail();
+        if ((await confirmWide(["a Microsoft Graph mail permission"], a)) !== true) return;
+        r = await send(true);
+      }
       setM365Mail(r.view);
       setAddress("");
+      setGraphId("");
       toast(
         "ok",
         r.mailbox.waiting
           ? `${r.mailbox.address} is listed. The app can't read it yet: run the commands under Limit access.`
-          : `${r.mailbox.address} is connected.${r.mailbox.linked ? " Your help address with the same address now reads from it." : " Edit a help address to say it lives on this mailbox."}`
+          : `${r.mailbox.address} is connected.${r.mailbox.linked ? " Your help address with the same address now reads from it." : " It is not read until a help address lives on it: edit a help address and pick this mailbox."}`
       );
     } catch (err) {
       setError((err as Error).message);
@@ -396,6 +466,23 @@ function MailboxList({ v }: { v: M365MailView }) {
       toast("error", (err as Error).message);
     } finally {
       setChecking(null);
+    }
+  }
+
+  async function tryAgain(m: M365MailboxView) {
+    setRetrying(m.id);
+    try {
+      const r = await sendJson<{ retried: number; ok: boolean; busy?: boolean; error?: string; view: M365MailView }>(`${URL_}/mailboxes/${m.id}/retry`, "POST", {}, "Couldn't try the messages again.");
+      setM365Mail(r.view);
+      const left = r.view.mailboxes.find((x) => x.id === m.id)?.failed ?? 0;
+      if (r.busy) toast("ok", "A check of this mailbox is already running. The messages are tried in the next one.");
+      else if (!r.ok) toast("error", r.error ?? "The mailbox could not be read.");
+      else if (left > 0) toast("error", `${left === 1 ? "1 message" : `${left} messages`} still could not be taken in. Last messages says why.`);
+      else toast("ok", r.retried === 1 ? "The message was tried again." : `${r.retried} messages were tried again.`);
+    } catch (err) {
+      toast("error", (err as Error).message);
+    } finally {
+      setRetrying(null);
     }
   }
 
@@ -421,15 +508,33 @@ function MailboxList({ v }: { v: M365MailView }) {
     <div className="mt-1">
       <h3 className="mb-1 text-sm font-semibold text-slate-900">Mailboxes</h3>
       {v.mailboxes.length === 0 ? (
-        <SectionEmpty className="py-2">No mailbox is connected yet. Enter the main address of a shared mailbox, such as help@yourcompany.com.</SectionEmpty>
+        <SectionEmpty className="py-2">
+          {manage ? "No mailbox is connected yet. Enter the main address of a shared mailbox, such as help@yourcompany.com." : "No mailbox is connected yet."}
+        </SectionEmpty>
       ) : (
         <ul role="list" className="divide-y divide-slate-100 border-y border-slate-100" data-testid="hd-m365-mailboxes">
           {v.mailboxes.map((m) => (
-            <MailboxRow key={m.id} v={v} m={m} checking={checking === m.id} disabled={checking !== null || !v.connected} onCheck={() => void checkNow(m)} onDisconnect={() => void disconnect(m)} />
+            <MailboxRow
+              key={m.id}
+              v={v}
+              m={m}
+              manage={manage}
+              checking={checking === m.id}
+              retrying={retrying === m.id}
+              disabled={checking !== null || retrying !== null || !v.connected}
+              onCheck={() => void checkNow(m)}
+              onRetry={() => void tryAgain(m)}
+              onDisconnect={() => void disconnect(m)}
+            />
           ))}
         </ul>
       )}
-      {v.connected && (
+      {v.connected && !manage && (
+        <p className="mt-3 text-xs text-slate-500" data-testid="hd-m365-ask">
+          {ASK}
+        </p>
+      )}
+      {v.connected && manage && (
         <form onSubmit={connect} noValidate className="mt-3">
           <div className="flex flex-wrap items-end gap-2">
             <Field label="Mailbox address" size="md" className="min-w-0 flex-1 basis-64">
@@ -441,69 +546,253 @@ function MailboxList({ v }: { v: M365MailView }) {
           </div>
           <FormError className="mt-2">{error}</FormError>
           <p className="mt-1 text-xs text-slate-500">{full ? `Up to ${v.limit} mailboxes can be connected.` : `The mailbox's main address, not an alias. ${SUPPORTED}`}</p>
+          {!full && (
+            <details className="mt-2 text-sm text-slate-600" data-testid="hd-m365-connect-advanced">
+              <summary className="cursor-pointer text-xs font-medium text-slate-500">Advanced</summary>
+              <Field
+                label="Object ID or sign-in name (optional)"
+                size="md"
+                className="mt-2 max-w-xl"
+                help="Leave empty when the address above is also the mailbox's sign-in name. Otherwise enter the mailbox's object ID (best) or sign-in name: Microsoft looks mailboxes up by those. The commands under Limit access print both."
+              >
+                <TextInput value={graphId} onChange={(e) => setGraphId(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" autoComplete="off" spellCheck={false} maxLength={200} data-testid="hd-m365-graph-id" />
+              </Field>
+            </details>
+          )}
         </form>
       )}
     </div>
   );
 }
 
-function MailboxRow({ v, m, checking, disabled, onCheck, onDisconnect }: { v: M365MailView; m: M365MailboxView; checking: boolean; disabled: boolean; onCheck: () => void; onDisconnect: () => void }) {
+const CHECK_CHIP: Record<M365MessageDiag["check"], { tone: "ok" | "warn" | "info" | "neutral"; label: string }> = {
+  passed: { tone: "ok", label: "Passed" },
+  failed: { tone: "warn", label: "Failed" },
+  internal: { tone: "info", label: "Internal" },
+  none: { tone: "neutral", label: "No result" },
+  "": { tone: "neutral", label: "Not checked" },
+};
+
+const OUTCOME: Record<string, string> = {
+  created: "New ticket",
+  appended: "Added to a ticket",
+  follow_up: "Follow-up ticket",
+  alert_created: "New alert",
+  alert_updated: "Alert updated",
+  alert_reopened: "Alert reopened",
+  alert_resolved: "Alert resolved",
+  ignored_loop: "Dropped: the desk's own mail",
+  ignored_auto: "Dropped: automatic mail",
+  duplicate: "Dropped: already taken in",
+  skipped_no_sender: "Dropped: no sender address",
+  skipped_old: "Left alone: from before the mailbox was connected",
+  skipped_draft: "Left alone: a draft",
+  gone: "Gone from the Inbox before it was read",
+  waiting: "Waiting to be tried again",
+  failed: "Could not be taken in",
+  working: "Being read",
+};
+const outcomeWords = (o: string) => OUTCOME[o] ?? (o ? `Dropped (${o.replace(/_/g, " ")})` : "Read");
+
+/**
+ * "Last messages" on a mailbox row: for the last few messages, when each
+ * arrived, the sender's domain, how the sender check went and what
+ * Exchange's headers said, and what became of the message. No subject, no
+ * address, no content. Loaded when opened, and again on each opening.
+ */
+function LastMessages({ m }: { m: M365MailboxView }) {
   const fmt = useFormatDate();
+  const [rows, setRows] = useState<M365MessageDiag[] | null>(null);
+  const [error, setError] = useState("");
+
+  async function load() {
+    setError("");
+    try {
+      setRows((await getJson<{ messages: M365MessageDiag[] }>(`${URL_}/mailboxes/${m.id}/messages`, "Couldn't load the last messages.")).messages);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  return (
+    <details className="mt-2 text-sm text-slate-600" onToggle={(e) => (e.currentTarget as HTMLDetailsElement).open && void load()} data-testid="hd-m365-last-messages">
+      <summary className="cursor-pointer text-xs font-medium text-slate-500">Last messages</summary>
+      <p className="mt-2 text-xs text-slate-500">How the sender check went for the last messages in this mailbox, and what Microsoft's headers said. No subject, address or text is kept here.</p>
+      {error ? (
+        <p className="ink-warn mt-2 text-xs">{error}</p>
+      ) : !rows ? (
+        <LoadingRow className="py-2" />
+      ) : rows.length === 0 ? (
+        <SectionEmpty className="py-2">No message has been read from this mailbox yet.</SectionEmpty>
+      ) : (
+        <ul role="list" className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200">
+          {rows.map((r, i) => (
+            <li key={i} className="px-3 py-2" data-testid="hd-m365-last-message">
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-700">
+                <span className="text-xs text-slate-500">{fmt.dateTime(r.at)}</span>
+                <span className="min-w-0 break-all font-medium text-slate-900">{r.sender_domain || "no sender"}</span>
+                <Chip tone={CHECK_CHIP[r.check].tone} size="sm">
+                  {CHECK_CHIP[r.check].label}
+                </Chip>
+                <span className="text-xs text-slate-500">{outcomeWords(r.outcome)}</span>
+              </p>
+              {r.reason && <p className="mt-0.5 text-xs text-slate-500 [overflow-wrap:anywhere]">{r.reason}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
+  );
+}
+
+/** On a mailbox row, for whoever may connect mailboxes: how Microsoft Graph is asked for this one. */
+function LookupField({ m }: { m: M365MailboxView }) {
+  const [value, setValue] = useState(m.graph_id);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    if (cleanM365GraphId(value) === null) {
+      setError(M365_GRAPH_ID_PROBLEM);
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await sendJson<{ view: M365MailView }>(`${URL_}/mailboxes/${m.id}`, "PATCH", { graph_id: value.trim() }, "Couldn't save that.");
+      setM365Mail(r.view);
+      toast("ok", value.trim() ? "Saved. The desk now asks Microsoft for this mailbox by that." : "Saved. The desk asks Microsoft for this mailbox by its address again.");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <details className="mt-2 text-sm text-slate-600" data-testid="hd-m365-lookup">
+      <summary className="cursor-pointer text-xs font-medium text-slate-500">Advanced</summary>
+      <form onSubmit={save} noValidate className="mt-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="Object ID or sign-in name (optional)" size="md" className="min-w-0 flex-1 basis-64">
+            <TextInput value={value} onChange={(e) => setValue(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" autoComplete="off" spellCheck={false} maxLength={200} />
+          </Field>
+          <Button type="submit" variant="secondary" busy={busy} disabled={value.trim().toLowerCase() === m.graph_id}>
+            Save
+          </Button>
+        </div>
+        <FormError className="mt-2">{error}</FormError>
+        <p className="mt-1 text-xs text-slate-500">
+          Microsoft looks a mailbox up by its object ID or sign-in name. Empty: the desk asks by the address, which works when that is also the sign-in name. The commands under Limit access print both.
+        </p>
+      </form>
+    </details>
+  );
+}
+
+function MailboxRow({
+  v,
+  m,
+  manage,
+  checking,
+  retrying,
+  disabled,
+  onCheck,
+  onRetry,
+  onDisconnect,
+}: {
+  v: M365MailView;
+  m: M365MailboxView;
+  manage: boolean;
+  checking: boolean;
+  retrying: boolean;
+  disabled: boolean;
+  onCheck: () => void;
+  onRetry: () => void;
+  onDisconnect: () => void;
+}) {
+  const fmt = useFormatDate();
+  const idle = m.mode === "idle";
   const waiting = !m.last_ok_at && !!m.last_error;
   const lives = m.addresses.map((a) => a.address);
   return (
-    <li className="flex flex-wrap items-start gap-x-4 gap-y-2 py-3" data-testid="hd-m365-mailbox-row">
-      <div className="min-w-0 flex-1 basis-64">
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="min-w-0 break-all text-sm font-medium text-slate-900">{m.address}</span>
-          {!v.connected ? (
-            <Chip tone="neutral" size="sm">Not being read</Chip>
-          ) : waiting ? (
-            <Chip tone="warn" size="sm">Waiting for access</Chip>
-          ) : m.last_error ? (
-            <Chip tone="warn" size="sm">Needs attention</Chip>
-          ) : m.mode === "notifications" ? (
-            <Chip tone="ok" size="sm">Notifications on</Chip>
+    <li className="py-3" data-testid="hd-m365-mailbox-row">
+      <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
+        <div className="min-w-0 flex-1 basis-64">
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="min-w-0 break-all text-sm font-medium text-slate-900">{m.address}</span>
+            {!v.connected ? (
+              <Chip tone="neutral" size="sm">Not being read</Chip>
+            ) : waiting ? (
+              <Chip tone="warn" size="sm">Waiting for access</Chip>
+            ) : idle ? (
+              <Chip tone="neutral" size="sm">Not being read</Chip>
+            ) : m.last_error ? (
+              <Chip tone="warn" size="sm">Needs attention</Chip>
+            ) : m.mode === "notifications" ? (
+              <Chip tone="ok" size="sm">Notifications on</Chip>
+            ) : (
+              <Chip tone="neutral" size="sm">On a timer</Chip>
+            )}
+          </p>
+          {idle ? (
+            <p className="mt-0.5 text-xs text-slate-500" data-testid="hd-m365-mailbox-idle">
+              {modeSentence(m.mode, v.poll_minutes, v.notify_origin)} Edit a help address above and pick this mailbox.
+            </p>
           ) : (
-            <Chip tone="neutral" size="sm">On a timer</Chip>
-          )}
-        </p>
-        <p className="mt-0.5 text-xs text-slate-500 [overflow-wrap:anywhere]">
-          {lives.length ? `Help ${lives.length === 1 ? "address" : "addresses"}: ${lives.join(", ")}` : "No help address lives here yet"}
-          {" · "}
-          {m.last_ok_at ? (
             <>
-              Last read <RelativeTime value={m.last_ok_at} />
+              <p className="mt-0.5 text-xs text-slate-500 [overflow-wrap:anywhere]">
+                Help {lives.length === 1 ? "address" : "addresses"}: {lives.join(", ")}
+                {" · "}
+                {m.last_ok_at ? (
+                  <>
+                    Last read <RelativeTime value={m.last_ok_at} />
+                  </>
+                ) : (
+                  "Not read yet"
+                )}
+                {" · "}
+                {m.taken_in} taken in, {m.dropped} dropped
+                {m.waiting > 0 ? `, ${m.waiting} waiting to be tried again` : ""}
+                {m.failed > 0 ? `, ${m.failed} could not be taken in` : ""}
+              </p>
+              {v.connected && <p className="mt-0.5 text-xs text-slate-500">{modeSentence(m.mode, v.poll_minutes, v.notify_origin)}</p>}
             </>
-          ) : (
-            "Not read yet"
           )}
-          {" · "}
-          {m.taken_in} taken in, {m.dropped} dropped{m.failed > 0 ? `, ${m.failed} failed` : ""}
-        </p>
-        {v.connected && <p className="mt-0.5 text-xs text-slate-500">{modeSentence(m.mode, v.poll_minutes, v.notify_origin)}</p>}
-        {v.connected && m.sub_error && (
-          <p className="ink-warn mt-1 text-xs [overflow-wrap:anywhere]" data-testid="hd-m365-mailbox-sub-warning">
-            Notifications{m.sub_error_at ? ` (${fmt.dateTime(m.sub_error_at)})` : ""}: {m.sub_error}
-          </p>
-        )}
-        {v.connected && m.last_error && (
-          <p className="ink-warn mt-1 text-xs [overflow-wrap:anywhere]" data-testid="hd-m365-mailbox-warning">
-            {m.last_error_at ? `${fmt.dateTime(m.last_error_at)}: ` : ""}
-            {m.last_error}
-          </p>
-        )}
+          {m.graph_id && <p className="mt-0.5 text-xs text-slate-500 [overflow-wrap:anywhere]">Microsoft is asked for it by {m.graph_id}</p>}
+          {v.connected && !idle && m.sub_error && (
+            <p className="ink-warn mt-1 text-xs [overflow-wrap:anywhere]" data-testid="hd-m365-mailbox-sub-warning">
+              Notifications{m.sub_error_at ? ` (${fmt.dateTime(m.sub_error_at)})` : ""}: {m.sub_error}
+            </p>
+          )}
+          {v.connected && m.last_error && (
+            <p className="ink-warn mt-1 text-xs [overflow-wrap:anywhere]" data-testid="hd-m365-mailbox-warning">
+              {m.last_error_at ? `${fmt.dateTime(m.last_error_at)}: ` : ""}
+              {m.last_error}
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-1">
+          {v.connected && !idle && m.failed > 0 && (
+            <Button variant="secondary" size="sm" icon={<RotateCcw />} busy={retrying} disabled={disabled} onClick={onRetry} data-testid="hd-m365-retry">
+              Try again
+            </Button>
+          )}
+          {v.connected && !idle && (
+            <Button variant="secondary" size="sm" icon={<RefreshCw />} busy={checking} disabled={disabled} onClick={onCheck}>
+              Check now
+            </Button>
+          )}
+          {manage && (
+            <button type="button" className={iconButtonClass("quiet", "sm")} onClick={onDisconnect} data-tt="Disconnect" aria-label={`Disconnect ${m.address}`}>
+              <Unplug aria-hidden />
+            </button>
+          )}
+        </div>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        {v.connected && (
-          <Button variant="secondary" size="sm" icon={<RefreshCw />} busy={checking} disabled={disabled} onClick={onCheck}>
-            Check now
-          </Button>
-        )}
-        <button type="button" className={iconButtonClass("quiet", "sm")} onClick={onDisconnect} data-tt="Disconnect" aria-label={`Disconnect ${m.address}`}>
-          <Unplug aria-hidden />
-        </button>
-      </div>
+      {v.connected && !idle && <LastMessages m={m} />}
+      {v.connected && manage && <LookupField m={m} />}
     </li>
   );
 }
@@ -513,8 +802,9 @@ function Restrict({ v }: { v: M365MailView }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const addresses = v.mailboxes.map((m) => m.address);
-  const first = restrictCommands({ clientId: v.client_id, spObjectId: v.sp_object_id, addresses, first: true });
-  const later = restrictCommands({ clientId: v.client_id, spObjectId: v.sp_object_id, addresses, first: false });
+  const graphIds = Object.fromEntries(v.mailboxes.filter((m) => m.graph_id).map((m) => [m.address, m.graph_id]));
+  const first = restrictCommands({ clientId: v.client_id, spObjectId: v.sp_object_id, addresses, first: true, graphIds });
+  const later = restrictCommands({ clientId: v.client_id, spObjectId: v.sp_object_id, addresses, first: false, graphIds });
 
   async function check() {
     setBusy(true);
@@ -559,7 +849,8 @@ function Restrict({ v }: { v: M365MailView }) {
             <CopyButton text={later ?? ""} label="Copy commands" />
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            Microsoft can take from 30 minutes to 2 hours to apply a change. The last command shows what Exchange has on record at once: InScope should read True for both roles.
+            Microsoft can take from 30 minutes to 2 hours to apply a change. The last command shows what Exchange has on record at once: InScope should read True for both roles. The Get-EXOMailbox
+            lines change nothing: they print each mailbox&apos;s sign-in name and object ID, for the Advanced field on a mailbox.
           </p>
         </>
       )}
@@ -588,7 +879,7 @@ function AccessResult({ access }: { access: M365AccessCheck | null }) {
       <ul role="list" className="mt-1 space-y-1 text-sm">
         <li className={wide.length ? "ink-warn" : "text-slate-700"}>
           {wide.length
-            ? `The app can reach every mailbox in your organisation (${wide.join(", ")} is granted in Entra).`
+            ? `The app can reach every mailbox in your organisation (${wide.join(", ")} ${wide.length === 1 ? "is" : "are"} granted in Entra).`
             : "No organisation-wide mail permission is granted in Entra."}
         </li>
         {access.mailboxes.map((m) => (
@@ -710,7 +1001,7 @@ function Options({ v }: { v: M365MailView }) {
   );
 }
 
-function AppRegistration({ v }: { v: M365MailView }) {
+function AppRegistration({ v, manage }: { v: M365MailView; manage: boolean }) {
   const [replacing, setReplacing] = useState(false);
 
   async function remove() {
@@ -742,10 +1033,11 @@ function AppRegistration({ v }: { v: M365MailView }) {
         <dt className="text-slate-500">Set up</dt>
         <dd className="text-slate-700">{v.setup === "one_click" ? "With Microsoft, in one step" : "By hand"}</dd>
       </dl>
-      {replacing ? (
+      {!manage && <p className="mt-3 text-xs text-slate-500">{ASK}</p>}
+      {manage && replacing ? (
         <CredentialsForm className="mt-4" submit="Save app registration" tenant={v.tenant} clientId={v.client_id} keepSecret onSaved={() => setReplacing(false)} />
       ) : null}
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className={manage ? "mt-4 flex flex-wrap gap-2" : "hidden"}>
         {!replacing && (
           <Button variant="secondary" size="sm" onClick={() => setReplacing(true)}>
             Change app registration or secret

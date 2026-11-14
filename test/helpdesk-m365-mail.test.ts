@@ -22,7 +22,14 @@
 //   - subscriptions: created, renewed, re-created, lifecycle events, a
 //     refusal that falls back to the timer;
 //   - sending through Graph and its fallback to SMTP;
-//   - the routes' permissions.
+//   - the routes' permissions (settings.manage for the connection and the
+//     list of mailboxes, channels.manage for the rest);
+//   - the security review of 1.20.7: all-"none" results are a failed check,
+//     hostile addresses in the PowerShell block, organisation-wide access
+//     recorded and confirmed, idle mailboxes, named-only envelopes, retry
+//     accounting and "Try again", Inbox-only notifications and strict ids,
+//     cheap rejections and the intake's limits, meeting invites, the "Last
+//     messages" diagnostic, the object ID lookup, key rotation.
 //
 // hd_mailboxes and the email settings are workspace-wide: the whole file
 // runs under the email settings' advisory lock (728351, as
@@ -41,7 +48,8 @@ import type { PoolClient } from "pg";
 import { pool, getSetting, setSetting, createSession } from "../src/lib/db";
 import { newToken } from "../src/lib/password";
 import { fixtureQuery } from "./support/retry";
-import { exchangeHeaders, failResults, passResults, startFakeM365, type FakeApp, type FakeM365, type FakeMessage } from "./helpers/fake-m365";
+import { createHash } from "node:crypto";
+import { INBOX_ID, exchangeHeaders, failResults, passResults, startFakeM365, type FakeApp, type FakeM365, type FakeMessage } from "./helpers/fake-m365";
 
 process.env.COMPASSDOCS_SECRET_KEY ||= "7c4f0d5e8a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5";
 
@@ -119,6 +127,10 @@ const accessRoute = require("../src/app/api/helpdesk/admin/m365-mail/check-acces
 const boxesRoute = require("../src/app/api/helpdesk/admin/m365-mail/mailboxes/route") as typeof import("../src/app/api/helpdesk/admin/m365-mail/mailboxes/route");
 const boxRoute = require("../src/app/api/helpdesk/admin/m365-mail/mailboxes/[id]/route") as typeof import("../src/app/api/helpdesk/admin/m365-mail/mailboxes/[id]/route");
 const checkRoute = require("../src/app/api/helpdesk/admin/m365-mail/mailboxes/[id]/check/route") as typeof import("../src/app/api/helpdesk/admin/m365-mail/mailboxes/[id]/check/route");
+const retryRoute = require("../src/app/api/helpdesk/admin/m365-mail/mailboxes/[id]/retry/route") as typeof import("../src/app/api/helpdesk/admin/m365-mail/mailboxes/[id]/retry/route");
+const messagesRoute = require("../src/app/api/helpdesk/admin/m365-mail/mailboxes/[id]/messages/route") as typeof import("../src/app/api/helpdesk/admin/m365-mail/mailboxes/[id]/messages/route");
+const deskRoles = require("../src/lib/helpdesk/roles") as typeof import("../src/lib/helpdesk/roles");
+const rolesShared = require("../src/lib/helpdesk/roles-shared") as typeof import("../src/lib/helpdesk/roles-shared");
 const linkRoute = require("../src/app/api/helpdesk/admin/m365-mail/addresses/[id]/route") as typeof import("../src/app/api/helpdesk/admin/m365-mail/addresses/[id]/route");
 const testRoute = require("../src/app/api/helpdesk/admin/mailboxes/[id]/test/route") as typeof import("../src/app/api/helpdesk/admin/mailboxes/[id]/test/route");
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -137,7 +149,9 @@ const OTHER = `ceo@${DOMAIN}`; // a mailbox the desk must not reach
 const LOCK = 728351;
 const KEY = m365State.M365_MAIL_KEY;
 type Person = { id: number; email: string; session: string; name: string };
-const U: Record<"req" | "agent" | "manager" | "outsider", Person> = {} as never;
+// "lead": a desk role that holds the Email channel capability and not Helpdesk settings (see the permission tests).
+const U: Record<"req" | "agent" | "manager" | "outsider" | "lead", Person> = {} as never;
+const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 let teamA = 0;
 let teamB = 0;
 let boxHelp: HdMailbox;
@@ -234,7 +248,7 @@ before(async () => {
   // The first address listed becomes the default and is mirrored into these two (lib/helpdesk/mailboxes): put back in after().
   savedSettings = { outside_senders: s.outside_senders, inbound_secret: s.inbound_secret, inbound_address: s.inbound_address, email_from_name: s.email_from_name };
   assert.equal((await pool().query("SELECT count(*)::int AS n FROM hd_m365_mailboxes")).rows[0].n, 0, "this suite needs a database with no Microsoft 365 mailbox connected");
-  await pool().query("DELETE FROM settings WHERE key = $1", [KEY]);
+  await pool().query("DELETE FROM settings WHERE key = ANY($1)", [[KEY, `${KEY}_roles`]]);
   m365State.resetM365StateForTests();
 
   fake = await startFakeM365();
@@ -272,7 +286,7 @@ before(async () => {
   await new Promise<void>((r) => bridge.listen(0, "127.0.0.1", () => r()));
   bridgeOrigin = `http://127.0.0.1:${(bridge.address() as AddressInfo).port}`;
 
-  const names = { req: "Daniel Okafor", agent: "Ana Kowalski", manager: "Mina Park", outsider: "Noor Haddad" };
+  const names = { req: "Daniel Okafor", agent: "Ana Kowalski", manager: "Mina Park", outsider: "Noor Haddad", lead: "Tariq Aziz" };
   const expires = new Date(Date.now() + 3_600_000).toISOString();
   for (const [k, name] of Object.entries(names) as [keyof typeof U, string][]) {
     const addr = `${STAMP}-${k}@example.test`;
@@ -281,7 +295,7 @@ before(async () => {
     await createSession(session, r.rows[0].id, expires);
     U[k] = { id: r.rows[0].id, email: addr, session, name: `${name} ${STAMP.slice(-4)}` };
   }
-  for (const [k, role] of [["agent", "agent"], ["manager", "manager"]] as const) {
+  for (const [k, role] of [["agent", "agent"], ["manager", "manager"], ["lead", "team_lead"]] as const) {
     await fixtureQuery(`INSERT INTO role_assignments (role_id, user_id, scope_type, space_id) SELECT r.id, $1, 'global', NULL FROM roles r WHERE r.key = $2`, [U[k].id, role === "manager" ? "helpdesk-manager" : "helpdesk-agent"]);
     await fixtureQuery("INSERT INTO hd_agent_roles (user_id, role) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role", [U[k].id, role]);
   }
@@ -301,6 +315,8 @@ before(async () => {
 
 after(async () => {
   email.setHelpdeskTransportForTests(null);
+  deskRoles.setRoleMatrixForTests(null);
+  inbound.setInboundAttachmentStoreForTests(null);
   const ids = Object.values(U).map((u) => u.id);
   const teams = [teamA, teamB];
   const all = (await pool().query("SELECT id FROM hd_tickets WHERE team_id = ANY($1) OR requester_id = ANY($2) OR id = ANY($3) OR subject LIKE $4", [teams, ids, ticketIds, `%${STAMP}%`])).rows.map((r) => r.id);
@@ -319,7 +335,7 @@ after(async () => {
   await pool().query("DELETE FROM hd_agent_roles WHERE user_id = ANY($1)", [ids]);
   await pool().query("DELETE FROM users WHERE id = ANY($1)", [ids]);
   // The workspace's own settings, as found; no Microsoft 365 connection is left behind.
-  await pool().query("DELETE FROM settings WHERE key = $1", [KEY]);
+  await pool().query("DELETE FROM settings WHERE key = ANY($1)", [[KEY, `${KEY}_roles`]]);
   if (savedConfig !== undefined) await setSetting(KEY, savedConfig);
   if (savedAuth === undefined) await pool().query("DELETE FROM settings WHERE key = $1", [inbound.HD_INBOUND_AUTH_KEY]);
   else await setSetting(inbound.HD_INBOUND_AUTH_KEY, savedAuth);
@@ -366,12 +382,71 @@ describe("Microsoft's sender verdict", () => {
     assert.match(r.state.reason, /not aligned/);
   });
 
-  test("none: no header from Exchange, or results that are all 'none'", () => {
-    assert.deepEqual(verdict({ ...base, results: undefined, authAs: [] }).v, { kind: "none" });
-    assert.equal(verdict({ ...base, results: undefined, authAs: [] }).state.state, "none");
+  test("no result is only 'Exchange wrote no results at all'; results that are all 'none' are a FAILED check", () => {
+    const nothing = verdict({ ...base, results: undefined, authAs: [] });
+    assert.equal(nothing.v.kind, "none");
+    assert.equal(nothing.v.auth, undefined);
+    assert.equal(nothing.state.state, "none");
+    assert.equal(nothing.v.note, "no AuthAs stamp; no Authentication-Results header");
+    // Exchange evaluated it and found nothing signed and nothing published: checked, not passed. The trust toggle
+    // ("Trust sender addresses without SPF or DKIM results") reads state "none" only, so it never applies here.
     const empty = verdict({ ...base, results: "spf=none (sender IP is 203.0.113.9) smtp.mailfrom=customer.example; dkim=none (message not signed) header.d=none;dmarc=none action=none header.from=customer.example;compauth=none reason=405", authAs: ["Anonymous"] });
-    assert.equal(empty.v.kind, "none");
-    assert.equal(empty.state.state, "none");
+    assert.equal(empty.v.kind, "results");
+    assert.deepEqual(empty.v.auth, { spf: "none", envelopeFrom: "customer.example", dkim: "none", dmarc: "none" });
+    assert.deepEqual([empty.state.state, empty.state.ok, empty.state.checked], ["fail", false, true]);
+    assert.match(empty.v.note, /^AuthAs stamp: anonymous; first of 1 Authentication-Results: spf=none, dkim=none, dmarc=none, compauth=none \(reason 405\)$/);
+    // Even a single method named, with no verdict worth the name.
+    const one = verdict({ ...base, results: "dkim=none (message not signed) header.d=none", authAs: ["Anonymous"] });
+    assert.deepEqual([one.v.kind, one.state.state], ["results", "fail"]);
+    // No authserv-id before the first method, as Microsoft's own examples show, and one in front: both read.
+    assert.equal(verdict({ ...base, results: `mx.microsoft.com; ${passResults("customer.example")}`, authAs: ["Anonymous"] }).state.state, "pass");
+  });
+
+  test("DMARC fails closed: a pass with no readable header.from is no pass", () => {
+    for (const results of [
+      "spf=none smtp.mailfrom=other.example; dkim=none header.d=none;dmarc=pass action=none;compauth=pass reason=100",
+      "spf=none smtp.mailfrom=other.example; dkim=none header.d=none;dmarc=pass action=none header.from=;compauth=pass reason=100",
+      "spf=none smtp.mailfrom=other.example; dkim=none header.d=none;dmarc=pass action=none header.from=<nonsense>;compauth=pass reason=100",
+      "spf=none smtp.mailfrom=other.example; dkim=none header.d=none;dmarc=pass action=none header.from=other.example;compauth=pass reason=100",
+    ]) {
+      const r = verdict({ ...base, results, authAs: ["Anonymous"] });
+      assert.equal(r.v.auth?.dmarc, "none", results);
+      assert.equal(r.state.ok, false, results);
+    }
+    // The organisational domain is aligned (relaxed), as for the webhook's verdicts.
+    assert.equal(verdict({ ...base, fromEmail: "cara@mail.customer.example", results: "spf=none smtp.mailfrom=x.example; dkim=none header.d=none;dmarc=pass action=none header.from=customer.example;compauth=pass reason=100", authAs: ["Anonymous"] }).state.state, "pass");
+  });
+
+  test("Microsoft's documented words and codes: bestguesspass and softpass are no pass; compauth is read by its reason code too", () => {
+    // dmarc=bestguesspass: the domain has no DMARC record. Not a pass; with nothing else aligned, a failed check.
+    const guess = verdict({ ...base, results: "spf=none smtp.mailfrom=other.example; dkim=none header.d=none;dmarc=bestguesspass action=none header.from=customer.example;compauth=pass reason=109", authAs: ["Anonymous"] });
+    assert.equal(guess.v.auth?.dmarc, "none");
+    assert.equal(guess.state.state, "fail");
+    // ... but an aligned SPF pass beside it is still a pass (the existing alignment rule).
+    assert.equal(verdict({ ...base, results: "spf=pass smtp.mailfrom=customer.example; dkim=none header.d=none;dmarc=bestguesspass action=none header.from=customer.example;compauth=pass reason=109", authAs: ["Anonymous"] }).state.state, "pass");
+    const cls = (tail: string) => message.parseExchangeResults(`spf=pass smtp.mailfrom=customer.example;${tail}`).compauth;
+    // fail: 000, 001, 002, 010 and 6xx, whatever the word says.
+    for (const code of ["000", "001", "002", "010", "601", "699"]) {
+      assert.equal(cls(`compauth=fail reason=${code}`), "fail", code);
+      assert.equal(cls(`compauth=pass reason=${code}`), "fail", `${code} under the word pass`);
+    }
+    // pass: 1xx and 7xx. softpass: 2xx. none: 3xx, 4xx, 5xx, 9xx.
+    for (const code of ["100", "115", "130", "701", "704"]) assert.equal(cls(`compauth=pass reason=${code}`), "pass", code);
+    for (const code of ["201", "202"]) assert.equal(cls(`compauth=softpass reason=${code}`), "softpass", code);
+    for (const code of ["301", "405", "501", "905"]) assert.equal(cls(`compauth=none reason=${code}`), "none", code);
+    // The word and the code disagree: the weaker one. The word fail with any code: fail. No code: the word.
+    assert.equal(cls("compauth=pass reason=201"), "softpass");
+    assert.equal(cls("compauth=pass reason=405"), "none");
+    assert.equal(cls("compauth=fail reason=100"), "fail");
+    assert.equal(cls("compauth=pass"), "pass");
+    assert.equal(cls("compauth=gibberish reason=1"), "none");
+    // A fail by code alone turns a passing message into a failed check; a pass or soft pass alone never makes one pass.
+    const spoof = verdict({ ...base, results: "spf=pass smtp.mailfrom=customer.example; dkim=pass header.d=customer.example;dmarc=pass action=none header.from=customer.example;compauth=pass reason=601", authAs: ["Anonymous"] });
+    assert.deepEqual([spoof.v.auth?.dmarc, spoof.state.state], ["fail", "fail"]);
+    for (const tail of ["compauth=pass reason=100", "compauth=softpass reason=201"]) {
+      assert.equal(verdict({ ...base, results: `spf=none smtp.mailfrom=other.example; dkim=none header.d=none;dmarc=none action=none header.from=customer.example;${tail}`, authAs: ["Anonymous"] }).state.state, "fail", tail);
+    }
+    assert.match(spoof.v.note, /compauth=fail \(reason 601\)$/);
   });
 
   test("a forged Authentication-Results below Exchange's is never read", () => {
@@ -391,6 +466,10 @@ describe("Microsoft's sender verdict", () => {
     assert.equal(ok.v.kind, "internal");
     assert.equal(ok.state.state, "pass");
     assert.equal(verdict({ ...internal, results: undefined, authAs: ["Internal"] }).v.kind, "internal");
+    // Exactly one stamp: two that both say Internal are not Exchange's one.
+    assert.notEqual(verdict({ ...internal, results: undefined, authAs: ["Internal", "Internal"] }).v.kind, "internal");
+    // Intra-organisation spoofing as Microsoft codes it (compauth reason 010 or 601): never internal, whatever the word.
+    assert.notEqual(verdict({ ...internal, results: "dkim=none header.d=none;dmarc=none action=none header.from=acme.example;compauth=pass reason=601", authAs: ["Internal"] }).v.kind, "internal");
     // Two stamps (one planted, one Exchange's), another value, or the sending tenant's CrossTenant header: not internal.
     assert.notEqual(verdict({ ...internal, results: undefined, authAs: ["Anonymous", "Internal"] }).v.kind, "internal");
     assert.notEqual(verdict({ ...internal, results: undefined, authAs: ["Partner"] }).v.kind, "internal");
@@ -436,7 +515,26 @@ describe("a Graph message as an InboundEmail", () => {
     assert.deepEqual(e.recipients, ["help@acme.example"]);
     assert.equal(verdict.kind, "results");
     assert.equal(rules.emailAuthVerdict(e).state, "pass");
-    assert.equal(message.graphMessageToInbound({ id: "x", body: {} }, [], []), null, "no sender: nothing to work with");
+    // The first read has no body: the same answer, with nothing in it.
+    const head = message.graphMessageToInbound(msg({ body: undefined }), [], ["help@acme.example"])!.email;
+    assert.deepEqual([head.from.email, head.text, head.html, head.recipients], ["cara@customer.example", "", "", ["help@acme.example"]]);
+    assert.deepEqual(message.graphMessageMeta(msg({ parentFolderId: "F1", "@odata.type": "#microsoft.graph.eventMessage" })), { id: "AAMk1", receivedAt: "", isDraft: false, hasAttachments: false, parentFolderId: "F1", isEventMessage: true });
+    assert.equal(message.graphMessageMeta(msg({}))!.isEventMessage, false);
+  });
+
+  test("no SMTP sender address: no mail (null), and Graph's `sender` stands in only for mail Exchange stamped Internal", () => {
+    assert.equal(message.graphMessageToInbound({ id: "x", body: {} }, [], []), null);
+    // An X.500 name, an empty or a malformed address: not an SMTP sender.
+    for (const address of ["/O=EXCHANGELABS/OU=EXCHANGE ADMINISTRATIVE GROUP/CN=RECIPIENTS/CN=ANA", "", "not an address", "a@b@c", "<script>@x"]) {
+      assert.equal(message.graphMessageToInbound(msg({ from: { emailAddress: { name: "X", address } }, sender: undefined }), [], ["help@acme.example"]), null, address);
+    }
+    const noFrom = (headers: ReturnType<typeof exchangeHeaders>) => message.graphMessageToInbound(msg({ from: undefined, sender: { emailAddress: { name: "Ana", address: "ana@acme.example" } }, internetMessageHeaders: headers }), [], ["help@acme.example"]);
+    // From outside (Exchange's results are there, no Internal stamp): the submitting account is nobody's proof.
+    assert.equal(noFrom(exchangeHeaders({ from: "", to: "help@acme.example", messageId: "s1@x", results: passResults("acme.example"), authAs: ["Anonymous"] })), null);
+    assert.equal(noFrom(exchangeHeaders({ from: "", to: "help@acme.example", messageId: "s2@x", results: undefined, authAs: [] })), null);
+    // Stamped Internal by Exchange: the account that submitted it is the sender.
+    const internal = noFrom(exchangeHeaders({ from: "", to: "help@acme.example", messageId: "s3@x", results: undefined, authAs: ["Internal"] }))!;
+    assert.deepEqual([internal.email.from.email, internal.verdict.kind], ["ana@acme.example", "internal"]);
   });
 
   test("an alias: the To line keeps what the sender typed although Graph shows the main address", () => {
@@ -452,6 +550,18 @@ describe("a Graph message as an InboundEmail", () => {
     // On Bcc (nothing names ours): the mailbox's first help address, never another mailbox's.
     const bcc = message.graphMessageToInbound(msg({ toRecipients: [], internetMessageHeaders: exchangeHeaders({ from: "c@customer.example", to: "bob@elsewhere.example", messageId: "b@x" }) }), [], ["help@acme.example", "billing@acme.example"])!.email;
     assert.equal(mailboxForRecipients([{ address: "sales@acme.example" }, ...boxes], bcc)?.address, "help@acme.example");
+    // The envelope names only the help addresses the mail was sent to: a team alias never sees an address it was not.
+    assert.deepEqual(bcc.recipients, ["help@acme.example"], "none named: the mailbox's main help address alone");
+    const own = ["help@acme.example", "billing@acme.example", "returns@acme.example"];
+    const toMain = message.graphMessageToInbound(msg({}), [], own)!.email;
+    assert.deepEqual(toMain.recipients, ["help@acme.example"]);
+    const toAlias = message.graphMessageToInbound(msg({ toRecipients: [{ emailAddress: { address: "help@acme.example" } }], internetMessageHeaders: exchangeHeaders({ from: "c@customer.example", to: "Returns <RETURNS@acme.example>", messageId: "r@x" }) }), [], own)!.email;
+    // The To line named the alias; Graph's typed recipient shows the main address (aliases are rewritten by default): both were named.
+    assert.deepEqual(toAlias.recipients, ["help@acme.example", "returns@acme.example"]);
+    const ccOnly = message.graphMessageToInbound(msg({ toRecipients: [], ccRecipients: [{ emailAddress: { address: "billing@acme.example" } }], internetMessageHeaders: exchangeHeaders({ from: "c@customer.example", to: "bob@elsewhere.example", cc: "billing@acme.example", messageId: "cc@x" }) }), [], own)!.email;
+    assert.deepEqual(ccOnly.recipients, ["billing@acme.example"]);
+    // A plus-tagged reply address names its help address.
+    assert.deepEqual(message.graphMessageToInbound(msg({ toRecipients: [], internetMessageHeaders: exchangeHeaders({ from: "c@customer.example", to: `billing+hd-${TOKEN}@acme.example`, messageId: "p@x" }) }), [], own)!.email.recipients, ["billing@acme.example"]);
     // A reply's plus tag is on the To line, and found.
     const reply = message.graphMessageToInbound(msg({ internetMessageHeaders: exchangeHeaders({ from: "c@customer.example", to: `billing+hd-${TOKEN}@acme.example`, messageId: "c@x" }) }), [], ["help@acme.example", "billing@acme.example"])!.email;
     const { findReplyToken } = require("../src/lib/helpdesk/inbound-parse") as typeof import("../src/lib/helpdesk/inbound-parse"); // eslint-disable-line @typescript-eslint/no-require-imports
@@ -467,19 +577,98 @@ describe("the restrict-access commands, links and addresses", () => {
     const text = shared.restrictCommands({ ...ids, addresses: ["help@acme.com", "Billing@acme.com", "help@acme.com"], first: true })!;
     const lines = text.split("\n");
     assert.equal(lines[0], "Connect-ExchangeOnline");
-    assert.equal(lines[1], `New-ServicePrincipal -AppId ${ids.clientId} -ObjectId ${ids.spObjectId} -DisplayName "CompassDocs Helpdesk Mail"`);
-    assert.equal(lines[2], `New-ManagementScope -Name "CompassDocs help mailboxes" -RecipientRestrictionFilter "PrimarySmtpAddress -eq 'help@acme.com' -or PrimarySmtpAddress -eq 'billing@acme.com'"`);
-    assert.match(lines[3], /-Role "Application Mail\.ReadWrite" -CustomResourceScope "CompassDocs help mailboxes"$/);
-    assert.match(lines[4], /-Role "Application Mail\.Send" -CustomResourceScope "CompassDocs help mailboxes"$/);
-    assert.match(lines[5], /^Test-ServicePrincipalAuthorization -Identity 0b6c1e5f-\S+ -Resource help@acme\.com/);
-    assert.equal(lines.length, 6);
+    assert.equal(lines[1], `New-ServicePrincipal -AppId '${ids.clientId}' -ObjectId '${ids.spObjectId}' -DisplayName 'CompassDocs Helpdesk Mail'`);
+    // EmailAddresses, as Microsoft's filterable-properties page asks (not PrimarySmtpAddress); a whole address needs no "smtp:".
+    assert.equal(lines[2], `New-ManagementScope -Name 'CompassDocs help mailboxes' -RecipientRestrictionFilter 'EmailAddresses -eq ''help@acme.com'' -or EmailAddresses -eq ''billing@acme.com'''`);
+    assert.match(lines[3], /-Role 'Application Mail\.ReadWrite' -CustomResourceScope 'CompassDocs help mailboxes'$/);
+    assert.match(lines[4], /-Role 'Application Mail\.Send' -CustomResourceScope 'CompassDocs help mailboxes'$/);
+    // Looking, not changing: each mailbox's sign-in name and object ID, for the "Object ID or sign-in name" field.
+    assert.equal(lines[5], "Get-EXOMailbox -Identity 'help@acme.com' | Format-List UserPrincipalName, ExternalDirectoryObjectId");
+    assert.equal(lines[6], "Get-EXOMailbox -Identity 'billing@acme.com' | Format-List UserPrincipalName, ExternalDirectoryObjectId");
+    // The test command's real columns; -Resource is the address until the desk knows the mailbox's object ID.
+    assert.equal(lines[7], `Test-ServicePrincipalAuthorization -Identity '${ids.spObjectId}' -Resource 'help@acme.com' | Format-Table RoleName, GrantedPermissions, AllowedResourceScope, InScope`);
+    assert.equal(lines.length, 8);
+    const oid = "5d2f8c1a-9b3e-4f70-8a6d-1c2e3f4a5b6c";
+    assert.ok(shared.restrictCommands({ ...ids, addresses: ["help@acme.com"], first: true, graphIds: { "help@acme.com": oid.toUpperCase() } })!.includes(`-Resource '${oid}' | Format-Table`));
+    // A sign-in name is not what -Resource is documented to take: the address stays.
+    assert.ok(shared.restrictCommands({ ...ids, addresses: ["help@acme.com"], first: true, graphIds: { "help@acme.com": "svc-help@acme.com" } })!.includes("-Resource 'help@acme.com' |"));
     const later = shared.restrictCommands({ ...ids, addresses: ["help@acme.com"], first: false })!;
-    assert.match(later, /^Connect-ExchangeOnline\nSet-ManagementScope -Identity "CompassDocs help mailboxes"/);
+    assert.ok(later.startsWith("Connect-ExchangeOnline\nSet-ManagementScope -Identity 'CompassDocs help mailboxes' -RecipientRestrictionFilter 'EmailAddresses -eq ''help@acme.com'''\nGet-EXOMailbox "));
     assert.doesNotMatch(later, /New-ServicePrincipal/);
-    // A quote in an address cannot end the PowerShell string.
-    assert.match(shared.scopeFilter(["o'brien@acme.com"]), /'o''brien@acme\.com'/);
     assert.equal(shared.restrictCommands({ ...ids, addresses: [], first: true }), null);
     assert.equal(shared.restrictCommands({ clientId: ids.clientId, spObjectId: "", addresses: ["a@b.co"], first: true }), null);
+  });
+
+  test("hostile addresses: nothing an admin pastes into PowerShell can run, expand or end a string", () => {
+    // PowerShell expands $(...) and `...` and ends a string at " inside DOUBLE quotes: none of that inside single quotes,
+    // where the only character with meaning is the quote itself, doubled. So: no double quote anywhere in the block,
+    // every value in single quotes, and a balanced count of single quotes on every line.
+    const hostile = [
+      "$(Invoke-WebRequest evil.example)@acme.com",
+      "`whoami`@acme.com",
+      'a";Remove-Mailbox -Identity ceo;"@acme.com',
+      "a'; Remove-Mailbox ceo; '@acme.com",
+      "a b@acme.com",
+      "a\nRemove-Mailbox ceo@acme.com",
+      "a;b@acme.com",
+      "a|b@acme.com",
+      "a&b@acme.com",
+      "a(b)@acme.com",
+      "a{b}@acme.com",
+      "help@acme.com' -or Name -like '*",
+      "help@$env:USERDNSDOMAIN",
+      "help@acme.com’; whoami",
+      "hélp@acme.com",
+      "help+tag@acme.com",
+      ".help@acme.com",
+      "help.@acme.com",
+      "help@acme",
+      "help@-acme.com",
+      "@acme.com",
+      `${"a".repeat(70)}@acme.com`,
+    ];
+    for (const a of hostile) {
+      assert.equal(shared.cleanM365Address(a), null, a);
+      assert.notEqual(shared.m365AddressProblem(a), "", a);
+    }
+    // What is accepted: letters, digits, ".", "_", "-" and "'" before the @, lower-cased.
+    for (const [raw, clean] of [["Help@Acme.com", "help@acme.com"], ["o'brien@acme.com", "o'brien@acme.com"], ["it_help-desk.2@sub.acme.co.uk", "it_help-desk.2@sub.acme.co.uk"], [" a@b.co ", "a@b.co"]] as const) {
+      assert.equal(shared.cleanM365Address(raw), clean);
+      assert.equal(shared.m365AddressProblem(raw), "");
+    }
+    assert.equal(shared.m365AddressProblem(""), "Enter the mailbox's address.");
+    assert.match(shared.m365AddressProblem("help+x@acme.com"), /Leave out the \+ tag/);
+    // Hostile addresses that reached the generator anyway (an old row, a bug) are left out, never written.
+    const mixed = shared.restrictCommands({ ...ids, addresses: [...hostile, "o'brien@acme.com", "help@acme.com"], first: true })!;
+    for (const line of mixed.split("\n")) {
+      assert.doesNotMatch(line, /["`$;&{}\r‘’]/, line);
+      assert.equal((line.match(/'/g) ?? []).length % 2, 0, `balanced quotes: ${line}`);
+      assert.doesNotMatch(line, /Remove-Mailbox|Invoke-WebRequest|whoami/);
+      // The only pipes are the block's own, outside every quoted value.
+      assert.ok(line.split("'").every((part, i) => i % 2 === 0 || !part.includes("|")), line);
+    }
+    // The apostrophe is doubled once as a filter string and once more inside the PowerShell literal around the filter.
+    assert.equal(shared.scopeFilter(["o'brien@acme.com"]), "EmailAddresses -eq 'o''brien@acme.com'");
+    assert.ok(mixed.includes("-RecipientRestrictionFilter 'EmailAddresses -eq ''o''''brien@acme.com'' -or EmailAddresses -eq ''help@acme.com'''\n"));
+    assert.ok(mixed.includes("Get-EXOMailbox -Identity 'o''brien@acme.com' |"));
+    assert.equal(shared.psLiteral("it's $(x) `y` \"z\""), "'it''s $(x) `y` \"z\"'");
+    // Only hostile addresses: nothing to name, no block at all.
+    assert.equal(shared.restrictCommands({ ...ids, addresses: hostile, first: true }), null);
+    // A hostile object ID never reaches the block either.
+    assert.ok(shared.restrictCommands({ ...ids, addresses: ["help@acme.com"], first: true, graphIds: { "help@acme.com": "x'; whoami; '" } })!.includes("-Resource 'help@acme.com' |"));
+    for (const [raw, clean] of [["", ""], ["  ", ""], ["5D2F8C1A-9B3E-4F70-8A6D-1C2E3F4A5B6C", "5d2f8c1a-9b3e-4f70-8a6d-1c2e3f4a5b6c"], ["Svc-Help@Acme.com", "svc-help@acme.com"], ["$(x)", null], ["a b", null], [5, null]] as const) {
+      assert.equal(shared.cleanM365GraphId(raw), clean, String(raw));
+    }
+  });
+
+  test("which permissions in the app's token reach every mailbox", () => {
+    const wide = ["Mail.Read", "Mail.ReadWrite", "Mail.ReadBasic", "Mail.ReadBasic.All", "Mail.Send", "Mail-Advanced.ReadWrite.All", "MailboxItem.Read.All", "MailboxItem.ImportExport.All", "MailboxFolder.Read.All", "MailboxFolder.ReadWrite.All"];
+    assert.deepEqual(shared.tenantWideRoles(wide), wide);
+    // Not mail: other families, and names that only look alike.
+    assert.deepEqual(shared.tenantWideRoles(["User.Read.All", "Calendars.Read", "MailTips.ReadBasic.All", "MailboxSettings.Read", "Mailbox", "Mail", "Mail.", "Mail.Read; rm", "full_access_as_app"]), []);
+    // The hyphenated one survives the token reader.
+    const jwt = (c: unknown) => `x.${Buffer.from(JSON.stringify(c)).toString("base64url")}.y`;
+    assert.deepEqual(shared.tenantWideRoles(graphLib.tokenClaims(jwt({ roles: ["Mail-Advanced.ReadWrite.All", "User.Read.All"] })).roles), ["Mail-Advanced.ReadWrite.All"]);
   });
 
   test("the manual form's rules", () => {
@@ -530,7 +719,7 @@ describe("the restrict-access commands, links and addresses", () => {
 describe("an install that never connects Microsoft 365", () => {
   test("the schema is there, the view says not connected, and nothing calls Microsoft", async () => {
     for (const t of ["hd_m365_mailboxes", "hd_m365_messages", "hd_m365_links"]) assert.equal((await pool().query("SELECT to_regclass($1) AS t", [t])).rows[0].t, t);
-    const v = await m365.m365MailView("https://desk.acme.com");
+    const v = await m365.m365MailView();
     assert.equal(v.connected, false);
     assert.deepEqual([v.mailboxes, v.links, v.access, v.orphaned], [[], [], null, false]);
     assert.equal(await getSetting(KEY), undefined, "reading the view writes nothing");
@@ -616,8 +805,9 @@ describe("connecting mailboxes", () => {
     // The app can see the organisation for this one (granted in Entra), so Microsoft says what each address is.
     app.roles = ["Mail.ReadWrite"];
     graphLib.clearM365TokensForTests();
+    // (With that grant, connecting anything needs an explicit yes: see "an app that was given the whole organisation".)
     for (const a of [`team@${DOMAIN}`, `all@${DOMAIN}`, `partner@${DOMAIN}`, `nobody@${DOMAIN}`, "someone@another-org.example"]) {
-      const r = await call(boxesRoute.POST, req(`${API}/mailboxes`, U.manager, { address: a }));
+      const r = await call(boxesRoute.POST, req(`${API}/mailboxes`, U.manager, { address: a, confirm_tenant_wide: true }));
       assert.equal(r.status, 422, a);
       assert.equal(r.body.code, "not_a_mailbox");
       assert.match(r.body.error, /found no mailbox with that address\. Distribution lists, Microsoft 365 groups, mail contacts and mailboxes in another organisation can't be connected\. Use a shared mailbox instead\./);
@@ -625,13 +815,26 @@ describe("connecting mailboxes", () => {
     assert.equal((await pool().query("SELECT count(*)::int AS n FROM hd_m365_mailboxes")).rows[0].n, 0);
     assert.match((await call(boxesRoute.POST, req(`${API}/mailboxes`, U.manager, { address: "help+x@acme.example" }))).body.error, /\+ tag/);
     assert.equal((await call(boxesRoute.POST, req(`${API}/mailboxes`, U.manager, { address: "nope" }))).status, 400);
+    // Addresses PowerShell or a path would give meaning to are refused before Microsoft is asked anything.
+    const asked = fake.log.length;
+    for (const a of ["$(whoami)@acme.example", "a'; Remove-Mailbox ceo; '@acme.example", "a b@acme.example", 'a"b@acme.example', "../x@acme.example", 7]) {
+      await assert.rejects(m365.connectM365Mailbox(a, by(), { confirmTenantWide: true }), (e: Error & { status?: number }) => e.status === 400, String(a));
+    }
+    assert.equal((await call(boxesRoute.POST, req(`${API}/mailboxes`, U.manager, { address: "$(whoami)@acme.example", confirm_tenant_wide: true }))).status, 400);
+    assert.equal((await call(boxesRoute.POST, req(`${API}/mailboxes`, U.manager, { address: HELP, graph_id: "not an id or a name", confirm_tenant_wide: true }))).status, 400);
+    assert.equal(fake.log.length, asked);
+    assert.equal((await pool().query("SELECT count(*)::int AS n FROM hd_m365_mailboxes")).rows[0].n, 0);
     app.roles = [];
     graphLib.clearM365TokensForTests();
+    // The half-hourly look (here: the sweep, with the last look made old) records that the grant is gone.
+    await pool().query("UPDATE settings SET value = jsonb_set(value::jsonb, '{at}', '\"2020-01-01T00:00:00.000Z\"')::text WHERE key = $1", [`${KEY}_roles`]);
+    await m365.m365MailSweep();
+    assert.deepEqual((await m365.m365MailView()).tenant_wide, []);
   });
 
   test("a mailbox the app may not read yet is listed, waiting; its help address is linked; the access check says so", async () => {
     const r = await call(boxesRoute.POST, req(`${API}/mailboxes`, U.manager, { address: ` ${HELP.toUpperCase()} ` }));
-    assert.equal(r.status, 201);
+    assert.equal(r.status, 201, JSON.stringify(r.body));
     assert.deepEqual([r.body.mailbox.address, r.body.mailbox.waiting, r.body.mailbox.linked], [HELP, true, HELP]);
     helpId = r.body.mailbox.id;
     const mb = r.body.view.mailboxes[0];
@@ -643,7 +846,7 @@ describe("connecting mailboxes", () => {
     // The commands the page shows are for this app and this mailbox.
     const v = r.body.view;
     const text = shared.restrictCommands({ clientId: v.client_id, spObjectId: v.sp_object_id, addresses: v.mailboxes.map((m: { address: string }) => m.address), first: true })!;
-    assert.ok(text.includes(`-AppId ${app.appId} -ObjectId ${app.spId}`) && text.includes(`'${HELP}'`));
+    assert.ok(text.includes(`-AppId '${app.appId}' -ObjectId '${app.spId}'`) && text.includes(`''${HELP}''`));
 
     const check = await call(accessRoute.POST, req(`${API}/check-access`, U.manager, { probe: OTHER }));
     assert.equal(check.status, 200);
@@ -677,10 +880,80 @@ describe("connecting mailboxes", () => {
     assert.deepEqual(check.body.access.tenant_wide, ["Mail.ReadWrite", "Mail.Send"]);
     assert.deepEqual([check.body.access.probe.reachable, check.body.access.probe.note], [true, "The app can read this mailbox. It is not limited to your help mailboxes."]);
     assert.deepEqual((await m365.m365MailView()).access?.tenant_wide, ["Mail.ReadWrite", "Mail.Send"]);
+    assert.deepEqual((await m365.m365MailView()).tenant_wide, ["Mail.ReadWrite", "Mail.Send"]);
     app.roles = [];
     const back = await call(accessRoute.POST, req(`${API}/check-access`, U.manager, {}));
     assert.deepEqual([back.body.access.tenant_wide, back.body.access.probe], [[], null]);
+    assert.deepEqual(back.body.view.tenant_wide, []);
     assert.equal((await call(accessRoute.POST, req(`${API}/check-access`, U.manager, { probe: "not an address" }))).status, 400);
+    assert.equal((await call(accessRoute.POST, req(`${API}/check-access`, U.manager, { probe: "$(whoami)@acme.example" }))).status, 400);
+  });
+
+  test("organisation-wide access is recorded without anyone pressing Check access: at the save and by the timer", async () => {
+    // Granted in Entra behind the desk's back (one of the newer mailbox-wide permissions).
+    app.roles = ["MailboxItem.Read.All", "User.Read.All"];
+    graphLib.clearM365TokensForTests();
+    const stale = () => pool().query("UPDATE settings SET value = jsonb_set(value::jsonb, '{at}', '\"2020-01-01T00:00:00.000Z\"')::text WHERE key = $1", [`${KEY}_roles`]);
+    // Within half an hour of the last look the sweep does not sign in again for it...
+    await m365.m365MailSweep();
+    assert.deepEqual((await m365.m365MailView()).tenant_wide, []);
+    // ...after that it does, and the page's warning is there with no check pressed. The change is audited.
+    await stale();
+    await m365.m365MailSweep();
+    const v = await m365.m365MailView();
+    assert.deepEqual(v.tenant_wide, ["MailboxItem.Read.All"]);
+    assert.ok(v.tenant_wide_at && Date.now() - Date.parse(v.tenant_wide_at) < 60_000);
+    assert.deepEqual((await audits("helpdesk.m365.tenant_wide_changed")).at(-1)!.details, { tenant_wide: ["MailboxItem.Read.All"], was: [] });
+    assert.ok(auditLabels.hasActionLabel("helpdesk.m365.tenant_wide_changed"));
+    // Saving the connection records what the new token carries, too.
+    app.roles = ["Mail-Advanced.ReadWrite.All"];
+    const saved = await call(rootRoute.PUT, req(API, U.manager, { tenant: fake.tenantId, client_id: app.appId, secret: "" }, "PUT"));
+    assert.deepEqual([saved.status, saved.body.tenant_wide, saved.body.view.tenant_wide], [200, ["Mail-Advanced.ReadWrite.All"], ["Mail-Advanced.ReadWrite.All"]]);
+    assert.deepEqual((await audits("helpdesk.m365.connection_saved")).at(-1)!.details.tenant_wide, ["Mail-Advanced.ReadWrite.All"]);
+
+    // While it is there, the list alone decides what the desk reads: connecting a mailbox needs an explicit yes.
+    const no = await call(boxesRoute.POST, req(`${API}/mailboxes`, U.manager, { address: OTHER }));
+    assert.deepEqual([no.status, no.body.code], [409, "tenant_wide"]);
+    assert.match(no.body.error, /can read every mailbox in your organisation \(Mail-Advanced\.ReadWrite\.All is granted in Entra\)/);
+    assert.equal((await call(boxesRoute.POST, req(`${API}/mailboxes`, U.manager, { address: OTHER, confirm_tenant_wide: "true" }))).status, 409, "only the boolean true is a yes");
+    await assert.rejects(m365.connectM365Mailbox(OTHER, by(), { confirmTenantWide: false }), (e: Error & { code?: string }) => e.code === "tenant_wide");
+    assert.equal((await pool().query("SELECT count(*)::int AS n FROM hd_m365_mailboxes WHERE address = $1", [OTHER])).rows[0].n, 0);
+    const yes = await call(boxesRoute.POST, req(`${API}/mailboxes`, U.manager, { address: OTHER, confirm_tenant_wide: true }));
+    assert.deepEqual([yes.status, yes.body.mailbox.waiting, yes.body.mailbox.linked, yes.body.mailbox.tenant_wide], [201, false, null, ["Mail-Advanced.ReadWrite.All"]]);
+    assert.deepEqual((await audits("helpdesk.m365.mailbox_connected")).at(-1)!.details, {
+      address: OTHER,
+      waiting_for_access: false,
+      linked_help_address: null,
+      tenant_wide: ["Mail-Advanced.ReadWrite.All"],
+      tenant_wide_confirmed: true,
+    });
+
+    // No help address lives on it, so it is NOT read: no delta query, no subscription, and the page says so.
+    const otherId = yes.body.mailbox.id as number;
+    const mine = yes.body.view.mailboxes.find((m: { id: number }) => m.id === otherId);
+    assert.deepEqual([mine.mode, mine.addresses], ["idle", []]);
+    assert.equal(shared.modeSentence("idle", 2, ""), "No help address lives here yet, so it is not being read.");
+    fake.addMessage(OTHER, { subject: `${STAMP} the CEO's private mail` });
+    const calls = () => fake.calls(new RegExp(`/users/${encodeURIComponent(OTHER).replace(/[.+]/g, "\\$&")}/`, "i")).length;
+    const before = calls();
+    await pool().query("UPDATE hd_m365_mailboxes SET poll_due = true WHERE id = $1", [otherId]);
+    await m365.m365MailSweep();
+    assert.deepEqual(await poll(otherId), { ok: false, idle: true, error: "No help address lives here yet, so it is not being read." });
+    const now = await call(checkRoute.POST, req(`${API}/mailboxes/${otherId}/check`, U.manager, {}), { id: String(otherId) });
+    assert.deepEqual([now.status, now.body.ok, now.body.idle, now.body.error], [200, false, true, "No help address lives here yet, so it is not being read."]);
+    assert.equal(calls(), before, "Microsoft was not asked for anything in that mailbox");
+    assert.equal((await ticketFor(`${STAMP} the CEO's private mail`)).length, 0);
+    assert.equal(fake.mailboxes.get(OTHER)!.messages.size, 1);
+    assert.equal([...fake.subscriptions.values()].filter((x) => x.mailbox === OTHER).length, 0);
+    assert.equal((await pool().query("SELECT count(*)::int AS n FROM hd_m365_messages WHERE mailbox_id = $1", [otherId])).rows[0].n, 0);
+
+    await m365.disconnectM365Mailbox(otherId, by());
+    fake.mailboxes.get(OTHER)!.messages.clear();
+    app.roles = [];
+    graphLib.clearM365TokensForTests();
+    await stale();
+    await m365.m365MailSweep();
+    assert.deepEqual((await m365.m365MailView()).tenant_wide, []);
   });
 });
 
@@ -708,7 +981,7 @@ describe("reading a mailbox (delta query)", () => {
     assert.deepEqual(await seen(fresh.id), { state: "done", outcome: "created", attempts: 1, filed: true, error: "" });
     assert.equal(await seen(old.id), undefined);
     const r = await row();
-    assert.deepEqual([r.taken_in, r.dropped, r.failed, r.last_error], [1, 0, 0, ""]);
+    assert.deepEqual([r.taken_in, r.dropped, r.last_error], [1, 0, ""]);
     assert.ok(r.last_ok_at && r.delta_link.startsWith(`${fake.base}/graph/v1.0/`));
     // Again: nothing new (the "marked read" change comes back in the delta and is recognised).
     assert.deepEqual(await poll(), { ok: true });
@@ -745,6 +1018,14 @@ describe("reading a mailbox (delta query)", () => {
     assert.equal(fake.calls(/messages\/delta 410/).length, 1);
     assert.equal((await pool().query("SELECT count(*)::int AS n FROM hd_tickets WHERE subject LIKE $1", [`${STAMP}%`])).rows[0].n, tickets + 1);
     assert.equal((await seen(extra.id)).outcome, "created");
+    // The other form Microsoft documents: the token expired (a 4xx with the code syncStateNotFound).
+    const more = inboxMessage({ subject: `${STAMP} after the token expired` });
+    mb.expireDelta = "token";
+    assert.deepEqual(await poll(), { ok: true });
+    assert.equal(fake.calls(/messages\/delta 404/).length, 1);
+    assert.equal((await pool().query("SELECT count(*)::int AS n FROM hd_tickets WHERE subject LIKE $1", [`${STAMP}%`])).rows[0].n, tickets + 2);
+    assert.equal((await seen(more.id)).outcome, "created");
+    assert.equal((await row()).last_error, "", "a lost link is not 'no mailbox with that address'");
   });
 
   test("a link to another host is never followed, and never stored", async () => {
@@ -774,8 +1055,10 @@ describe("change notifications", () => {
   test("the sweep sets up a subscription per mailbox through the validation handshake", async () => {
     // The address Microsoft posts to is the one the admin opened the desk at (here: the test's listener).
     assert.deepEqual(await m365.saveM365Settings({ notify_origin: bridgeOrigin }, by()), ["notify_origin"]);
-    // Opening the desk at another address afterwards does not move it.
-    await m365.m365MailView("http://localhost:4999");
+    // Looking at the page, from whatever address, writes nothing.
+    const stored = await getSetting(KEY);
+    await call(rootRoute.GET, new Request("http://localhost:4999/api/helpdesk/admin/m365-mail", { headers: { cookie: `compass_session=${U.manager.session}`, host: "localhost:4999", origin: "http://localhost:4999" } }));
+    assert.equal(await getSetting(KEY), stored);
     const c = await cfg();
     key = c.notify_key;
     assert.ok(key.length >= 32);
@@ -791,7 +1074,10 @@ describe("change notifications", () => {
     assert.ok(days > 1.9 && days < 2.1, "two days, well inside Microsoft's limit");
     assert.ok(bridgeLog.filter((b) => b.status === 200 && b.path.includes("validationToken=")).length >= 2);
     const r = await row();
-    assert.deepEqual([r.sub_id, r.sub_state, r.sub_error], [sub.id, sub.clientState, ""]);
+    // Only the SHA-256 of the clientState is kept: a copy of the database is not a way to forge a notification.
+    assert.deepEqual([r.sub_id, r.sub_state, r.sub_error], [sub.id, sha(sub.clientState), ""]);
+    assert.ok(!JSON.stringify(r).includes(sub.clientState));
+    assert.match(sub.prefer, /IdType="ImmutableId"/, "notifications name messages by the ids every other call uses");
     assert.equal((await m365.m365MailView()).mailboxes.find((m) => m.id === helpId)!.mode, "notifications");
     assert.match(shared.modeSentence("notifications", 2, bridgeOrigin), /Microsoft tells the desk when mail arrives/);
   });
@@ -1033,30 +1319,19 @@ describe("who may add to a ticket (every existing rule, unchanged)", () => {
     await inbound.saveInboundAuthSettings({ trust_unverified_senders: true });
     inboxMessage({ subject: `${STAMP} trusted without results`, from: fromReq(), fromDomainResults: "", authAs: [] });
     inboxMessage({ subject: `${STAMP} still failing`, from: fromReq(), fromDomainResults: failResults("example.test") });
+    // Exchange evaluated it and found nothing (nothing signed, nothing published): a FAILED check, which the toggle never covers.
+    inboxMessage({ subject: `${STAMP} all none is not no result`, from: fromReq(), fromDomainResults: "spf=none (sender IP is 198.51.100.7) smtp.mailfrom=example.test; dkim=none (message not signed) header.d=none;dmarc=none action=none header.from=example.test;compauth=none reason=405" });
+    inboxMessage({ subject: `${STAMP} best guess is not a pass`, from: fromReq(), fromDomainResults: "spf=none smtp.mailfrom=elsewhere.example; dkim=none header.d=none;dmarc=bestguesspass action=none header.from=example.test;compauth=softpass reason=201" });
     await poll();
     assert.equal((await ticketFor(`${STAMP} trusted without results`))[0].requester_id, U.req.id);
+    for (const subject of ["all none is not no result", "best guess is not a pass"]) {
+      const [t] = await ticketFor(`${STAMP} ${subject}`);
+      assert.equal(t.requester_id, null, subject);
+      const note = (await pool().query("SELECT body FROM hd_messages WHERE ticket_id = $1 AND via = 'system' ORDER BY id", [t.id])).rows.map((r) => r.body).join("\n");
+      assert.match(note, /failed the sender check/, subject);
+    }
     assert.equal((await ticketFor(`${STAMP} still failing`))[0].requester_id, null);
     await inbound.saveInboundAuthSettings({ trust_unverified_senders: false });
-  });
-
-  test("the per-sender rate limit defers a message without using up its tries", async () => {
-    inbound.resetInboundRateLimitsForTests();
-    const from = { name: "Burst", address: `burst-${STAMP}@customer.example` };
-    const ids: string[] = [];
-    for (let i = 0; i < inbound.INBOUND_LIMITS.perSender + 2; i++) ids.push(inboxMessage({ subject: `${STAMP} burst ${i}`, from }).id);
-    await poll();
-    const states = await Promise.all(ids.map((id) => seen(id)));
-    assert.equal(states.filter((s) => s.state === "done").length, inbound.INBOUND_LIMITS.perSender);
-    const late = states.filter((s) => s.state === "failed");
-    assert.equal(late.length, 2);
-    for (const s of late) assert.deepEqual([s.attempts, s.filed], [0, false]);
-    assert.equal(fake.mailboxes.get(HELP)!.messages.get(ids.at(-1)!)!.isRead, false, "left unread until it is taken in");
-    // The window passes: the next read takes them in.
-    inbound.resetInboundRateLimitsForTests();
-    await poll();
-    assert.equal((await Promise.all(ids.map((id) => seen(id)))).filter((s) => s.state === "done").length, ids.length);
-    assert.equal((await ticketFor(`${STAMP} burst ${ids.length - 1}`)).length, 1);
-    inbound.resetInboundRateLimitsForTests();
   });
 });
 
@@ -1156,32 +1431,6 @@ describe("after a message is taken in", () => {
     assert.equal((await ticketFor(`${STAMP} could not be marked`)).length, 1);
   });
 
-  test("a message that cannot be read is left alone and retried, five times, then counted, shown and audited", async () => {
-    fake.fail.message = 500;
-    const m = inboxMessage({ subject: `${STAMP} unreadable` });
-    for (let i = 1; i <= shared.M365_MAIL_LIMITS.attempts; i++) {
-      await poll();
-      assert.deepEqual([(await seen(m.id)).state, (await seen(m.id)).attempts], ["failed", i]);
-    }
-    const r = await row();
-    assert.equal(r.failed, 1);
-    assert.match(r.last_error, /^1 message could not be taken in after 5 tries\. It is still in the Inbox, unread\./);
-    assert.equal(fake.mailboxes.get(HELP)!.messages.get(m.id)!.isRead, false, "left exactly as it was");
-    const a = (await audits("helpdesk.m365.intake_failed")).at(-1)!;
-    assert.deepEqual([a.details.address, a.details.attempts, a.actor_name], [HELP, 5, "Microsoft 365 mail"]);
-    assert.match(a.details.error, /had a problem \(error 500\)/);
-    // No sixth try, however often the mailbox is read.
-    const gets = fake.calls(`/messages/${encodeURIComponent(m.id)}`).length;
-    await poll();
-    assert.equal(fake.calls(`/messages/${encodeURIComponent(m.id)}`).length, gets);
-    assert.equal((await ticketFor(`${STAMP} unreadable`)).length, 0);
-    fake.fail = {};
-    await pool().query("DELETE FROM hd_m365_messages WHERE mailbox_id = $1 AND message_id = $2", [helpId, m.id]);
-    fake.removeMessage(HELP, m.id);
-    assert.deepEqual(await poll(), { ok: true });
-    assert.equal((await row()).last_error, "");
-  });
-
   test("a message a person deleted before the desk read it is simply gone", async () => {
     const m = inboxMessage({ subject: `${STAMP} deleted in Outlook` });
     const sub = [...fake.subscriptions.values()].find((s) => s.mailbox === HELP)!;
@@ -1227,7 +1476,7 @@ describe("subscriptions are kept alive by the scheduler", () => {
     assert.equal([...fake.subscriptions.values()].filter((s) => s.mailbox === HELP).length, 1, "one subscription at Microsoft");
     assert.equal(fake.calls("POST /graph/v1.0/subscriptions").length - posts, 1, "one instance asked Microsoft for it");
     const r = await row();
-    assert.deepEqual([r.sub_id, r.sub_state], [sub()!.id, sub()!.clientState], "and the row holds its id and its clientState");
+    assert.deepEqual([r.sub_id, r.sub_state], [sub()!.id, sha(sub()!.clientState)], "and the row holds its id and its clientState's hash");
     // Renewal while Microsoft answers 503: nothing is thrown away.
     fake.fail.renew = 503;
     await pool().query("UPDATE hd_m365_mailboxes SET sub_expires_at = now() + interval '5 hours' WHERE id = $1", [helpId]);
@@ -1515,6 +1764,795 @@ describe("send replies through Microsoft 365", () => {
   });
 });
 
+// --- 1.20.7 security review: what a notification may name --------------------------------
+
+describe("what a notification may name", () => {
+  const post = async (items: unknown[], ip = "198.51.100.31") => {
+    const k = (await cfg()).notify_key;
+    const a = await m365.handleM365Notification(new Request(`http://localhost/api/helpdesk/m365/notify/${k}`, { method: "POST", body: JSON.stringify({ value: items }) }), k, { ip });
+    if (a.work) await a.work();
+    return a.status;
+  };
+  const subOf = (address = HELP) => [...fake.subscriptions.values()].find((s) => s.mailbox === address)!;
+  const item = (id: string, address = HELP) => ({ subscriptionId: subOf(address).id, clientState: subOf(address).clientState, changeType: "created", resourceData: { id } });
+  const quiet = () => pool().query("UPDATE hd_m365_mailboxes SET poll_due = false, last_poll_at = now()");
+
+  before(async () => {
+    m365.resetM365NotifyLimitsForTests();
+    await m365.m365MailSweep();
+    assert.ok(subOf(), "the help mailbox has its subscription");
+  });
+
+  test("only a message in the Inbox: one that lies elsewhere in the mailbox is not taken in, whoever names it", async () => {
+    const mb = fake.mailboxes.get(HELP)!;
+    mb.folders.set("folder-sent", "Sent Items");
+    // A reply someone sent from the shared mailbox years ago, sitting in Sent Items.
+    const sent = inboxMessage({ subject: `${STAMP} in Sent Items`, folder: "folder-sent" });
+    await quiet();
+    assert.equal(await post([item(sent.id)]), 202);
+    assert.equal((await ticketFor(`${STAMP} in Sent Items`)).length, 0);
+    assert.equal(await seen(sent.id), undefined, "no claim is left behind");
+    assert.equal(mb.messages.get(sent.id)!.isRead, false, "and the message is untouched");
+    assert.equal((await row()).poll_due, true, "the next read of the Inbox decides");
+    // Only its headers were read: no body, no attachment, no change.
+    const reads = fake.requests.filter((l) => l.includes(`/messages/${encodeURIComponent(sent.id)}`));
+    assert.ok(reads.length === 1 && reads[0].startsWith("GET ") && reads[0].includes("parentFolderId") && !reads[0].includes("$select=id,body"), JSON.stringify(reads));
+    // The Inbox read lists the Inbox only, so it does not bring it either.
+    assert.deepEqual(await poll(), { ok: true });
+    assert.equal((await ticketFor(`${STAMP} in Sent Items`)).length, 0);
+    // The same kind of notification for a message that IS in the Inbox is taken in at once, with no Inbox read.
+    const ok = inboxMessage({ subject: `${STAMP} in the Inbox` });
+    const deltas = fake.calls("/messages/delta").length;
+    assert.equal(await post([item(ok.id)]), 202);
+    assert.equal((await ticketFor(`${STAMP} in the Inbox`)).length, 1);
+    assert.equal(fake.calls("/messages/delta").length, deltas);
+    // The Inbox's own id was asked for once and kept.
+    assert.equal((await row()).inbox_folder_id, INBOX_ID);
+    assert.equal(fake.requests.filter((l) => l.includes(`/users/${encodeURIComponent(HELP)}/mailFolders/inbox?$select=id`) && l.startsWith("GET")).length >= 1, true);
+    mb.messages.delete(sent.id);
+  });
+
+  test("an id that is not written the way Graph writes ids is never fetched", async () => {
+    await quiet();
+    const before = fake.requests.length;
+    for (const id of ["..", `../../users/${OTHER}/messages/x`, "AAMk/../../x-0123456789", "AAMkAGI2%2F..%2F0123456789", "short", "a".repeat(1100), "AAMk id with spaces 123456", "AAMk?$select=body#123456789", "AAMk\u0000null0123456789012", ""]) {
+      assert.equal(await post([item(id)]), 202, id);
+    }
+    assert.equal(fake.requests.length, before, "Microsoft was asked for nothing");
+    assert.equal((await row()).poll_due, true, "the Inbox is read instead");
+  });
+
+  test("more notifications in one POST than are read: every subscribed mailbox is read at the next tick; from a stranger, nothing", async () => {
+    const salesId = (await pool().query("SELECT id FROM hd_m365_mailboxes WHERE address = $1", [SALES])).rows[0].id;
+    await quiet();
+    const filler = Array.from({ length: m365.M365_NOTIFY_LIMITS.items + 20 }, () => ({ subscriptionId: "nobody", clientState: "x", changeType: "created", resourceData: { id: "AAMkNobody0123456789" } }));
+    // Without one item that proves the caller, a long list is a stranger's long list.
+    assert.equal(await post(filler), 202);
+    assert.deepEqual([(await row()).poll_due, (await row(salesId)).poll_due], [false, false]);
+    // With one (Microsoft batching more than this desk reads at once): what was cut off could be anyone's.
+    const m = inboxMessage({ subject: `${STAMP} first of a long batch` });
+    assert.equal(await post([item(m.id), ...filler]), 202);
+    assert.equal((await ticketFor(`${STAMP} first of a long batch`)).length, 1);
+    assert.deepEqual([(await row()).poll_due, (await row(salesId)).poll_due], [true, true]);
+    await quiet();
+  });
+
+  test("the counter for callers without the key stays small and cheap under a flood from many addresses", async () => {
+    m365.resetM365NotifyLimitsForTests();
+    const t0 = Date.now();
+    for (let i = 0; i < 7000; i++) {
+      const a = await m365.handleM365Notification(new Request("http://localhost/x", { method: "POST", body: "{}" }), "wrong-key", { ip: `203.0.${i >> 8}.${i & 255}` });
+      assert.equal(a.status, 404);
+    }
+    assert.ok(Date.now() - t0 < 5000, `7,000 refusals took ${Date.now() - t0} ms`);
+    // One caller is still counted and turned away.
+    let last = 0;
+    for (let i = 0; i <= m365.M365_NOTIFY_LIMITS.perIpWrongKey; i++) last = (await m365.handleM365Notification(new Request("http://localhost/x", { method: "POST", body: "{}" }), "wrong-key", { ip: "198.51.100.77" })).status;
+    assert.equal(last, 429);
+    m365.resetM365NotifyLimitsForTests();
+  });
+});
+
+// --- 1.20.7 security review: cheap rejections first, and the intake's own limits -------------
+
+describe("before anything is downloaded", () => {
+  const pdf = (id = "att-1") => ({ id, name: "report.pdf", contentType: "application/pdf", data: Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(20_000, 65)]) });
+  /** What was read of one message: its headers, its body, its attachments (the list and each file), its MIME. */
+  const kind = (id: string) => {
+    const r = fake.requests.filter((l) => l.startsWith("GET ") && l.includes(`/messages/${encodeURIComponent(id)}`));
+    return {
+      head: r.filter((l) => l.includes("internetMessageHeaders")).length,
+      body: r.filter((l) => l.includes("$select=id,body")).length,
+      attachments: r.filter((l) => l.includes("/attachments")).length,
+      mime: r.filter((l) => l.endsWith("/$value") && !l.includes("/attachments/")).length,
+    };
+  };
+  const fresh = () => {
+    m365.resetM365NotifyLimitsForTests();
+    inbound.resetInboundRateLimitsForTests();
+  };
+  const stored: string[] = [];
+
+  before(() => {
+    inbound.setInboundAttachmentStoreForTests({
+      save: async (i) => {
+        stored.push(i.filename);
+        return { id: 910000 + stored.length, filename: i.filename, mime: i.mime, size: i.buf.length } as never;
+      },
+      bind: async () => [],
+    });
+  });
+  after(() => {
+    inbound.setInboundAttachmentStoreForTests(null);
+    fresh();
+  });
+
+  test("a message with no SMTP sender address is dropped, and marked like any other drop", async () => {
+    fresh();
+    const none = inboxMessage({ subject: `${STAMP} no sender at all`, from: null, attachments: [pdf()] });
+    const x500 = inboxMessage({
+      subject: `${STAMP} an X.500 sender`,
+      from: { name: "Old System", address: "/O=EXCHANGELABS/OU=EXCHANGE ADMINISTRATIVE GROUP/CN=RECIPIENTS/CN=OLD" },
+      fromDomainResults: "",
+      authAs: [],
+      attachments: [pdf()],
+    });
+    const dropped = (await row()).dropped;
+    assert.deepEqual(await poll(), { ok: true });
+    for (const m of [none, x500]) {
+      const s = await seen(m.id);
+      assert.deepEqual([s.state, s.outcome, s.filed], ["done", "skipped_no_sender", true], m.subject);
+      assert.equal(fake.mailboxes.get(HELP)!.messages.get(m.id)!.isRead, true, "marked read, as the workspace chose for handled mail");
+      assert.equal((await ticketFor(m.subject)).length, 0);
+      assert.deepEqual(kind(m.id), { head: 1, body: 0, attachments: 0, mime: 0 });
+    }
+    assert.equal((await row()).dropped, dropped + 2);
+  });
+
+  test("the desk's own mail, automatic mail and a Message-ID already on a ticket: no attachment is fetched", async () => {
+    fresh();
+    const loop = inboxMessage({ subject: `${STAMP} our own with a file`, from: { name: "Acme Help", address: HELP }, senderHeaders: [["X-CompassDocs-Helpdesk", "1"]], attachments: [pdf()] });
+    const auto = inboxMessage({ subject: `${STAMP} out of office with a file`, senderHeaders: [["Auto-Submitted", "auto-replied"]], attachments: [pdf()] });
+    const firstId = `<${newToken()}@mail.sender.example>`;
+    const first = inboxMessage({ subject: `${STAMP} original with a file`, internetMessageId: firstId, attachments: [pdf()] });
+    assert.deepEqual(await poll(), { ok: true });
+    assert.equal((await seen(first.id)).outcome, "created");
+    const again = inboxMessage({ subject: `${STAMP} original with a file`, internetMessageId: firstId, attachments: [pdf()] });
+    assert.deepEqual(await poll(), { ok: true });
+    assert.deepEqual([(await seen(loop.id)).outcome, (await seen(auto.id)).outcome, (await seen(again.id)).outcome], ["ignored_loop", "ignored_auto", "duplicate"]);
+    // Its own header says it all: not even the body.
+    assert.deepEqual(kind(loop.id), { head: 1, body: 0, attachments: 0, mime: 0 });
+    assert.deepEqual(kind(auto.id), { head: 1, body: 1, attachments: 0, mime: 0 });
+    assert.deepEqual(kind(again.id), { head: 1, body: 1, attachments: 0, mime: 0 });
+    // The one that was kept: its body, then the list of its files and the file.
+    assert.deepEqual(kind(first.id), { head: 1, body: 1, attachments: 2, mime: 0 });
+    assert.deepEqual(stored, ["report.pdf"]);
+    assert.equal((await ticketFor(`${STAMP} original with a file`)).length, 1);
+    for (const m of [loop, auto, again]) assert.equal(fake.mailboxes.get(HELP)!.messages.get(m.id)!.isRead, true);
+  });
+
+  test("one sender's flood is turned away after one small read each, put off without using up a try, and taken in when its wait is over", async () => {
+    fresh();
+    const from = { name: "Burst", address: `burst-${STAMP}@customer.example` };
+    const ids: string[] = [];
+    for (let i = 0; i < m365.M365_INTAKE_LIMITS.perSender + 2; i++) ids.push(inboxMessage({ subject: `${STAMP} burst ${i}`, from, attachments: [pdf()] }).id);
+    assert.equal(m365.M365_INTAKE_LIMITS.perSender, inbound.INBOUND_LIMITS.perSender, "the pipeline's own limit, applied before the download");
+    await poll();
+    const all = async () => (await pool().query("SELECT message_id, state, attempts, deferrals, filed, error, extract(epoch FROM retry_at - now())::int AS wait FROM hd_m365_messages WHERE mailbox_id = $1 AND message_id = ANY($2)", [helpId, ids])).rows;
+    let rows = await all();
+    assert.equal(rows.filter((s) => s.state === "done").length, m365.M365_INTAKE_LIMITS.perSender);
+    const late = rows.filter((s) => s.state === "failed");
+    assert.equal(late.length, 2);
+    for (const s of late) {
+      assert.deepEqual([s.attempts, s.deferrals, s.filed], [0, 1, false]);
+      assert.match(s.error, /^Too many messages from this sender\. It is tried again later\.$/);
+      assert.ok(s.wait > 100 && s.wait <= 120, `tried again in about two minutes (${s.wait} s)`);
+      assert.deepEqual(kind(s.message_id), { head: 1, body: 0, attachments: 0, mime: 0 }, "nothing of it was downloaded");
+      assert.equal(fake.mailboxes.get(HELP)!.messages.get(s.message_id)!.isRead, false, "left unread until it is taken in");
+    }
+    const view = (await m365.m365MailView()).mailboxes.find((m) => m.id === helpId)!;
+    assert.deepEqual([view.waiting, view.failed], [2, 0]);
+    // Not before its wait is over, however often the mailbox is read.
+    fresh();
+    await poll();
+    assert.equal((await all()).filter((s) => s.state === "failed").length, 2);
+    // The wait is over: the next tick reads the mailbox for it, although neither the timer nor a notification asks.
+    await pool().query("UPDATE hd_m365_messages SET retry_at = now() - interval '1 second' WHERE mailbox_id = $1 AND message_id = ANY($2) AND state = 'failed'", [helpId, ids]);
+    await pool().query("UPDATE hd_m365_mailboxes SET poll_due = false, last_poll_at = now()");
+    await m365.m365MailSweep();
+    rows = await all();
+    assert.equal(rows.filter((s) => s.state === "done").length, ids.length);
+    assert.equal((await ticketFor(`${STAMP} burst ${ids.length - 1}`)).length, 1);
+    fresh();
+  });
+
+  test("the desk-wide cap: more mail in a minute than the webhook would take is put off, not downloaded", async () => {
+    fresh();
+    assert.equal(m365.M365_INTAKE_LIMITS.perMinute, inbound.INBOUND_LIMITS.perMinute, "the webhook's own number");
+    const n = m365.M365_INTAKE_LIMITS.perMinute + 4;
+    const ids = Array.from({ length: n }, (_, i) => inboxMessage({ subject: `${STAMP} flood ${i}`, senderHeaders: [["Auto-Submitted", "auto-generated"]] }).id);
+    await poll();
+    const all = async () => (await pool().query("SELECT message_id, state, attempts, deferrals, error FROM hd_m365_messages WHERE mailbox_id = $1 AND message_id = ANY($2)", [helpId, ids])).rows;
+    let rows = await all();
+    assert.equal(rows.filter((s) => s.state === "done").length, m365.M365_INTAKE_LIMITS.perMinute);
+    const late = rows.filter((s) => s.state === "failed");
+    assert.equal(late.length, 4);
+    for (const s of late) {
+      assert.deepEqual([s.attempts, s.deferrals], [0, 1]);
+      assert.match(s.error, /taking in a lot of mail right now/);
+      assert.deepEqual(kind(s.message_id), { head: 1, body: 0, attachments: 0, mime: 0 });
+    }
+    fresh();
+    await pool().query("UPDATE hd_m365_messages SET retry_at = now() - interval '1 second' WHERE mailbox_id = $1 AND message_id = ANY($2) AND state = 'failed'", [helpId, ids]);
+    await poll();
+    rows = await all();
+    assert.equal(rows.filter((s) => s.state === "done").length, n);
+    fresh();
+  });
+
+  test("at most three messages are worked at once, however many notifications arrive together", async () => {
+    fresh();
+    await m365.m365MailSweep();
+    const msgs = Array.from({ length: 9 }, (_, i) => inboxMessage({ subject: `${STAMP} together ${i}` }));
+    fake.delayMs = 40;
+    fake.maxInflight = 0;
+    const statuses = await Promise.all(msgs.map((m) => fake.deliver(HELP, m.id)));
+    await settled();
+    fake.delayMs = 0;
+    assert.deepEqual([...new Set(statuses)], [202]);
+    assert.ok(fake.maxInflight >= 2 && fake.maxInflight <= m365.M365_INTAKE_LIMITS.concurrent, `${fake.maxInflight} at once`);
+    for (const m of msgs) assert.equal((await seen(m.id)).outcome, "created", m.subject);
+    for (const m of msgs) await ticketFor(m.subject);
+  });
+});
+
+// --- 1.20.7 security review: retry accounting ---------------------------------------------------
+
+describe("a message that cannot be taken in", () => {
+  const due = (id: string) => pool().query("UPDATE hd_m365_messages SET retry_at = now() - interval '1 second' WHERE mailbox_id = $1 AND message_id = $2", [helpId, id]);
+  const state = async (id: string) =>
+    (await pool().query("SELECT state, attempts, deferrals, error, extract(epoch FROM retry_at - updated_at)::int AS wait FROM hd_m365_messages WHERE mailbox_id = $1 AND message_id = $2", [helpId, id])).rows[0];
+  const viewOf = async () => (await m365.m365MailView()).mailboxes.find((m) => m.id === helpId)!;
+
+  before(() => {
+    m365.resetM365NotifyLimitsForTests();
+    inbound.resetInboundRateLimitsForTests();
+  });
+
+  test("refused outright by Microsoft: tried five times, then left alone, counted, shown and audited; Try again starts it over", async () => {
+    fake.fail.message = 400;
+    const m = inboxMessage({ subject: `${STAMP} unreadable` });
+    for (let i = 1; i <= shared.M365_MAIL_LIMITS.attempts; i++) {
+      await poll();
+      const s = await state(m.id);
+      assert.deepEqual([s.state, s.attempts, s.deferrals, s.wait], ["failed", i, 0, null]);
+    }
+    const r = await row();
+    assert.equal(r.last_error, "1 message could not be taken in. It is still in the Inbox, unread. Press Try again, or open it in Outlook.");
+    assert.deepEqual([(await viewOf()).failed, (await viewOf()).waiting], [1, 0]);
+    assert.equal(fake.mailboxes.get(HELP)!.messages.get(m.id)!.isRead, false, "left exactly as it was");
+    const a = (await audits("helpdesk.m365.intake_failed")).at(-1)!;
+    assert.deepEqual([a.details.address, a.details.attempts, a.actor_name], [HELP, 5, "Microsoft 365 mail"]);
+    assert.match(a.details.error, /refused to read a message \(error 400/);
+    // No sixth try, however often the mailbox is read.
+    const gets = fake.calls(`/messages/${encodeURIComponent(m.id)}`).length;
+    await poll();
+    await m365.m365MailSweep();
+    assert.equal(fake.calls(`/messages/${encodeURIComponent(m.id)}`).length, gets);
+    assert.equal((await ticketFor(`${STAMP} unreadable`)).length, 0);
+
+    // "Try again" on the page: the count starts over and the mailbox is read at once. Still refused: one try used.
+    const again = await call(retryRoute.POST, req(`${API}/mailboxes/${helpId}/retry`, U.manager, {}), { id: String(helpId) });
+    assert.deepEqual([again.status, again.body.retried, again.body.ok], [200, 1, true]);
+    assert.deepEqual([(await state(m.id)).state, (await state(m.id)).attempts], ["failed", 1]);
+    const mine = again.body.view.mailboxes.find((x: { id: number }) => x.id === helpId);
+    assert.deepEqual([mine.failed, mine.waiting], [0, 1]);
+    assert.deepEqual((await audits("helpdesk.m365.retry_requested")).at(-1)!.details, { address: HELP, messages: 1 });
+    assert.ok(auditLabels.hasActionLabel("helpdesk.m365.retry_requested"));
+    // Microsoft is well again: the next read takes it in.
+    fake.fail = {};
+    assert.deepEqual(await poll(), { ok: true });
+    assert.equal((await ticketFor(`${STAMP} unreadable`)).length, 1);
+    assert.equal((await row()).last_error, "");
+    // Nothing given up on: Try again is just a read, and nothing is audited.
+    const n = (await audits("helpdesk.m365.retry_requested")).length;
+    const none = await call(retryRoute.POST, req(`${API}/mailboxes/${helpId}/retry`, U.manager, {}), { id: String(helpId) });
+    assert.deepEqual([none.status, none.body.retried], [200, 0]);
+    assert.equal((await audits("helpdesk.m365.retry_requested")).length, n);
+    assert.equal((await call(retryRoute.POST, req(`${API}/mailboxes/999999999/retry`, U.manager, {}), { id: "999999999" })).status, 404);
+  });
+
+  test("no answer, 'try later' and trouble with the connection itself are put off with a growing wait, and never use up a try", async () => {
+    const m = inboxMessage({ subject: `${STAMP} a slow day at Microsoft` });
+    // A 500, a cut connection, "too many requests", "unavailable", a sign-in and a permission problem, another 500.
+    const waits: number[] = [];
+    for (const [i, status] of [500, -1, 429, 503, 401, 403, 500].entries()) {
+      fake.fail.message = status;
+      if (i > 0) await due(m.id);
+      await poll();
+      const s = await state(m.id);
+      assert.deepEqual([s.state, s.attempts, s.deferrals], ["failed", 0, i + 1], `after a ${status}`);
+      waits.push(s.wait);
+    }
+    assert.deepEqual(waits, [60, 120, 240, 480, 960, 1800, 1800], "one minute, doubling, up to half an hour");
+    assert.deepEqual([(await viewOf()).failed, (await viewOf()).waiting], [0, 1]);
+    assert.equal((await row()).last_error, "", "nothing is wrong with the mailbox");
+    assert.equal(fake.mailboxes.get(HELP)!.messages.get(m.id)!.isRead, false);
+    // Not tried before its wait is over.
+    const gets = fake.calls(`/messages/${encodeURIComponent(m.id)}`).length;
+    await poll();
+    assert.equal(fake.calls(`/messages/${encodeURIComponent(m.id)}`).length, gets);
+    // Microsoft says how long to wait (Retry-After): honoured, up to an hour.
+    fake.fail.message = 429;
+    fake.retryAfter = 2400;
+    await due(m.id);
+    await poll();
+    assert.equal((await state(m.id)).wait, 2400);
+    fake.retryAfter = 99_999;
+    await due(m.id);
+    await poll();
+    assert.equal((await state(m.id)).wait, 3600);
+    fake.retryAfter = 0;
+    assert.equal((await state(m.id)).attempts, 0, "nine failures of this kind, and not one try used");
+    assert.equal((await audits("helpdesk.m365.intake_failed")).filter((a) => /error 5|limiting requests/.test(a.details.error)).length, 0);
+    // After a week of it the desk stops, says so, and Try again is there.
+    await pool().query("UPDATE hd_m365_messages SET created_at = now() - interval '8 days' WHERE mailbox_id = $1 AND message_id = $2", [helpId, m.id]);
+    fake.fail.message = 503;
+    await due(m.id);
+    await poll();
+    assert.deepEqual([(await state(m.id)).attempts, (await viewOf()).failed], [shared.M365_MAIL_LIMITS.attempts, 1]);
+    assert.match((await audits("helpdesk.m365.intake_failed")).at(-1)!.details.error, /had a problem \(error 503\)/);
+    fake.fail = {};
+    const again = await call(retryRoute.POST, req(`${API}/mailboxes/${helpId}/retry`, U.manager, {}), { id: String(helpId) });
+    assert.deepEqual([again.body.retried, again.body.ok, again.body.error], [1, true, undefined]);
+    assert.equal((await ticketFor(`${STAMP} a slow day at Microsoft`)).length, 1);
+  });
+
+  test("an attachment Microsoft does not hand over: put off twice, then the message is taken in without it and says so", async () => {
+    const saved: string[] = [];
+    inbound.setInboundAttachmentStoreForTests({
+      save: async (i) => {
+        saved.push(i.filename);
+        return { id: 920000 + saved.length, filename: i.filename, mime: i.mime, size: i.buf.length } as never;
+      },
+      bind: async () => [],
+    });
+    const m = inboxMessage({
+      subject: `${STAMP} a slow attachment`,
+      attachments: [
+        { id: "att-ok", name: "notes.txt", contentType: "text/plain", data: Buffer.from("the notes") },
+        { id: "att-slow", name: "site-survey [final].pdf", contentType: "application/pdf", data: Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(50_000, 66)]) },
+      ],
+    });
+    fake.fail.attachmentValue = -1; // no answer at all, as a timeout is
+    fake.failAttachmentId = "att-slow";
+    await poll();
+    assert.deepEqual([(await state(m.id)).state, (await state(m.id)).attempts, (await state(m.id)).deferrals], ["failed", 0, 1]);
+    await due(m.id);
+    await poll();
+    assert.deepEqual([(await state(m.id)).attempts, (await state(m.id)).deferrals], [0, 2]);
+    assert.equal((await ticketFor(`${STAMP} a slow attachment`)).length, 0, "not yet: Microsoft may hand it over next time");
+    // The third time it is still not handed over: the message is not held back any longer.
+    await due(m.id);
+    assert.deepEqual(await poll(), { ok: true });
+    const [t] = await ticketFor(`${STAMP} a slow attachment`);
+    assert.ok(t, "taken in");
+    assert.equal((await seen(m.id)).outcome, "created");
+    assert.deepEqual(saved, ["notes.txt"], "what could be fetched was");
+    const notes = (await pool().query("SELECT body FROM hd_messages WHERE ticket_id = $1 AND via = 'system' ORDER BY id", [t.id])).rows.map((x) => x.body).join("\n---\n");
+    assert.match(notes, /1 attachment could not be fetched from Microsoft 365 in time and was not added:\n\n- site-survey _final_\.pdf\n\nThe email is still in the mailbox with it\./);
+    assert.equal(fake.mailboxes.get(HELP)!.messages.get(m.id)!.isRead, true);
+    fake.fail = {};
+    fake.failAttachmentId = "";
+    inbound.setInboundAttachmentStoreForTests(null);
+  });
+});
+
+// --- 1.20.7 security review: meeting invites (the 1.20.6 invite code) -------------------------------
+
+describe("meeting invites from Exchange (eventMessage)", () => {
+  const uidOf = (name: string) => `${STAMP}-${name}@calendar.example.test`;
+  const ics = (method: string, uid: string, lines: string[]) =>
+    ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Microsoft Corporation//Outlook 16.0 MIMEDIR//EN", `METHOD:${method}`, "BEGIN:VEVENT", `UID:${uid}`, ...lines, "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+  /** The MIME Exchange hands out for a meeting message: the invite is a text/calendar part, never an attachment. */
+  const mime = (text: string, encoding: "base64" | "quoted-printable" | "8bit", method: string) => {
+    const b = "----=_NextPart_000_01D8_0123ABCDEF";
+    const part =
+      encoding === "base64"
+        ? Buffer.from(text).toString("base64").replace(/(.{76})/g, "$1\r\n")
+        : encoding === "quoted-printable"
+          ? text.replace(/=/g, "=3D").replace(/Boardroom/g, "Board=\r\nroom")
+          : text;
+    return Buffer.from(
+      [
+        `From: Daniel <${U.req.email}>`,
+        "Subject: a meeting",
+        "MIME-Version: 1.0",
+        `Content-Type: multipart/alternative;\r\n\tboundary="${b}"`,
+        "",
+        `--${b}`,
+        'Content-Type: text/plain; charset="utf-8"',
+        "Content-Transfer-Encoding: 7bit",
+        "",
+        "Please set the room up.",
+        "",
+        `--${b}`,
+        `Content-Type: text/calendar; charset="utf-8"; method=${method}`,
+        `Content-Transfer-Encoding: ${encoding}`,
+        "",
+        part,
+        "",
+        `--${b}--`,
+        "",
+      ].join("\r\n")
+    );
+  };
+  const fromReq = () => ({ name: "Daniel", address: U.req.email });
+  const eventOf = async (ticketId: number) => (await pool().query("SELECT * FROM hd_ticket_events WHERE ticket_id = $1", [ticketId])).rows[0];
+  const iso = (d: Date | string) => new Date(d).toISOString();
+  const mimeReads = (id: string) => fake.requests.filter((l) => l === `GET /graph/v1.0/users/${encodeURIComponent(HELP)}/messages/${encodeURIComponent(id)}/$value`).length;
+  const UID = uidOf("board");
+
+  before(() => {
+    m365.resetM365NotifyLimitsForTests();
+    inbound.resetInboundRateLimitsForTests();
+  });
+
+  test("the part reader: base64, quoted-printable and 8bit parts; nothing over the invite reader's own limit", () => {
+    const text = ics("REQUEST", "u1", ["DTSTART:20310710T140000Z", "LOCATION:Boardroom A", "DESCRIPTION:a=b"]);
+    const { ICS_LIMITS } = require("../src/lib/helpdesk/desk-calendar-ics") as typeof import("../src/lib/helpdesk/desk-calendar-ics"); // eslint-disable-line @typescript-eslint/no-require-imports
+    for (const enc of ["base64", "quoted-printable", "8bit"] as const) {
+      const got = message.calendarPart(mime(text, enc, "REQUEST"), ICS_LIMITS.bytes);
+      assert.equal(got?.toString("utf8").trim(), text, enc);
+    }
+    assert.equal(message.calendarPart(Buffer.from("From: a@b.example\r\nContent-Type: text/plain\r\n\r\nContent-Type: text/calendar is only mentioned here, in the middle of a line\r\n"), ICS_LIMITS.bytes), null);
+    assert.equal(message.calendarPart(Buffer.from("no mime at all"), ICS_LIMITS.bytes), null);
+    const big = ics("REQUEST", "u2", ["DTSTART:20310710T140000Z", `DESCRIPTION:${"x".repeat(ICS_LIMITS.bytes + 10)}`]);
+    assert.equal(message.calendarPart(mime(big, "8bit", "REQUEST"), ICS_LIMITS.bytes), null, "larger than the invite reader reads: not handed on");
+    const t0 = Date.now();
+    assert.equal(message.calendarPart(Buffer.from("Content-Type: text/calendar\r\n".repeat(50_000)), ICS_LIMITS.bytes), null);
+    assert.ok(Date.now() - t0 < 500, "a flood of part headers costs nothing");
+  });
+
+  test("an invite becomes a ticket with its event filled in: read from the message's MIME, as the webhook's calendar field is", async () => {
+    const text = ics("REQUEST", UID, ["SEQUENCE:0", "DTSTART:20310710T140000Z", "DTEND:20310710T153000Z", "SUMMARY:Board meeting", "LOCATION:Boardroom A"]);
+    const m = inboxMessage({ subject: `${STAMP} Board meeting`, from: fromReq(), eventMessage: true, mime: mime(text, "base64", "REQUEST") });
+    assert.deepEqual(await poll(), { ok: true });
+    const [t] = await ticketFor(`${STAMP} Board meeting`);
+    assert.ok(t, "the invite opened a ticket");
+    assert.equal(t.requester_id, U.req.id);
+    const e = await eventOf(t.id);
+    assert.ok(e, "and the ticket has its event");
+    assert.deepEqual([e.ics_uid, iso(e.starts_at), iso(e.ends_at), e.place, e.source, e.ics_sequence], [UID, "2031-07-10T14:00:00.000Z", "2031-07-10T15:30:00.000Z", "Boardroom A", "invite", 0]);
+    assert.equal(mimeReads(m.id), 1, "the MIME was read once");
+    const notes = (await pool().query("SELECT body FROM hd_messages WHERE ticket_id = $1 AND via = 'system'", [t.id])).rows.map((x) => x.body).join("\n");
+    assert.match(notes, /Event added from the meeting invite/);
+    assert.doesNotMatch(notes, /not added from the email/, "the invite is not reported as a file that could not be added");
+    // An ordinary message: its MIME is never asked for.
+    const plain = inboxMessage({ subject: `${STAMP} not a meeting` });
+    await poll();
+    assert.equal((await seen(plain.id)).outcome, "created");
+    assert.equal(mimeReads(plain.id), 0);
+    await ticketFor(`${STAMP} not a meeting`);
+  });
+
+  test("an update and a cancellation, which Exchange sends as new mail, find the ticket by the meeting's UID", async () => {
+    const [t] = await ticketFor(`${STAMP} Board meeting`);
+    const upd = inboxMessage({
+      subject: `${STAMP} Board meeting (moved)`,
+      from: fromReq(),
+      eventMessage: true,
+      mime: mime(ics("REQUEST", UID, ["SEQUENCE:2", "DTSTART:20310711T150000Z", "DTEND:20310711T160000Z", "LOCATION:Boardroom B"]), "quoted-printable", "REQUEST"),
+    });
+    await poll();
+    assert.equal((await seen(upd.id)).outcome, "appended");
+    assert.equal((await ticketFor(`${STAMP} Board meeting (moved)`)).length, 0, "no second ticket");
+    let e = await eventOf(t.id);
+    assert.deepEqual([iso(e.starts_at), e.place, e.ics_sequence], ["2031-07-11T15:00:00.000Z", "Boardroom B", 2]);
+    // The same UID on mail that fails the sender check is somebody's own mail: a ticket of its own, this event untouched.
+    const forged = inboxMessage({
+      subject: `${STAMP} hijacked meeting`,
+      from: fromReq(),
+      fromDomainResults: failResults("example.test"),
+      eventMessage: true,
+      mime: mime(ics("REQUEST", UID, ["SEQUENCE:9", "DTSTART:20350101T150000Z", "LOCATION:Nowhere"]), "8bit", "REQUEST"),
+    });
+    await poll();
+    assert.equal((await seen(forged.id)).outcome, "created");
+    assert.equal((await ticketFor(`${STAMP} hijacked meeting`)).length, 1);
+    e = await eventOf(t.id);
+    assert.deepEqual([e.place, e.ics_sequence], ["Boardroom B", 2]);
+    // The cancellation.
+    const cancel = inboxMessage({ subject: `Canceled: ${STAMP} Board meeting`, from: fromReq(), eventMessage: true, mime: mime(ics("CANCEL", UID, ["SEQUENCE:3", "DTSTART:20310711T150000Z"]), "8bit", "CANCEL") });
+    await poll();
+    assert.equal((await seen(cancel.id)).outcome, "appended");
+    assert.ok((await eventOf(t.id)).cancelled_at, "the event is marked cancelled");
+    assert.equal((await ticketFor(`Canceled: ${STAMP} Board meeting`)).length, 0);
+  });
+
+  test("limits: an invite over the reader's limit, a MIME too large to look through or one Microsoft refuses is no invite, and the mail is a ticket all the same; 'try later' is put off", async () => {
+    const { ICS_LIMITS } = require("../src/lib/helpdesk/desk-calendar-ics") as typeof import("../src/lib/helpdesk/desk-calendar-ics"); // eslint-disable-line @typescript-eslint/no-require-imports
+    const hugeInvite = inboxMessage({
+      subject: `${STAMP} an invite too large`,
+      from: fromReq(),
+      eventMessage: true,
+      mime: mime(ics("REQUEST", uidOf("huge"), ["DTSTART:20310801T100000Z", `DESCRIPTION:${"x".repeat(ICS_LIMITS.bytes + 10)}`]), "8bit", "REQUEST"),
+    });
+    const hugeMime = inboxMessage({ subject: `${STAMP} a MIME too large`, from: fromReq(), eventMessage: true, mime: Buffer.alloc(m365.M365_INTAKE_LIMITS.mimeBytes + 10, 65) });
+    assert.deepEqual(await poll(), { ok: true });
+    for (const m of [hugeInvite, hugeMime]) {
+      assert.equal((await seen(m.id)).outcome, "created", m.subject);
+      const [t] = await ticketFor(m.subject);
+      assert.equal(await eventOf(t.id), undefined, m.subject);
+    }
+    // Microsoft refuses the MIME outright: no invite, still a ticket.
+    fake.fail.mime = 404;
+    const refused = inboxMessage({ subject: `${STAMP} a MIME Microsoft will not hand out`, from: fromReq(), eventMessage: true, mime: mime(ics("REQUEST", uidOf("refused"), ["DTSTART:20310801T100000Z"]), "8bit", "REQUEST") });
+    await poll();
+    assert.equal((await seen(refused.id)).outcome, "created");
+    assert.equal(await eventOf((await ticketFor(refused.subject))[0].id), undefined);
+    // "Try later": the whole message waits (not counted), and has its event when Microsoft is back.
+    fake.fail.mime = 503;
+    const later = inboxMessage({ subject: `${STAMP} an invite on a slow day`, from: fromReq(), eventMessage: true, mime: mime(ics("REQUEST", uidOf("later"), ["DTSTART:20310802T100000Z", "LOCATION:Room 4"]), "base64", "REQUEST") });
+    await poll();
+    const s = (await pool().query("SELECT state, attempts, deferrals FROM hd_m365_messages WHERE mailbox_id = $1 AND message_id = $2", [helpId, later.id])).rows[0];
+    assert.deepEqual([s.state, s.attempts, s.deferrals], ["failed", 0, 1]);
+    assert.equal((await ticketFor(later.subject)).length, 0);
+    fake.fail = {};
+    await pool().query("UPDATE hd_m365_messages SET retry_at = now() - interval '1 second' WHERE mailbox_id = $1 AND message_id = $2", [helpId, later.id]);
+    await poll();
+    assert.equal((await eventOf((await ticketFor(later.subject))[0].id)).place, "Room 4");
+  });
+});
+
+// --- 1.20.7: the "Last messages" diagnostic -----------------------------------------------------
+
+describe("last messages (how the sender check went)", () => {
+  test("for the last messages: when, the sender's domain, the outcome of the check and what Exchange's headers said; never any content", async () => {
+    m365.resetM365NotifyLimitsForTests();
+    inbound.resetInboundRateLimitsForTests();
+    const tag = newToken().slice(0, 8).toLowerCase();
+    const secret = `private${tag}`;
+    const at = (name: string) => ({ name: `Priya Secretname${tag}`, address: `priya.${tag}@${name}-${tag}.example` });
+    const mk = (name: string, over: Parameters<typeof inboxMessage>[0] = {}) => inboxMessage({ subject: `${STAMP} ${secret} ${name}`, from: at(name), body: { contentType: "text", content: `the body ${secret}` }, ...over });
+    mk("pass");
+    mk("fail", { fromDomainResults: failResults(`fail-${tag}.example`) });
+    mk("internal", { fromDomainResults: "", authAs: ["Internal"] });
+    mk("none", { fromDomainResults: "", authAs: [] });
+    mk("allnone", { fromDomainResults: `spf=none (sender IP is 203.0.113.9) smtp.mailfrom=allnone-${tag}.example; dkim=none (message not signed) header.d=none;dmarc=none action=none header.from=allnone-${tag}.example;compauth=none reason=405` });
+    mk("twostamps", { fromDomainResults: "", authAs: ["Internal", "Internal"] });
+    inboxMessage({ subject: `${STAMP} ${secret} nobody`, from: null });
+    assert.deepEqual(await poll(), { ok: true });
+
+    const r = await call(messagesRoute.GET, req(`${API}/mailboxes/${helpId}/messages`, U.manager, undefined, "GET"), { id: String(helpId) });
+    assert.equal(r.status, 200);
+    const list = r.body.messages as { at: string; sender_domain: string; check: string; reason: string; outcome: string }[];
+    assert.ok(list.length >= 7 && list.length <= 12, "the last few, not the whole history");
+    for (const m of list) assert.deepEqual(Object.keys(m).sort(), ["at", "check", "outcome", "reason", "sender_domain"]);
+    assert.ok(list.every((m, i) => i === 0 || Date.parse(list[i - 1].at) >= Date.parse(m.at)), "newest first");
+    const of = (name: string) => list.find((m) => m.sender_domain === `${name}-${tag}.example`)!;
+    assert.deepEqual([of("pass").check, of("pass").outcome], ["passed", "created"]);
+    assert.equal(of("pass").reason, "AuthAs stamp: anonymous; first of 1 Authentication-Results: spf=pass, dkim=pass, dmarc=pass, compauth=pass (reason 100)");
+    assert.equal(of("fail").check, "failed");
+    assert.match(of("fail").reason, /^AuthAs stamp: anonymous; first of 1 Authentication-Results: spf=fail, dkim=none, dmarc=fail, compauth=fail \(reason 000\); \S/);
+    assert.deepEqual([of("internal").check, of("internal").reason], ["internal", "AuthAs stamp: internal; no Authentication-Results header"]);
+    assert.deepEqual([of("none").check, of("none").reason], ["none", "no AuthAs stamp; no Authentication-Results header"]);
+    // Results that are all "none" read as a failed check, and the line shows why.
+    assert.equal(of("allnone").check, "failed");
+    assert.match(of("allnone").reason, /spf=none, dkim=none, dmarc=none, compauth=none \(reason 405\)/);
+    // Two Internal stamps are not Exchange's one: the line shows what was there.
+    assert.deepEqual([of("twostamps").check, of("twostamps").reason], ["none", "AuthAs stamp: internal, internal (2 headers); no Authentication-Results header"]);
+    const nobody = list.find((m) => m.sender_domain === "" && m.outcome === "skipped_no_sender")!;
+    assert.deepEqual([nobody.check, nobody.reason], ["", "No sender address on the message."]);
+    // No content: no subject, no address, no name, no text.
+    const text = JSON.stringify(r.body);
+    for (const leak of [secret, "priya", "Secretname", "@"]) assert.ok(!text.includes(leak), `"${leak}" is not in the answer`);
+    const kept = (await pool().query("SELECT sender_domain, sender_reason FROM hd_m365_messages WHERE mailbox_id = $1", [helpId])).rows;
+    for (const k of kept) assert.ok(!/@/.test(k.sender_domain + k.sender_reason) && !k.sender_reason.includes(secret), JSON.stringify(k));
+    // Unknown mailbox: 404. It only reads.
+    assert.equal((await call(messagesRoute.GET, req(`${API}/mailboxes/999999999/messages`, U.manager, undefined, "GET"), { id: "999999999" })).status, 404);
+    assert.equal((await call(messagesRoute.GET, req(`${API}/mailboxes/x/messages`, U.manager, undefined, "GET"), { id: "x" })).status, 404);
+    for (const name of ["pass", "fail", "internal", "none", "allnone", "twostamps"]) await ticketFor(`${STAMP} ${secret} ${name}`);
+  });
+});
+
+// --- Corrections from Microsoft's documentation: how a mailbox is named -----------------------------
+
+describe("a mailbox Microsoft does not find by its address", () => {
+  const SHARED = `frontdesk@${DOMAIN}`;
+  const UPN = `frontdesk_shared@${STAMP}.onmicrosoft.example`;
+  const OHARA = `o'hara@${DOMAIN}`;
+  let oid = "";
+  let sharedId = 0;
+  let oharaId = 0;
+  const subFor = (address: string) => [...fake.subscriptions.values()].find((s) => s.mailbox === address);
+  const patch = (id: number, graph_id: unknown) => call(boxRoute.PATCH, req(`${API}/mailboxes/${id}`, U.manager, { graph_id }, "PATCH"), { id: String(id) });
+
+  before(() => {
+    m365.resetM365NotifyLimitsForTests();
+    inbound.resetInboundRateLimitsForTests();
+    oid = fake.addMailbox(SHARED, "shared", { upn: UPN }).objectId;
+    fake.addMailbox(OHARA, "shared");
+    for (const a of [SHARED, OHARA]) {
+      app.scope.add(a);
+      app.sendScope.add(a);
+    }
+  });
+
+  test("by the address alone it is refused, with where to enter its object ID; with the object ID it connects, and every call names the mailbox by it", async () => {
+    const no = await call(boxesRoute.POST, req(`${API}/mailboxes`, U.manager, { address: SHARED }));
+    assert.deepEqual([no.status, no.body.code], [422, "not_a_mailbox"]);
+    assert.match(no.body.error, /If the mailbox's sign-in name is not this address, enter its object ID or sign-in name under Advanced\.$/);
+    const mark = fake.requests.length;
+    const yes = await call(boxesRoute.POST, req(`${API}/mailboxes`, U.manager, { address: SHARED, graph_id: ` ${oid.toUpperCase()} ` }));
+    assert.equal(yes.status, 201, JSON.stringify(yes.body));
+    sharedId = yes.body.mailbox.id;
+    assert.equal(yes.body.view.mailboxes.find((m: { id: number }) => m.id === sharedId).graph_id, oid);
+    assert.equal((await audits("helpdesk.m365.mailbox_connected")).at(-1)!.details.graph_id, oid);
+    // A help address lives on it (an alias here), so it is read; and its replies go out through it.
+    await m365.setM365AddressLink(boxBilling.id, { m365_mailbox_id: sharedId, send_via: true }, by());
+    const m = inboxMessage({ subject: `${STAMP} to the front desk`, to: [{ name: "", address: BILLING }] }, SHARED);
+    await m365.m365MailSweep();
+    assert.equal((await seen(m.id, sharedId)).outcome, "created");
+    const [t] = await ticketFor(`${STAMP} to the front desk`);
+    assert.equal(t.mailbox_id, boxBilling.id);
+    assert.equal(fake.mailboxes.get(SHARED)!.messages.get(m.id)!.isRead, true);
+    // The subscription's resource too (what Microsoft recommends), created with immutable ids.
+    const sub = subFor(SHARED)!;
+    assert.equal(sub.resource, `users/${oid}/mailFolders('inbox')/messages`);
+    assert.match(sub.prefer, /IdType="ImmutableId"/);
+    assert.equal(await m365Send.sendThroughM365(boxBilling.id, BILLING, "Acme Billing", { to: "cara@customer.example", from: BILLING, subject: `${STAMP} from the front desk`, text: "Hello", html: "<p>Hello</p>", headers: {} }), "sent");
+    // (The new ticket's acknowledgement went out the same way: the one sent here is among them.)
+    assert.ok(fake.mailboxes.get(SHARED)!.sent.some((x) => x.toString("utf8").replace(/\r?\n[ \t]+/g, " ").includes(`${STAMP} from the front desk`)));
+    const mine = fake.requests.slice(mark).filter((l) => l.includes("/users/") && (l.includes(oid) || l.includes(encodeURIComponent(SHARED))));
+    assert.ok(mine.length >= 6, "the probe, the delta read, the message, the mark, the send");
+    for (const l of mine) assert.ok(l.includes(`/users/${oid}/`), `by the object ID: ${l}`);
+    assert.ok(mine.some((l) => l.startsWith(`POST /graph/v1.0/users/${oid}/sendMail`)));
+    // The commands' test line names the mailbox by its object ID when the desk has it.
+    const v = await m365.m365MailView();
+    const text = shared.restrictCommands({ clientId: v.client_id, spObjectId: v.sp_object_id, addresses: [SHARED], first: false, graphIds: { [SHARED]: v.mailboxes.find((x) => x.id === sharedId)!.graph_id } })!;
+    assert.ok(text.includes(`-Resource '${oid}' | Format-Table RoleName, GrantedPermissions, AllowedResourceScope, InScope`));
+  });
+
+  test("the lookup can be changed later; a value that names no mailbox is refused and nothing changes", async () => {
+    assert.equal((await patch(sharedId, "$(whoami)")).status, 400);
+    const none = await patch(sharedId, "11111111-2222-3333-4444-555555555555");
+    assert.deepEqual([none.status, none.body.code], [422, "not_a_mailbox"]);
+    const empty = await patch(sharedId, "");
+    assert.equal(empty.status, 422, "by its address alone Microsoft still does not find it");
+    assert.match(empty.body.error, /enter its object ID or sign-in name under Advanced/);
+    assert.equal((await row(sharedId)).graph_id, oid);
+    assert.ok(subFor(SHARED), "and its subscription is still there");
+    // Its sign-in name works too. The subscription named the old value, so it goes; the next tick makes a new one.
+    const upn = await patch(sharedId, UPN.toUpperCase());
+    assert.deepEqual([upn.status, upn.body.graph_id], [200, UPN]);
+    assert.equal(subFor(SHARED), undefined);
+    assert.deepEqual((await audits("helpdesk.m365.mailbox_changed")).at(-1)!.details, { address: SHARED, graph_id: UPN, was: oid });
+    assert.ok(auditLabels.hasActionLabel("helpdesk.m365.mailbox_changed"));
+    await m365.m365MailSweep();
+    assert.equal(subFor(SHARED)!.resource, `users/${UPN}/mailFolders('inbox')/messages`);
+    // Nothing is taken in twice by the fresh start of the delta read.
+    assert.equal((await ticketFor(`${STAMP} to the front desk`)).length, 1);
+    assert.equal((await patch(999999999, oid)).status, 404);
+  });
+
+  test("Microsoft's 503 when a subscription is made points at the object ID field; an address with an apostrophe gets no subscription until it has one", async () => {
+    // "Mailbox info is stale": Microsoft's advice for it is to name the mailbox by its object ID.
+    fake.subscriptions.delete(subFor(SHARED)!.id);
+    await pool().query("UPDATE hd_m365_mailboxes SET sub_id = '', sub_state = '', sub_expires_at = NULL WHERE id = $1", [sharedId]);
+    fake.fail.subscriptions = 503;
+    await m365.m365MailSweep();
+    assert.equal((await row(sharedId)).sub_error, "Microsoft 365 could not look this mailbox up for notifications (error 503). If this keeps happening, enter the mailbox's object ID under Advanced: Microsoft recommends it for notifications.");
+    assert.equal((await m365.m365MailView()).mailboxes.find((m) => m.id === sharedId)!.mode, "timer_refused");
+    fake.fail = {};
+    assert.equal((await patch(sharedId, oid)).status, 200);
+
+    const made = await call(boxesRoute.POST, req(`${API}/mailboxes`, U.manager, { address: OHARA }));
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    oharaId = made.body.mailbox.id;
+    await m365.setM365AddressLink(boxBilling.id, { m365_mailbox_id: oharaId, send_via: false }, by());
+    const posts = fake.calls("POST /graph/v1.0/subscriptions").length;
+    const m = inboxMessage({ subject: `${STAMP} to O'Hara`, to: [{ name: "", address: BILLING }] }, OHARA);
+    await m365.m365MailSweep();
+    assert.match((await row(oharaId)).sub_error, /^An address with an apostrophe can't be named in a notification subscription\. Enter the mailbox's object ID under Advanced\./);
+    assert.equal(subFor(OHARA), undefined);
+    // (The front desk has no help address any more, so it is idle and asks for nothing.)
+    assert.equal(fake.calls("POST /graph/v1.0/subscriptions").length, posts, "Microsoft was not asked for a subscription it could not name");
+    assert.equal((await seen(m.id, oharaId)).outcome, "created", "the timer reads it meanwhile");
+    assert.equal((await patch(oharaId, fake.mailboxes.get(OHARA)!.objectId)).status, 200);
+    await m365.m365MailSweep();
+    assert.equal(subFor(OHARA)!.resource, `users/${fake.mailboxes.get(OHARA)!.objectId}/mailFolders('inbox')/messages`);
+    await ticketFor(`${STAMP} to O'Hara`);
+  });
+
+  after(async () => {
+    // As the rest of the file found things: billing@ is an alias on the help mailbox, and only help@ and sales@ are connected.
+    await m365.setM365AddressLink(boxBilling.id, { m365_mailbox_id: helpId, send_via: false }, by());
+    for (const id of [sharedId, oharaId]) if (id) await m365.disconnectM365Mailbox(id, by());
+    for (const a of [SHARED, OHARA]) {
+      app.scope.delete(a);
+      app.sendScope.delete(a);
+    }
+  });
+});
+
+// --- 1.20.7 security review: the connection changes hands ---------------------------------------------
+
+describe("the connection changes hands", () => {
+  before(() => {
+    fake.fail = {};
+  });
+  const connectAgain = () => m365.saveM365Connection({ tenant: fake.tenantId, client_id: app.appId, secret: app.secrets[0] }, by());
+
+  test("another app registration: the old app's subscriptions are deleted at Microsoft before they are forgotten", async () => {
+    await m365.m365MailSweep();
+    const olds = [...fake.subscriptions.values()].map((s) => s.id);
+    assert.equal(olds.length, 2);
+    const other = fake.addApp();
+    other.scope = new Set(app.scope);
+    other.sendScope = new Set(app.sendScope);
+    const keyBefore = (await cfg()).notify_key;
+    const r = await m365.saveM365Connection({ tenant: fake.tenantId, client_id: other.appId, secret: other.secrets[0] }, by());
+    assert.equal(r.created, false);
+    assert.equal(fake.subscriptions.size, 0, "nothing of the old app's is left at Microsoft to keep posting");
+    for (const id of olds) assert.equal(fake.calls(`DELETE /graph/v1.0/subscriptions/${id} 204`).length, 1, id);
+    const rows = (await pool().query("SELECT sub_id, sub_state, poll_due FROM hd_m365_mailboxes ORDER BY id")).rows;
+    assert.deepEqual(rows, [{ sub_id: "", sub_state: "", poll_due: true }, { sub_id: "", sub_state: "", poll_due: true }]);
+    assert.equal((await cfg()).notify_key, keyBefore, "the same connection goes on under the new app");
+    await m365.m365MailSweep();
+    assert.deepEqual([...new Set([...fake.subscriptions.values()].map((s) => s.appId))], [other.appId]);
+    // Back to the app the rest of the file uses.
+    await connectAgain();
+    other.deleted = true;
+    await m365.m365MailSweep();
+    assert.deepEqual([...new Set([...fake.subscriptions.values()].map((s) => s.appId))], [app.appId]);
+  });
+
+  test("removing the connection rotates the notification key: the old address answers nobody, the next connection gets a new one", async () => {
+    const oldKey = (await cfg()).notify_key;
+    const hello = (k: string) => m365.handleM365Notification(new Request("http://localhost/x?validationToken=hello", { method: "POST" }), k, { ip: "198.51.100.40" });
+    assert.deepEqual(await hello(oldKey), { status: 200, text: "hello" });
+    assert.equal(await m365.removeM365Connection(by()), true);
+    assert.equal(fake.subscriptions.size, 0);
+    assert.equal((await cfg()).notify_key, "");
+    assert.equal((await hello(oldKey)).status, 404);
+    assert.equal((await hello("")).status, 404);
+    assert.deepEqual([(await m365.m365MailView()).tenant_wide, (await m365.m365MailView()).tenant_wide_at], [[], null]);
+    await connectAgain();
+    const newKey = (await cfg()).notify_key;
+    assert.ok(newKey.length >= 32 && newKey !== oldKey);
+    assert.equal((await hello(oldKey)).status, 404, "the old key stays dead");
+    assert.deepEqual(await hello(newKey), { status: 200, text: "hello" });
+    await m365.m365MailSweep();
+    assert.equal(fake.subscriptions.size, 2);
+    for (const s of fake.subscriptions.values()) assert.ok(s.notificationUrl.endsWith(`/${newKey}`));
+  });
+
+  test("two one-click saves at the same moment: one is stored whole, the other is told the desk is already connected", async () => {
+    await m365.removeM365Connection(by());
+    const a = fake.addApp();
+    const b = fake.addApp();
+    const save = (x: FakeApp) => m365.saveM365Connection({ tenant: fake.tenantId, client_id: x.appId, secret: x.secrets[0] }, by(), { setup: "one_click", tenantId: fake.tenantId, spObjectId: x.spId });
+    const results = await Promise.allSettled([save(a), save(b)]);
+    const won = results.filter((r) => r.status === "fulfilled");
+    const lost = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    assert.deepEqual([won.length, lost.length], [1, 1]);
+    assert.deepEqual([lost[0].reason.status, lost[0].reason.code], [409, "already_connected"]);
+    const winner = results[0].status === "fulfilled" ? a : b;
+    const c = await cfg();
+    assert.deepEqual([c.client_id, c.secret, c.sp_object_id], [winner.appId, winner.secrets[0], winner.spId]);
+    // And afterwards, plainly: a one-click save never replaces a saved connection.
+    await assert.rejects(save(results[0].status === "fulfilled" ? b : a), (e: Error & { code?: string }) => e.code === "already_connected");
+    assert.equal((await cfg()).client_id, winner.appId);
+    a.deleted = true;
+    b.deleted = true;
+    await m365.removeM365Connection(by());
+    await connectAgain();
+    await m365.m365MailSweep();
+    assert.equal(fake.subscriptions.size, 2);
+  });
+});
+
 // --- The one-click setup (enterprise overlay) ----------------------------------------------
 
 const EE_SETUP = path.join(__dirname, "..", "ee", "m365-mail-setup.ts");
@@ -1543,11 +2581,38 @@ describe("the one-click setup", { skip: !fs.existsSync(EE_SETUP) && "the enterpr
     assert.equal(live().length, 0);
   });
 
-  test("permissions: a session, and the Email settings capability", async () => {
+  test("permissions: a session, and the Helpdesk settings capability (the Email channel capability alone is not enough)", async () => {
     assert.equal((await call((r: Request) => setup.m365MailSetupHandler("POST", ["start"], r), req("http://localhost/x", null, {}))).status, 401);
     assert.equal((await call((r: Request) => setup.m365MailSetupHandler("POST", ["start"], r), req("http://localhost/x", U.agent, {}))).status, 403);
     assert.equal((await pollSetup("whatever", U.agent)).status, 403);
+    deskRoles.setRoleMatrixForTests({ ...rolesShared.HD_DEFAULT_MATRIX, team_lead: [...rolesShared.HD_DEFAULT_MATRIX.team_lead, "channels.manage"] });
+    try {
+      assert.equal((await call(rootRoute.GET, req(API, U.lead, undefined, "GET"))).status, 200, "this person may open the Email settings");
+      assert.equal((await call((r: Request) => setup.m365MailSetupHandler("POST", ["start"], r), req("http://localhost/x", U.lead, {}))).status, 403);
+      assert.equal((await pollSetup("whatever", U.lead)).status, 403);
+    } finally {
+      deskRoles.setRoleMatrixForTests(null);
+    }
     assert.equal((await pollSetup("whatever")).status, 410);
+  });
+
+  test("the setup's own sign-in and Graph addresses can be pointed at a loopback test rig only", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const device = require("../ee/ms-device-setup") as { deviceSetupBases: () => { login: string; graph: string } };
+    const keep = [process.env.COMPASSDOCS_SSO_SETUP_LOGIN_BASE, process.env.COMPASSDOCS_SSO_SETUP_GRAPH_BASE];
+    assert.deepEqual(device.deviceSetupBases(), { login: `${fake.base}/login`, graph: `${fake.base}/graph` });
+    // Anything that is not plain http on 127.0.0.1 or localhost is ignored: an admin's sign-in and token go to Microsoft only.
+    for (const off of ["https://login.attacker.example", "http://10.0.0.5:4000/login", "http://127.0.0.1.evil.example:4000", "https://127.0.0.1:4000", "http://127.0.0.1:4000@evil.example/login", "http://localhost:4000/../x", "http://[::1]:4000", "//evil.example", "evil.example"]) {
+      process.env.COMPASSDOCS_SSO_SETUP_LOGIN_BASE = off;
+      process.env.COMPASSDOCS_SSO_SETUP_GRAPH_BASE = off;
+      assert.deepEqual(device.deviceSetupBases(), { login: "https://login.microsoftonline.com", graph: "https://graph.microsoft.com" }, off);
+    }
+    process.env.COMPASSDOCS_SSO_SETUP_LOGIN_BASE = "http://localhost:4871/login/";
+    assert.equal(device.deviceSetupBases().login, "http://localhost:4871/login");
+    delete process.env.COMPASSDOCS_SSO_SETUP_LOGIN_BASE;
+    delete process.env.COMPASSDOCS_SSO_SETUP_GRAPH_BASE;
+    assert.deepEqual(device.deviceSetupBases(), { login: "https://login.microsoftonline.com", graph: "https://graph.microsoft.com" });
+    [process.env.COMPASSDOCS_SSO_SETUP_LOGIN_BASE, process.env.COMPASSDOCS_SSO_SETUP_GRAPH_BASE] = keep;
   });
 
   test("removing the connection keeps the mailboxes; a sign-in to another organisation is then refused before anything is created", async () => {
@@ -1579,6 +2644,20 @@ describe("the one-click setup", { skip: !fs.existsSync(EE_SETUP) && "the enterpr
     assert.equal(live().length, 0);
     assert.equal(fake.calls(/DELETE \/graph\/v1\.0\/applications\/\S+ 204/).length, 1);
     assert.equal((await cfg()).secret, "");
+    // Two admins finish the setup at the same moment: one app is saved, the other is taken out of Entra again.
+    const s1 = await start();
+    const s2 = await start();
+    fake.failStep = "";
+    assert.deepEqual((await pollSetup(s1.body.setup_id)).body, { status: "pending" });
+    assert.deepEqual((await pollSetup(s2.body.setup_id)).body, { status: "pending" });
+    const both = await Promise.all([pollSetup(s1.body.setup_id), pollSetup(s2.body.setup_id)]);
+    assert.deepEqual(both.map((b) => b.status).sort(), [200, 502]);
+    assert.match(both.find((b) => b.status === 502)!.body.error, /(already connected\. To make a new app registration, remove the connection first\.|changed by someone else at the same moment\. Nothing was saved\. Look at the page again\.) The new app registration was removed from Entra again\./);
+    assert.equal(live().length, 1, "one app registration is left in Entra: the saved one");
+    assert.equal((await cfg()).client_id, live()[0].appId);
+    await m365.removeM365Connection(by());
+    for (const a of live()) a.deleted = true;
+    fake.failStep = "servicePrincipals";
     // The removal fails too: the admin is told what was left.
     fake.deleteFails = true;
     const left = await run();
@@ -1620,10 +2699,14 @@ describe("the one-click setup", { skip: !fs.existsSync(EE_SETUP) && "the enterpr
 
   test("an app Microsoft has not activated in time is saved all the same (the secret is shown once), and says so", async () => {
     const pending = fake.addApp({ activeAt: Date.now() + 60_000 });
+    const oneClick = { setup: "one_click" as const, tenantId: fake.tenantId, spObjectId: pending.spId, secretExpires: "2028-11-12", verify: false };
+    // While a connection is saved the one-click save is refused inside the save itself, whatever the setup's own check saw.
+    await assert.rejects(m365.saveM365Connection({ tenant: fake.tenantId, client_id: pending.appId, secret: pending.secrets[0] }, by(), oneClick), (e: Error & { status?: number; code?: string }) => e.status === 409 && e.code === "already_connected");
     await m365.removeM365Connection(by());
-    const r = await m365.saveM365Connection({ tenant: fake.tenantId, client_id: pending.appId, secret: pending.secrets[0] }, by(), { setup: "one_click", tenantId: fake.tenantId, spObjectId: pending.spId, secretExpires: "2028-11-12", verify: false });
-    assert.deepEqual([r.verified, (await cfg()).verified, (await cfg()).sp_object_id], [false, false, pending.spId]);
     await assert.rejects(m365.saveM365Connection({ tenant: "contoso.example", client_id: pending.appId, secret: pending.secrets[0] }, by(), { setup: "one_click", tenantId: fake.tenantId, verify: false }), /must be the ID of the tenant it was created in/);
+    const r = await m365.saveM365Connection({ tenant: fake.tenantId, client_id: pending.appId, secret: pending.secrets[0] }, by(), oneClick);
+    assert.deepEqual([r.verified, (await cfg()).verified, (await cfg()).sp_object_id], [false, false, pending.spId]);
+    assert.deepEqual(r.tenant_wide, [], "nothing is known about its token yet");
     // Back to the working app for the rest of the file.
     await m365.removeM365Connection(by());
     await m365.saveM365Connection({ tenant: fake.tenantId, client_id: app.appId, secret: app.secrets[0] }, by());
@@ -1636,29 +2719,34 @@ describe("the one-click setup", { skip: !fs.existsSync(EE_SETUP) && "the enterpr
 describe("permissions on every new route", () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type Handler = (r: Request, ctx: any) => Promise<Response>;
-  const routes = (): [string, () => Request, Handler, Record<string, string>][] => [
-    ["GET view", () => req(API, null, undefined, "GET"), rootRoute.GET, {}],
-    ["PUT connection", () => req(API, null, { tenant: fake.tenantId, client_id: app.appId, secret: "x" }, "PUT"), rootRoute.PUT, {}],
-    ["PATCH options", () => req(API, null, { poll_minutes: 5 }, "PATCH"), rootRoute.PATCH, {}],
-    ["DELETE connection", () => req(API, null, undefined, "DELETE"), rootRoute.DELETE, {}],
-    ["POST check-access", () => req(`${API}/check-access`, null, {}), accessRoute.POST, {}],
-    ["POST mailbox", () => req(`${API}/mailboxes`, null, { address: OTHER }), boxesRoute.POST, {}],
-    ["DELETE mailbox", () => req(`${API}/mailboxes/${helpId}`, null, undefined, "DELETE"), boxRoute.DELETE, { id: String(helpId) }],
-    ["POST check now", () => req(`${API}/mailboxes/${helpId}/check`, null, {}), checkRoute.POST, { id: String(helpId) }],
-    ["PUT address link", () => req(`${API}/addresses/${boxHelp.id}`, null, { m365_mailbox_id: null }, "PUT"), linkRoute.PUT, { id: String(boxHelp.id) }],
+  // "settings": which Microsoft 365 app the desk signs in as and which mailboxes it reads (settings.manage).
+  // "channels": everything else on the Email settings page (channels.manage; settings.manage covers it).
+  const routes = (): [string, "settings" | "channels", () => Request, Handler, Record<string, string>][] => [
+    ["GET view", "channels", () => req(API, null, undefined, "GET"), rootRoute.GET, {}],
+    ["PUT connection", "settings", () => req(API, null, { tenant: fake.tenantId, client_id: app.appId, secret: "x" }, "PUT"), rootRoute.PUT, {}],
+    ["PATCH options", "channels", () => req(API, null, { poll_minutes: 5 }, "PATCH"), rootRoute.PATCH, {}],
+    ["DELETE connection", "settings", () => req(API, null, undefined, "DELETE"), rootRoute.DELETE, {}],
+    ["POST check-access", "channels", () => req(`${API}/check-access`, null, {}), accessRoute.POST, {}],
+    ["POST mailbox", "settings", () => req(`${API}/mailboxes`, null, { address: OTHER, confirm_tenant_wide: true }), boxesRoute.POST, {}],
+    ["DELETE mailbox", "settings", () => req(`${API}/mailboxes/${helpId}`, null, undefined, "DELETE"), boxRoute.DELETE, { id: String(helpId) }],
+    ["PATCH mailbox lookup", "settings", () => req(`${API}/mailboxes/${helpId}`, null, { graph_id: "" }, "PATCH"), boxRoute.PATCH, { id: String(helpId) }],
+    ["POST check now", "channels", () => req(`${API}/mailboxes/${helpId}/check`, null, {}), checkRoute.POST, { id: String(helpId) }],
+    ["POST try again", "channels", () => req(`${API}/mailboxes/${helpId}/retry`, null, {}), retryRoute.POST, { id: String(helpId) }],
+    ["GET last messages", "channels", () => req(`${API}/mailboxes/${helpId}/messages`, null, undefined, "GET"), messagesRoute.GET, { id: String(helpId) }],
+    ["PUT address link", "channels", () => req(`${API}/addresses/${boxHelp.id}`, null, { m365_mailbox_id: null }, "PUT"), linkRoute.PUT, { id: String(boxHelp.id) }],
   ];
   const as = (r: Request, who: Person) => {
     const h = new Headers(r.headers);
     h.set("cookie", `compass_session=${who.session}`);
     return new Request(r.url, { method: r.method, headers: h, body: r.method === "GET" || r.method === "DELETE" ? undefined : r.body, duplex: "half" } as RequestInit);
   };
+  const snapshot = async () => JSON.stringify([await m365.m365MailView(), await getSetting(KEY), (await pool().query("SELECT id, address, graph_id FROM hd_m365_mailboxes ORDER BY id")).rows]);
 
   test("no session: 401. A requester, an agent: 403. Unlicensed: 402. Nothing changes.", async () => {
-    const snapshot = async () => JSON.stringify([await m365.m365MailView(), (await pool().query("SELECT id, address FROM hd_m365_mailboxes ORDER BY id")).rows]);
     const before = await snapshot();
-    for (const [name, make, handler, params] of routes()) {
+    for (const [name, , make, handler, params] of routes()) {
       assert.equal((await call(handler, make(), params)).status, 401, name);
-      for (const who of [U.req, U.agent, U.outsider]) assert.equal((await call(handler, as(make(), who), params)).status, 403, `${name} as ${who.name}`);
+      for (const who of [U.req, U.agent, U.outsider, U.lead]) assert.equal((await call(handler, as(make(), who), params)).status, 403, `${name} as ${who.name}`);
       licensed = false;
       assert.equal((await call(handler, as(make(), U.manager), params)).status, 402, `${name} unlicensed`);
       licensed = true;
@@ -1666,7 +2754,33 @@ describe("permissions on every new route", () => {
     assert.equal(await snapshot(), before);
   });
 
-  test("every admin route is behind the desk gate that also holds the Duo desk rule; the view never carries a secret", async () => {
+  test("the Email channel capability alone: the page and its day-to-day controls, but never the connection or which mailboxes are read", async () => {
+    // A desk role that was given "Email channel" and not "Helpdesk settings".
+    deskRoles.setRoleMatrixForTests({ ...rolesShared.HD_DEFAULT_MATRIX, team_lead: [...rolesShared.HD_DEFAULT_MATRIX.team_lead, "channels.manage"] });
+    try {
+      const before = await snapshot();
+      const connects = (await audits("helpdesk.m365.mailbox_connected")).length;
+      const asked = fake.calls(encodeURIComponent(OTHER)).length;
+      for (const [name, needs, make, handler, params] of routes()) {
+        if (needs !== "settings") continue;
+        const r = await call(handler, as(make(), U.lead), params);
+        assert.equal(r.status, 403, `${name} with channels.manage only`);
+      }
+      assert.equal(await snapshot(), before, "nothing was saved, connected, changed or removed");
+      assert.equal((await audits("helpdesk.m365.mailbox_connected")).length, connects);
+      assert.equal(fake.calls(encodeURIComponent(OTHER)).length, asked, "Microsoft was never even asked for the other mailbox");
+      // What that capability does allow: reading the page, a check, the diagnostic.
+      assert.equal((await call(rootRoute.GET, as(req(API, null, undefined, "GET"), U.lead))).status, 200);
+      assert.equal((await call(messagesRoute.GET, as(req(`${API}/mailboxes/${helpId}/messages`, null, undefined, "GET"), U.lead), { id: String(helpId) })).status, 200);
+      assert.equal((await call(checkRoute.POST, as(req(`${API}/mailboxes/${helpId}/check`, null, {}), U.lead), { id: String(helpId) })).status, 200);
+      assert.equal((await call(retryRoute.POST, as(req(`${API}/mailboxes/${helpId}/retry`, null, {}), U.lead), { id: String(helpId) })).status, 200);
+      assert.equal((await call(accessRoute.POST, as(req(`${API}/check-access`, null, {}), U.lead))).status, 200);
+    } finally {
+      deskRoles.setRoleMatrixForTests(null);
+    }
+  });
+
+  test("every admin route is behind the desk gate that also holds the Duo desk rule; the view never carries a secret; GET writes nothing", async () => {
     const root = path.join(__dirname, "..", "src", "app", "api", "helpdesk", "admin", "m365-mail");
     const files: string[] = [];
     const walk = (d: string) => {
@@ -1677,19 +2791,40 @@ describe("permissions on every new route", () => {
       }
     };
     walk(root);
-    assert.equal(files.length, 6);
+    assert.equal(files.length, 8);
+    const gates: Record<string, string> = {};
     for (const f of files) {
       const src = fs.readFileSync(f, "utf8");
+      const rel = path.relative(root, f);
       const handlers = [...src.matchAll(/export async function (GET|POST|PUT|PATCH|DELETE)\([^)]*\) \{\n([^\n]+)\n([^\n]+)/g)];
       assert.ok(handlers.length >= 1, f);
       for (const h of handlers) {
-        assert.match(h[2], /const gate = await hdAnyCapGate\(CAPS\);/, `${f} ${h[1]}`);
-        assert.match(h[3], /if \(gate instanceof NextResponse\) return gate;/, `${f} ${h[1]}`);
+        const gate = h[2].match(/^  const gate = await (hdAnyCapGate\(CAPS\)|hdCapGate\("settings\.manage"\));$/);
+        assert.ok(gate, `${rel} ${h[1]}: ${h[2]}`);
+        assert.match(h[3], /if \(gate instanceof NextResponse\) return gate;/, `${rel} ${h[1]}`);
+        gates[`${h[1]} ${rel}`] = gate![1].startsWith("hdCapGate") ? "settings" : "channels";
       }
-      assert.match(src, /const CAPS: HdCap\[\] = \["settings\.manage", "channels\.manage"\];/);
+      if (src.includes("hdAnyCapGate")) assert.match(src, /const CAPS: HdCap\[\] = \["settings\.manage", "channels\.manage"\];/);
     }
+    assert.deepEqual(gates, {
+      "GET route.ts": "channels",
+      "PUT route.ts": "settings",
+      "PATCH route.ts": "channels",
+      "DELETE route.ts": "settings",
+      "POST check-access/route.ts": "channels",
+      "POST mailboxes/route.ts": "settings",
+      "DELETE mailboxes/[id]/route.ts": "settings",
+      "PATCH mailboxes/[id]/route.ts": "settings",
+      "POST mailboxes/[id]/check/route.ts": "channels",
+      "POST mailboxes/[id]/retry/route.ts": "channels",
+      "GET mailboxes/[id]/messages/route.ts": "channels",
+      "PUT addresses/[id]/route.ts": "channels",
+    });
+    const stored = await getSetting(KEY);
+    const rolesStored = await getSetting(`${KEY}_roles`);
     const view = await call(rootRoute.GET, req(API, U.manager, undefined, "GET"));
     assert.equal(view.status, 200);
+    assert.deepEqual([await getSetting(KEY), await getSetting(`${KEY}_roles`)], [stored, rolesStored], "looking writes nothing");
     const c = await cfg();
     const text = JSON.stringify(view.body);
     assert.ok(!text.includes(c.secret) && !text.includes(c.notify_key));
@@ -1719,10 +2854,12 @@ describe("permissions on every new route", () => {
   test("every audit action this adds has a label, and the secret is in none of them", async () => {
     const rows = (await pool().query("SELECT action, details FROM audit_log WHERE action LIKE 'helpdesk.m365.%' AND at > now() - interval '1 hour'")).rows;
     const actions = new Set(rows.map((r) => r.action));
-    for (const a of ["connection_saved", "connection_removed", "settings_changed", "mailbox_connected", "mailbox_disconnected", "address_changed", "access_checked", "subscription_failed", "intake_failed", "send_refused"]) {
+    for (const a of ["connection_saved", "connection_removed", "settings_changed", "mailbox_connected", "mailbox_disconnected", "mailbox_changed", "address_changed", "access_checked", "subscription_failed", "intake_failed", "retry_requested", "tenant_wide_changed", "send_refused"]) {
       assert.ok(auditLabels.hasActionLabel(`helpdesk.m365.${a}`), a);
-      if (a !== "connection_removed" || fs.existsSync(EE_SETUP)) assert.ok(actions.has(`helpdesk.m365.${a}`), `${a} was written`);
+      assert.ok(actions.has(`helpdesk.m365.${a}`), `${a} was written`);
     }
+    // Every action written has a label (none was added without one).
+    for (const a of actions) assert.ok(auditLabels.hasActionLabel(a), a);
     const all = JSON.stringify(rows);
     for (const a of fake.apps.values()) for (const s of a.secrets) assert.ok(!all.includes(s));
     assert.ok(!all.includes((await cfg()).notify_key));

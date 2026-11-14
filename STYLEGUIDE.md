@@ -5245,10 +5245,39 @@ addresses 1.20.5 (`lib/helpdesk/send-addresses`).
     the card until it is gone.
   - **Row states** are `sm` chips from a closed set: **Notifications on**
     `ok`, **On a timer** `neutral`, **Waiting for access** `warn`,
-    **Needs attention** `warn`, **Not being read** `neutral`. On the
+    **Needs attention** `warn`, **Not being read** `neutral` (the
+    connection is gone, or no help address lives on the mailbox yet: the
+    row then says so in one `text-xs` sentence and offers no Check now). On the
     Addresses list an address read from Microsoft 365 carries
     **Microsoft 365** (`info`), and "Sends through Microsoft 365 as …" is
     words on its own line, as "Sends from …" is.
+  - **A row's own extras** sit under it, full width, as closed native
+    `<details>` whose `summary` is `text-xs font-medium text-slate-500`
+    (quieter than a section's): **Last messages** (a diagnostic) and
+    **Advanced** (a field almost nobody needs). The Connect form's own
+    **Advanced** is the same recipe under its help line.
+  - **A diagnostic list** (Last messages) loads when it is opened, and
+    again each time. It is a bordered, hairline-divided `ul`; each row is
+    one wrapping line (`text-xs` time, the subject of the row in
+    `font-medium`, one `sm` chip from a closed set, the outcome in
+    `text-xs`), then the technical line in `text-xs text-slate-500
+    [overflow-wrap:anywhere]`. Chips: **Passed** `ok`, **Failed** `warn`,
+    **Internal** `info`, **No result** `neutral`, **Not checked**
+    `neutral`. One `text-xs` sentence above it says what is and is not
+    kept. Empty is `SectionEmpty`.
+  - **A row action that only sometimes exists** (Try again, lucide
+    `RotateCcw`, `secondary` `sm`) appears beside Check now only while
+    there is something for it to do; its answer is a toast.
+  - **A risky action asks first, with the reason** (connecting a mailbox
+    while the app can read every mailbox): `confirmDialog({ danger: true })`
+    whose body names the fact and the safer path, and whose confirm label
+    says what happens ("Connect anyway"). The server asks the same
+    question (a 409 with a `code`), so a page that has not looked yet asks
+    all the same.
+  - **Controls a role may not use are not rendered**, and one `text-xs`
+    sentence says which capability to ask for (saving or removing the
+    connection, connecting or disconnecting a mailbox: Helpdesk settings;
+    the rest of the card: Email channel).
   - Disconnect (icon-only, lucide `Unplug`, `data-tt` "Disconnect",
     `aria-label` "Disconnect help@acme.com") and **Remove connection**
     (ghost, inside "App registration") ask with
