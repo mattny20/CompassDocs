@@ -586,6 +586,17 @@ function isQuoteContainer(node: HastNode): boolean {
   return false;
 }
 
+/**
+ * Where Outlook on the web starts the quoted history: `#appendonsend` (an
+ * empty marker), then an `<hr>` and `#divRplyFwdMsg` (the From/Sent/To/Subject
+ * block). The earlier message follows as plain siblings, not inside either
+ * container, so dropping the container alone would keep it.
+ */
+function isReplyCutMarker(node: HastNode): boolean {
+  const id = String(node.properties?.id ?? "");
+  return id === "appendonsend" || id === "divRplyFwdMsg";
+}
+
 /** 1.20.8 (security review): at most this much of an email's HTML is read for its text (the rest is left out). */
 export const INBOUND_MAX_HTML_FOR_TEXT = 1024 * 1024;
 
@@ -593,7 +604,11 @@ export const INBOUND_MAX_HTML_FOR_TEXT = 1024 * 1024;
  * The text of an HTML email. Nothing of the markup survives: blocks become
  * line breaks, list items "- ", a link "label (https://…)" when its target
  * is http(s) or mailto and differs from its label. `dropQuotes` also leaves
- * out the quoted history the common clients wrap in a marked container.
+ * out the quoted history the common clients wrap in a marked container, and
+ * stops at Outlook on the web's reply marker (`#appendonsend`, or
+ * `#divRplyFwdMsg` with the `<hr>` just before it): everything after it in
+ * document order is left out, as the inline sanitiser's foldQuotes does. A
+ * cut that would leave nothing is not made (the text is kept whole).
  *
  * 1.20.8 (security review): bounded. Only the first 1 MB is read; it is
  * measured first in one linear pass (lib/helpdesk/html-scan), and HTML with
@@ -614,9 +629,14 @@ export function htmlToText(html: string, opts: { dropQuotes?: boolean } = {}): s
   // The text so far, in pieces; `tail` holds its last characters (all the walk ever looks back at).
   const parts: string[] = [];
   let tail = "";
+  // `seq` counts every change to `parts`, so "nothing written since that <hr>" is one comparison.
+  let seq = 0;
+  let lastHr: { start: number; seq: number } | null = null;
+  let stopped = false;
   const put = (v: string) => {
     if (!v) return;
     parts.push(v);
+    seq++;
     tail = (tail + v).slice(-8);
   };
   const empty = () => parts.length === 0;
@@ -631,10 +651,12 @@ export function htmlToText(html: string, opts: { dropQuotes?: boolean } = {}): s
       const last = parts[parts.length - 1].replace(/ +$/, "");
       if (last) parts[parts.length - 1] = last;
       else parts.pop();
+      seq++;
       tail = parts.length ? parts.slice(-4).join("").slice(-8) : "";
     }
   };
   const walk = (node: HastNode, pre: boolean) => {
+    if (stopped) return;
     if (node.type === "text") {
       const v = node.value ?? "";
       if (pre) put(v);
@@ -651,6 +673,16 @@ export function htmlToText(html: string, opts: { dropQuotes?: boolean } = {}): s
     }
     const tag = node.tagName ?? "";
     if (SKIP.has(tag)) return;
+    if (opts.dropQuotes && isReplyCutMarker(node)) {
+      // The <hr> Outlook puts just before #divRplyFwdMsg goes with the history.
+      const at = lastHr && lastHr.seq === seq ? lastHr.start : parts.length;
+      if (parts.slice(0, at).join("").trim()) {
+        parts.length = at; // nothing is written after this
+        stopped = true;
+        return;
+      }
+      // Nothing above the marker (a reply typed below the quote): no cut.
+    }
     if (opts.dropQuotes && isQuoteContainer(node)) return;
     if (tag === "br") {
       trimSpaces();
@@ -658,9 +690,11 @@ export function htmlToText(html: string, opts: { dropQuotes?: boolean } = {}): s
       return;
     }
     if (tag === "hr") {
+      const start = parts.length;
       nl(2);
       put("---");
       nl(2);
+      lastHr = { start, seq };
       return;
     }
     const block = BLOCK.has(tag);

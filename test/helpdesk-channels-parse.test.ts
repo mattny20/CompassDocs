@@ -253,6 +253,39 @@ describe("quoted replies", () => {
     assert.equal(stripQuotedReply("Done.\n-- \nMatthew Felix\nPhoenix office"), "Done.");
     assert.equal(stripQuotedReply("> only a quote"), "> only a quote", "never strips everything");
   });
+
+  // Outlook on the web, HTML part only: the From/Sent block is #divRplyFwdMsg
+  // and the earlier message follows it as plain siblings, after an <hr>.
+  const owaHeader =
+    '<div id="divRplyFwdMsg" dir="ltr"><font face="Calibri, sans-serif"><b>From:</b> IT Help &lt;help@example.test&gt;<br>' +
+    "<b>Sent:</b> Monday, 9 November 2026 10:11<br><b>To:</b> Priya Shah<br><b>Subject:</b> Re: Projector [#42]</font><div>&nbsp;</div></div>";
+  const owaHistory = "<div><p>Please restart the projector.</p><p>Thanks,<br>IT Help</p></div>";
+  const owa = (above: string) =>
+    `<html><body><div dir="ltr"><p>${above}</p></div><div id="appendonsend"></div><hr style="display:inline-block;width:98%">${owaHeader}${owaHistory}</body></html>`;
+
+  test("1.20.11: Outlook on the web's reply marker cuts everything after it", () => {
+    assert.equal(htmlToText(owa("Works now, thank you."), { dropQuotes: true }), "Works now, thank you.");
+    // #divRplyFwdMsg alone (no #appendonsend): the <hr> just before it goes too.
+    const noAppend = `<div><p>Works now, thank you.</p></div><hr>\n${owaHeader}${owaHistory}`;
+    assert.equal(htmlToText(noAppend, { dropQuotes: true }), "Works now, thank you.");
+    // An <hr> the sender typed further up stays.
+    const ownRule = `<p>Step one</p><hr><p>Step two</p>${owaHeader}${owaHistory}`;
+    assert.equal(htmlToText(ownRule, { dropQuotes: true }), "Step one\n\n---\n\nStep two");
+    // The marker nested inside the reply's wrapper still ends the walk.
+    const nested = `<div class="elementToProof"><p>Done.</p><div><div id="appendonsend"></div></div><hr>${owaHeader}</div>${owaHistory}`;
+    assert.equal(htmlToText(nested, { dropQuotes: true }), "Done.");
+  });
+
+  test("1.20.11: the cut is for replies only, and never leaves nothing", () => {
+    const html = owa("Works now, thank you.");
+    assert.match(htmlToText(html), /Please restart the projector\./, "not a reply: kept");
+    assert.match(inboundBody(email({ text: "", html }), { reply: false }), /Please restart the projector\./, "a new ticket keeps it");
+    const reply = inboundBody(email({ text: "", html }), { reply: true });
+    assert.equal(reply, "Works now, thank you.");
+    // Nothing typed above the marker: the history is kept rather than an empty body.
+    const empty = htmlToText(`<div id="appendonsend"></div><hr>${owaHeader}${owaHistory}`, { dropQuotes: true });
+    assert.match(empty, /Please restart the projector\./);
+  });
 });
 
 describe("attachment plan", () => {
