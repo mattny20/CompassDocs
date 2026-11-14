@@ -46,7 +46,9 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Your account has no email address to send the test to. Add one under Account first." }, { status: 400 });
   }
   if (limited(gate.id)) return NextResponse.json({ error: "Too many tests. Try again in a minute." }, { status: 429 });
-  const r = await sendMailboxTestMail(box, to);
+  // 1.20.7: an address that sends through Microsoft 365 is tested that way (lib/helpdesk/m365/send; null = it does not).
+  const m365 = await (await import("@/lib/helpdesk/m365/send")).sendM365TestMail(box, to).catch(() => null);
+  const r: Awaited<ReturnType<typeof sendMailboxTestMail>> = m365 ?? (await sendMailboxTestMail(box, to));
   if (box.send_address_id && r.from) {
     if (r.ok) await clearSendAddressFailure(box.send_address_id).catch(() => {});
     // Only a refusal of the address itself: a bad recipient, a timeout or a "try again" says nothing about it.
@@ -58,8 +60,8 @@ export async function POST(req: Request, { params }: Ctx) {
     targetType: "helpdesk_mailbox",
     targetId: box.id,
     targetLabel: box.address,
-    details: { address: box.address, sent_from: r.from || null, result: r.ok ? "sent" : "refused", ...(r.error ? { error: r.error } : {}) },
+    details: { address: box.address, sent_from: r.from || null, result: r.ok ? "sent" : "refused", ...(m365 ? { via: "microsoft_365" } : {}), ...(r.error ? { error: r.error } : {}) },
     ip: ipFrom(req),
   });
-  return NextResponse.json({ ok: r.ok, to, from: r.from, ...(r.error ? { error: r.error } : {}) });
+  return NextResponse.json({ ok: r.ok, to, from: r.from, ...(m365 ? { via: "microsoft_365" } : {}), ...(r.error ? { error: r.error } : {}) });
 }

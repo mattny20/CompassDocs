@@ -46,6 +46,7 @@ import { HD_API_SCHEMA } from "../src/lib/helpdesk/api-schema";
 import { HD_SHARE_SCHEMA } from "../src/lib/helpdesk/share-schema";
 import { HD_CLAUDE_SCHEMA } from "../src/lib/helpdesk/claude-schema";
 import { HD_MAILBOXES_SCHEMA } from "../src/lib/helpdesk/mailboxes-schema";
+import { HD_M365_MAIL_SCHEMA } from "../src/lib/helpdesk/m365-mail-schema";
 import { HD_SOLVE_REQUIREMENTS_SCHEMA } from "../src/lib/helpdesk/solve-requirements-schema";
 import { HD_CATEGORIES_SCHEMA } from "../src/lib/helpdesk/categories-schema";
 import { HD_DESK_CALENDAR_SCHEMA } from "../src/lib/helpdesk/desk-calendar-schema";
@@ -88,6 +89,7 @@ const INTERPOLATED: Record<string, string> = {
   HD_SHARE_SCHEMA,
   HD_CLAUDE_SCHEMA,
   HD_MAILBOXES_SCHEMA,
+  HD_M365_MAIL_SCHEMA,
   HD_SOLVE_REQUIREMENTS_SCHEMA,
   HD_CATEGORIES_SCHEMA,
   HD_DESK_CALENDAR_SCHEMA,

@@ -5201,6 +5201,88 @@ addresses 1.20.5 (`lib/helpdesk/send-addresses`).
   addresses) only while more than one is listed, or when the filter in
   hand already names one.
 
+- **A connection that lives on the page of the thing it feeds** (1.20.7,
+  the **Microsoft 365** card on Desk settings → Email,
+  `components/helpdesk/desk/settings/M365MailSettings`). The help
+  addresses are on this page and the mailboxes they live on must be in
+  view with them, so the connection is a `Card` here (`id="microsoft-365"`)
+  and not a page under the hub. Its status chip sits in the card's header
+  `actions` (**Connected** `ok`, **Needs attention** `warn`, `sm`; none
+  while it is not set up).
+  - **Not set up**: `<MsDeviceSetup>` first, then the manual fields in a
+    closed native `<details>` ("Enter an app registration by hand", the
+    disclosure recipe: `summary` in `text-sm font-semibold`), then one
+    `text-xs` line saying what is and is not supported.
+  - **Set up**: the thing people act on every day comes first and stays
+    open (the **Mailboxes** list, an `h3` in `text-sm font-semibold` over a
+    hairline `ul` of the Addresses row recipe: the address, one `sm` state
+    chip, a facts line, one sentence on how its mail arrives, and
+    `ink-warn text-xs` lines for what is wrong, in words, with when);
+    the rarely needed parts are `<details>` under it ("Limit the app to
+    your help mailboxes", "Options", "App registration"). A `<details>`
+    whose content the admin still has to act on starts open, and it is
+    never closed by the answer to an action inside it (its `open` is
+    state set once, then the reader's). Its `summary` may end in a muted
+    `text-xs font-normal` state ("Checked: no organisation-wide access";
+    `ink-warn` when it is a warning).
+  - **One input and its button on a row** (Connect mailbox, Check
+    access): `flex flex-wrap items-end gap-2`, the `Field` without help
+    or error (`size="md"`, `flex-1 basis-64`), a `secondary` `md` button
+    beside the input; the refusal is a `FormError` under the row and the
+    help a `text-xs` line under that, so the button never moves.
+  - **Commands the admin runs elsewhere** are the "Copy command" recipe
+    (a bordered `pre` on `bg-canvas`, `font-mono text-xs`) with a
+    secondary **Copy commands** under it and a `text-xs` label above
+    saying when to run them. Several long commands wrap
+    (`whitespace-pre-wrap [overflow-wrap:anywhere]`) instead of scrolling
+    sideways, so each is readable whole on a phone; Copy takes the text
+    as it is. Real IDs are filled in; a secret never is.
+  - **The answer to a check stays on the page** (Check access): a
+    bordered block with "Checked <date>" in `text-xs`, then one line per
+    fact in `text-sm`, `ink-warn` for the ones that need action. A fact
+    that makes the whole connection unsafe ("This app can read every
+    mailbox in your organisation") is also a `notice-warn` at the top of
+    the card until it is gone.
+  - **Row states** are `sm` chips from a closed set: **Notifications on**
+    `ok`, **On a timer** `neutral`, **Waiting for access** `warn`,
+    **Needs attention** `warn`, **Not being read** `neutral` (the
+    connection is gone, or no help address lives on the mailbox yet: the
+    row then says so in one `text-xs` sentence and offers no Check now). On the
+    Addresses list an address read from Microsoft 365 carries
+    **Microsoft 365** (`info`), and "Sends through Microsoft 365 as …" is
+    words on its own line, as "Sends from …" is.
+  - **A row's own extras** sit under it, full width, as closed native
+    `<details>` whose `summary` is `text-xs font-medium text-slate-500`
+    (quieter than a section's): **Last messages** (a diagnostic) and
+    **Advanced** (a field almost nobody needs). The Connect form's own
+    **Advanced** is the same recipe under its help line.
+  - **A diagnostic list** (Last messages) loads when it is opened, and
+    again each time. It is a bordered, hairline-divided `ul`; each row is
+    one wrapping line (`text-xs` time, the subject of the row in
+    `font-medium`, one `sm` chip from a closed set, the outcome in
+    `text-xs`), then the technical line in `text-xs text-slate-500
+    [overflow-wrap:anywhere]`. Chips: **Passed** `ok`, **Failed** `warn`,
+    **Internal** `info`, **No result** `neutral`, **Not checked**
+    `neutral`. One `text-xs` sentence above it says what is and is not
+    kept. Empty is `SectionEmpty`.
+  - **A row action that only sometimes exists** (Try again, lucide
+    `RotateCcw`, `secondary` `sm`) appears beside Check now only while
+    there is something for it to do; its answer is a toast.
+  - **A risky action asks first, with the reason** (connecting a mailbox
+    while the app can read every mailbox): `confirmDialog({ danger: true })`
+    whose body names the fact and the safer path, and whose confirm label
+    says what happens ("Connect anyway"). The server asks the same
+    question (a 409 with a `code`), so a page that has not looked yet asks
+    all the same.
+  - **Controls a role may not use are not rendered**, and one `text-xs`
+    sentence says which capability to ask for (saving or removing the
+    connection, connecting or disconnecting a mailbox: Helpdesk settings;
+    the rest of the card: Email channel).
+  - Disconnect (icon-only, lucide `Unplug`, `data-tt` "Disconnect",
+    `aria-label` "Disconnect help@acme.com") and **Remove connection**
+    (ghost, inside "App registration") ask with
+    `confirmDialog({ danger: true })` and say what is and is not touched.
+
 
 ## Helpdesk: the Integrations hub
 

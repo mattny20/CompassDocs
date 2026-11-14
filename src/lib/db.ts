@@ -34,6 +34,7 @@ import { HD_APPEARANCE_SCHEMA } from "./helpdesk/appearance-schema";
 import { HD_SHARE_SCHEMA } from "./helpdesk/share-schema";
 import { HD_CLAUDE_SCHEMA } from "./helpdesk/claude-schema";
 import { HD_MAILBOXES_SCHEMA } from "./helpdesk/mailboxes-schema";
+import { HD_M365_MAIL_SCHEMA } from "./helpdesk/m365-mail-schema";
 import { HD_SOLVE_REQUIREMENTS_SCHEMA } from "./helpdesk/solve-requirements-schema";
 import { HD_CATEGORIES_SCHEMA } from "./helpdesk/categories-schema";
 import { HD_DESK_CALENDAR_SCHEMA } from "./helpdesk/desk-calendar-schema";
@@ -2382,6 +2383,8 @@ const SCHEMA_SQL = `
   ${HD_CLAUDE_SCHEMA}
   -- Several help addresses: hd_mailboxes, hd_tickets.mailbox_id (1.20.2, lib/helpdesk/mailboxes-schema; after hd_teams, hd_tickets).
   ${HD_MAILBOXES_SCHEMA}
+  -- Microsoft 365 mailboxes read through Graph (1.20.7, lib/helpdesk/m365-mail-schema; after hd_mailboxes).
+  ${HD_M365_MAIL_SCHEMA}
   -- "Before you solve" requirement sets and a ticket's answers (1.20.5, lib/helpdesk/solve-requirements-schema; after hd_tickets).
   ${HD_SOLVE_REQUIREMENTS_SCHEMA}
   -- Managed categories and sub-categories: hd_categories, hd_tickets.subcategory, hd_request_types.subcategory (1.20.6, lib/helpdesk/categories-schema; after hd_tickets, hd_request_types).

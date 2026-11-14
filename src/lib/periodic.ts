@@ -161,6 +161,8 @@ export const HELPDESK_SWEEPS: HelpdeskSweep[] = [
   { name: "hd_claude", run: async (now) => void (await (await import("./helpdesk/claude/chats")).pruneClaudeChats(now)) },
   // 1.20.6 event calendar: reminders before an event's setup is due, and once it has started with setup open (claimed per reminder in hd_event_reminders).
   { name: "hd_event_reminders", run: async (now) => (await import("./helpdesk/desk-calendar-reminders")).eventReminderSweep(now) },
+  // 1.20.7 Microsoft 365 mailboxes: keep notification subscriptions alive, run the delta reads that are due (one settings read when nothing is connected).
+  { name: "hd_m365_mail", run: async (now) => (await import("./helpdesk/m365/mail")).m365MailSweep(now) },
 ];
 
 export interface HelpdeskSweepResult {
